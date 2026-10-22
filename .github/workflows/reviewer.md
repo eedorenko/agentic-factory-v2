@@ -11,6 +11,8 @@ concurrency:
 on:
   pull_request:
     types: [opened, ready_for_review, synchronize]
+  pull_request_review:
+    types: [submitted]
   pull_request_review_comment:
     types: [created]
   issue_comment:
