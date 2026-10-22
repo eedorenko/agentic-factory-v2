@@ -32,4 +32,18 @@ function formatSearchResults(results) {
   };
 }
 
-module.exports = { searchItems, paginate, formatSearchResults };
+function escapeCSVField(value) {
+  const str = value == null ? '' : String(value);
+  return /[",\r\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+}
+
+function exportToCSV(results) {
+  const rows = (results && results.items) || [];
+  const lines = ['title,description'];
+  for (const item of rows) {
+    lines.push(`${escapeCSVField(item.title)},${escapeCSVField(item.description)}`);
+  }
+  return lines.join('\n');
+}
+
+module.exports = { searchItems, paginate, formatSearchResults, exportToCSV };
