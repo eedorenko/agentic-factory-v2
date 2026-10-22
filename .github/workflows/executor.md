@@ -10,7 +10,6 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  schedule: every 1h
   workflow_dispatch:
     inputs:
       issue:
