@@ -11,7 +11,7 @@ concurrency:
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
   repository_dispatch:
     types: [orchestrator-heartbeat]
