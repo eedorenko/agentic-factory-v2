@@ -50,6 +50,11 @@ describe('formatSearchResults', () => {
     const formatted = formatSearchResults(results);
     assert.ok(formatted.summary.includes('page 1'));
   });
+
+  it('should include total item count', () => {
+    const formatted = formatSearchResults(paginate(testItems, 1, 10));
+    assert.strictEqual(formatted.summary, 'Showing page 1 of 3 (25 items total)');
+  });
 });
 
 describe('exportToCSV', () => {
