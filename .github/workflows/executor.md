@@ -146,8 +146,13 @@ safe-outputs:
         - name: Merge PR
           env:
             GH_TOKEN: ${{ steps.app-token.outputs.token }}
-            PR_NUMBER: ${{ inputs.pr_number }}
           run: |
+            PR_NUMBER=$(cat "$GH_AW_AGENT_OUTPUT" | jq -r '.items[] | select(.type == "merge_pr") | .pr_number')
+            if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
+              echo "No PR number found in agent output"
+              exit 1
+            fi
+            echo "Merging PR #$PR_NUMBER..."
             gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --merge --admin
             echo "Merged PR #$PR_NUMBER"
 
