@@ -79,6 +79,9 @@ network:
   - github
 
 safe-outputs:
+  github-app:
+    client-id: ${{ vars.FACTORY_APP_ID }}
+    private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
   max-patch-size: 10240
   add-comment:
     max: 8
