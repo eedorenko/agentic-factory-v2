@@ -107,13 +107,17 @@ On every run, figure out your situation:
 
 ### 1. Find PRs to review
 
-- If triggered by `pull_request` or `workflow_run`: you know which PR.
-  For `workflow_run`, use `actions_get` with run ID
-  ${{ github.event.workflow_run.id }} to get `pull_requests[0].number`.
-- If triggered by `issue_comment`: check if the issue has a linked PR.
-- If triggered by `schedule`: use `list_pull_requests` to find open PRs
-  with the `automation` label that you haven't reviewed yet.
-- If no PR needs review: call `noop`.
+**Always search for open PRs.** Regardless of what triggered you, use
+`list_pull_requests` to find all open PRs with the `automation` label
+and titles starting with `[Executor`. These are factory PRs that need
+review.
+
+For each PR found, use `get_pull_request_reviews` to check if you
+(look for `a-factory-bot`) already submitted an `APPROVED` or
+`REQUEST_CHANGES` review at the current commit SHA. If yes, skip it.
+If no, that PR needs your review.
+
+If no PRs need review: call `noop`.
 
 ### 2. Check your state on this PR
 
@@ -138,10 +142,12 @@ Read the issue comments and PR comments to understand where you are:
 2. If Copilot's review IS present: read it, note findings, continue to
    "Do Your Review" below.
 3. If Copilot's review is NOT present:
-   - Use `add-reviewer` to assign `copilot` as a reviewer.
-   - Post a checkpoint comment on the PR (not the issue):
+   - Call `add_reviewer` tool with reviewer username `copilot`. This is
+     a TOOL CALL — writing "assigned Copilot" in a comment does NOT
+     assign Copilot. You must actually invoke the `add_reviewer` tool.
+   - THEN post a checkpoint comment on the PR:
      ```
-     Reviewer: assigned Copilot, waiting for its review.
+     Reviewer: requested Copilot review, waiting.
      <!-- REVIEW:WAITING:COPILOT -->
      ```
    - Then call `noop`. Do NOT proceed to review without Copilot.
