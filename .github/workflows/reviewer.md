@@ -68,8 +68,10 @@ safe-outputs:
     max: 2
   create-pull-request-review-comment:
     max: 10
+    target: "*"
   submit-pull-request-review:
     max: 2
+    target: "*"
     allowed-events: [APPROVE, REQUEST_CHANGES, COMMENT]
     supersede-older-reviews: true
 
