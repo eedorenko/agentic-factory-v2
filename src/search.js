@@ -46,4 +46,9 @@ function exportToCSV(results) {
   return lines.join('\n');
 }
 
-module.exports = { searchItems, paginate, formatSearchResults, exportToCSV };
+function exportToJson(results) {
+  const rows = (results && results.items) || [];
+  return JSON.stringify(rows.map(({ title, description }) => ({ title, description })));
+}
+
+module.exports = { searchItems, paginate, formatSearchResults, exportToCSV, exportToJson };
