@@ -51,4 +51,15 @@ function exportToJson(results) {
   return JSON.stringify(rows.map(({ title, description }) => ({ title, description })));
 }
 
-module.exports = { searchItems, paginate, formatSearchResults, exportToCSV, exportToJson };
+function highlightResults(results, query) {
+  const rows = (results && results.items) || [];
+  if (!query) return { ...results, items: rows.map(item => ({ ...item })) };
+  const re = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  const mark = text => (typeof text === 'string' ? text.replace(re, m => `<mark>${m}</mark>`) : text);
+  return {
+    ...results,
+    items: rows.map(item => ({ ...item, title: mark(item.title), description: mark(item.description) })),
+  };
+}
+
+module.exports = { searchItems, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults };
