@@ -124,10 +124,32 @@ safe-outputs:
   update-pull-request:
     max: 1
     target: "*"
-  merge-pull-request:
-    max: 1
-    target: "*"
-    required-labels: [automation]
+  jobs:
+    merge-pr:
+      description: "Merge a PR by number. Pass pr_number as input."
+      runs-on: ubuntu-latest
+      permissions:
+        contents: write
+        pull-requests: write
+      inputs:
+        pr_number:
+          description: "The PR number to merge"
+          required: true
+          type: string
+      steps:
+        - name: Generate app token
+          id: app-token
+          uses: actions/create-github-app-token@v1
+          with:
+            app-id: ${{ vars.FACTORY_APP_ID }}
+            private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+        - name: Merge PR
+          env:
+            GH_TOKEN: ${{ steps.app-token.outputs.token }}
+            PR_NUMBER: ${{ inputs.pr_number }}
+          run: |
+            gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --merge --admin
+            echo "Merged PR #$PR_NUMBER"
 
 checkout:
   fetch: ["*"]
@@ -456,8 +478,8 @@ Merging takes TWO runs because writes are buffered — you cannot check
 the merge result in the same run that calls merge.
 
 **Run A — Merge only:**
-Call `merge_pull_request` and NOTHING ELSE. No labels, no comments.
-Just merge. The next run will verify.
+Call `merge_pr(pr_number: "<your PR number>")` and NOTHING ELSE. No
+labels, no comments. Just merge. The next run will verify.
 
 **Run B — Verify and close out:**
 On your next run, read the PR state via MCP tools (e.g. `get_pull_request`).
