@@ -28,7 +28,7 @@ function paginate(items, page, pageSize = 10) {
 function formatSearchResults(results) {
   return {
     ...results,
-    summary: `Showing page ${results.page} of ${results.totalPages} (${results.totalItems} total items)`,
+    summary: `Showing page ${results.page} of ${results.totalPages} (${results.totalItems} items total)`,
   };
 }
 
