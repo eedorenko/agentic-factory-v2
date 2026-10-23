@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
-const { searchItems, paginate, formatSearchResults, exportToCSV, exportToJson } = require('./search');
+const { searchItems, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults } = require('./search');
 
 const testItems = Array.from({ length: 25 }, (_, i) => ({
   title: `Item ${i + 1}`,
@@ -91,5 +91,37 @@ describe('exportToJson', () => {
   it('should round-trip commas and quotes', () => {
     const items = [{ title: 'a,b', description: 'say "hi"' }];
     assert.deepStrictEqual(JSON.parse(exportToJson({ items })), items);
+  });
+});
+
+describe('highlightResults', () => {
+  const res = { page: 1, items: [{ title: 'Hello World', description: 'hello again, HELLO' }] };
+
+  it('highlights matches', () => {
+    const out = highlightResults(res, 'World');
+    assert.strictEqual(out.items[0].title, 'Hello <mark>World</mark>');
+    assert.strictEqual(out.page, 1);
+  });
+
+  it('is case-insensitive and preserves original casing', () => {
+    assert.strictEqual(highlightResults(res, 'hello').items[0].title, '<mark>Hello</mark> World');
+  });
+
+  it('leaves unchanged when no match', () => {
+    assert.deepStrictEqual(highlightResults(res, 'zzz').items, res.items);
+  });
+
+  it('handles multiple occurrences', () => {
+    assert.strictEqual(highlightResults(res, 'hello').items[0].description, '<mark>hello</mark> again, <mark>HELLO</mark>');
+  });
+
+  it('escapes regex characters and does not mutate input', () => {
+    const r = { items: [{ title: 'a.b axb', description: '' }] };
+    assert.strictEqual(highlightResults(r, 'a.b').items[0].title, '<mark>a.b</mark> axb');
+    assert.strictEqual(r.items[0].title, 'a.b axb');
+  });
+
+  it('returns items unchanged for empty query', () => {
+    assert.deepStrictEqual(highlightResults(res, '').items, res.items);
   });
 });
