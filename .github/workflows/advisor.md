@@ -57,19 +57,19 @@ safe-outputs:
       - bug
       - feature
       - question
-      - needs-info
       - priority/p0
       - priority/p1
       - priority/p2
       - duplicate
       - invalid
-      - spam
-      - ready
       - complex
       - risky
     max: 5
   add-comment:
-    max: 1
+    max: 2
+  set-issue-field:
+    max: 3
+    target: "*"
 
 timeout-minutes: 10
 ---
@@ -115,8 +115,9 @@ For a bug: look for reproduction steps, expected/actual behavior, logs,
 environment. For a feature: look for the problem being solved, desired
 outcome, and clear scope.
 
-If essential details are missing: apply `needs-info` and ask specific
-questions. Do not route incomplete issues.
+If essential details are missing: move the issue to Blocked on the project
+board (`set_issue_field(field: "Status", value: "Blocked")`) and ask
+specific questions. Do not route incomplete issues.
 
 ### 3. Classify and prioritize
 
@@ -130,12 +131,13 @@ questions. Do not route incomplete issues.
 
 Based on the issue:
 
-- **Trivial fix** (one obvious change, clear root cause): apply `ready`.
-  The Execution Agent will handle it directly, including any minimal planning.
-- **Complex or risky work**: apply `ready` + `complex` and/or `risky`.
-  The Execution Agent will plan first, post the plan as a comment, and may
-  @mention you or other agents for decisions before proceeding.
-- **Needs more info**: apply `needs-info`. Do NOT apply `ready`.
+- **Trivial fix**: move to Ready on the board
+  (`set_issue_field(field: "Status", value: "Ready")`), then mention
+  `@executor` in your triage comment so the executor picks it up.
+- **Complex or risky work**: move to Ready + apply `complex`/`risky`
+  labels, mention `@executor`.
+- **Needs more info**: move to Blocked, ask questions. Do NOT mention
+  `@executor` — the issue is not ready.
 
 ### 5. Report
 

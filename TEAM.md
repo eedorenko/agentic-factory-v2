@@ -34,18 +34,33 @@ to know who to ask for help, who to escalate to, and what each team member
 | --- | --- | --- | --- |
 | @eedorenko | Tech lead / Product owner | All areas | Agent is uncertain, high-risk decisions, architectural changes |
 
-## State Machine (Labels)
+## Project Board
 
-| Label | Meaning | Set by | Consumed by |
+State is tracked via a GitHub Project board, not labels. The Orchestrator
+creates and maintains the project. Agents move issues between columns
+using `set_issue_field` with field name `Status`.
+
+| Column | Meaning | Moved here by | Next |
 | --- | --- | --- | --- |
-| `ready` | Triaged and approved for execution | Advisor | Executor |
-| `in-progress` | Execution Agent is working on it | Executor | Executor |
-| `done` | PR merged, issue closed | (after merge) | — |
-| `needs-info` | Missing information, waiting for reporter | Advisor | — |
-| `complex` | Multiple files, design decisions needed | Advisor | Executor (plans first) |
-| `risky` | Breaking changes, security, production impact | Advisor | Executor (plans + waits for approval) |
-| `blocked` | Stuck, needs human input | Any agent | Orchestrator (re-escalates) |
-| `needs-attention` | Orchestrator detected a problem | Orchestrator | Humans |
+| Backlog | New issue, not yet triaged | Auto (on creation) | Ready or Blocked |
+| Ready | Triaged, approved for execution | Advisor | In Progress |
+| Blocked | Waiting for input or clarification | Any agent | Ready (when unblocked) |
+| In Progress | Executor is working on it | Executor | In Review |
+| In Review | PR created, waiting for review | Executor | In Progress or Testing |
+| Testing | Review approved, PR merged, validating | Executor | Done |
+| Done | Verified, issue closed | Executor | — |
+
+**Transitions:**
+- Advisor: Backlog → Ready (or → Blocked if needs-info)
+- Executor: Ready → In Progress → In Review → Testing → Done
+- Executor: In Review → In Progress (if reviewer requests changes)
+- Reviewer: monitors In Review column
+- Orchestrator: monitors all columns, detects stuck items, nudges
+- Any agent: → Blocked (when stuck)
+- Any agent: Blocked → previous column (when unblocked)
+
+**Labels** are kept only for classification (bug, feature, complex, risky),
+NOT for state tracking. State lives on the project board.
 
 ## Routing Rules
 
@@ -68,16 +83,15 @@ Orchestrator has to nudge you.
 
 | Condition | Threshold | Action | Target |
 | --- | --- | --- | --- |
-| Issue is `ready`, not picked up | 10 min | "Pick up issue #N" | @executor |
-| Issue `in-progress`, no PR, no comment | 24h | "What's blocking?" | @executor |
-| Issue `in-progress` with commits but no PR for 30+ min | 30 min | "Create PR for issue #N" | @executor |
-| PR ready for review, no review submitted | 1h | "Review PR #N" | @reviewer |
+| Issue in Ready, not picked up | 10 min | "Pick up issue #N" | @executor |
+| Issue in In Progress, no PR, no comment | 24h | "What's blocking?" | @executor |
+| Issue in In Review, no review submitted | 1h | "Review PR for #N" | @reviewer |
+| Issue in Blocked, no response | 48h | Re-escalate with context | human from TEAM.md |
+| Issue in Blocked, response arrived | immediate | Move back to previous column, notify agent | original agent |
 | @mention unanswered | 1h | Nudge the mentioned agent | mentioned agent |
 | @mention unanswered | 4h | Escalate to human | human from TEAM.md |
-| Issue `blocked`, no human response | 48h | Re-escalate with context | human from TEAM.md |
-| Issue `needs-info`, no reporter response | 7 days | Close as stale | — |
-| 5+ issues `in-progress` simultaneously | — | Warn about capacity | @advisor |
-| Issue `done` but linked PR not merged | 5 min | "@executor issue #N labeled done but PR not merged. Merge it or fix the label." | @executor |
+| Issue in Done but PR not merged | 5 min | Move back to In Review, notify | @executor |
+| 5+ issues in In Progress | — | Warn about capacity | @advisor |
 
 ## Anti-Loop Rules
 
