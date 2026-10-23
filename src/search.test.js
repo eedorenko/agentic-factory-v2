@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
-const { searchItems, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults } = require('./search');
+const { searchItems, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults } = require('./search');
 
 const testItems = Array.from({ length: 25 }, (_, i) => ({
   title: `Item ${i + 1}`,
@@ -123,5 +123,28 @@ describe('highlightResults', () => {
 
   it('returns items unchanged for empty query', () => {
     assert.deepStrictEqual(highlightResults(res, '').items, res.items);
+  });
+});
+
+describe('coloResults', () => {
+  const res = { page: 1, items: [{ title: 'Hello World', description: 'hello again' }] };
+  const open = '<span style="color:red">';
+
+  it('wraps matches case-insensitively, preserving casing', () => {
+    const out = coloResults(res, 'hello');
+    assert.strictEqual(out.items[0].title, `${open}Hello</span> World`);
+    assert.strictEqual(out.items[0].description, `${open}hello</span> again`);
+    assert.strictEqual(out.page, 1);
+  });
+
+  it('escapes regex characters and does not mutate input', () => {
+    const r = { items: [{ title: 'a.b axb', description: '' }] };
+    assert.strictEqual(coloResults(r, 'a.b').items[0].title, `${open}a.b</span> axb`);
+    assert.strictEqual(r.items[0].title, 'a.b axb');
+  });
+
+  it('returns items unchanged for empty query or no match', () => {
+    assert.deepStrictEqual(coloResults(res, '').items, res.items);
+    assert.deepStrictEqual(coloResults(res, 'zzz').items, res.items);
   });
 });

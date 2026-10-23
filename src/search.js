@@ -62,4 +62,15 @@ function highlightResults(results, query) {
   };
 }
 
-module.exports = { searchItems, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults };
+function coloResults(results, query) {
+  const rows = (results && results.items) || [];
+  if (!query) return { ...results, items: rows.map(item => ({ ...item })) };
+  const re = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  const color = text => (typeof text === 'string' ? text.replace(re, m => `<span style="color:red">${m}</span>`) : text);
+  return {
+    ...results,
+    items: rows.map(item => ({ ...item, title: color(item.title), description: color(item.description) })),
+  };
+}
+
+module.exports = { searchItems, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults };
