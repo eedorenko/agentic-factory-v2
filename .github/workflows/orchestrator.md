@@ -17,6 +17,7 @@ on:
     types: [orchestrator-heartbeat]
   issue_comment:
     types: [created]
+  bots: [a-factory-bot]
   steps:
     - name: Check relevance
       id: gate

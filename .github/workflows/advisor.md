@@ -15,6 +15,7 @@ on:
   issue_comment:
     types: [created]
   reaction: eyes
+  bots: [a-factory-bot]
   steps:
     - name: Check relevance
       id: gate

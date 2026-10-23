@@ -24,6 +24,7 @@ on:
     types: [created]
   pull_request_review:
     types: [submitted]
+  bots: [a-factory-bot]
   steps:
     - name: Check relevance
       id: gate
