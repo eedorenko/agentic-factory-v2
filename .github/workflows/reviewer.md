@@ -139,9 +139,9 @@ Read the issue comments and PR comments to understand where you are:
    "Do Your Review" below.
 3. If Copilot's review is NOT present:
    - Use `add-reviewer` to assign `copilot` as a reviewer.
-   - Post a checkpoint comment on the linked issue:
+   - Post a checkpoint comment on the PR (not the issue):
      ```
-     Reviewer: assigned Copilot on PR #N, waiting for its review.
+     Reviewer: assigned Copilot, waiting for its review.
      <!-- REVIEW:WAITING:COPILOT -->
      ```
    - Then call `noop`. Do NOT proceed to review without Copilot.
@@ -193,7 +193,7 @@ communication channels:
 - **Ask a human**: "@eedorenko this changes the public API — is that
   intentional?"
 
-After asking, post a checkpoint comment:
+After asking, post a checkpoint comment on the PR:
 ```
 Reviewer: question posted, waiting for response.
 <!-- REVIEW:WAITING:RESPONSE -->
