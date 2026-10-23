@@ -20,6 +20,7 @@ on:
   workflow_run:
     workflows: [Copilot]
     types: [completed]
+  bots: [Copilot]
   steps:
     - name: Check relevance
       id: gate
