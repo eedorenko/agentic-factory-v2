@@ -17,6 +17,9 @@ on:
     types: [created]
   issue_comment:
     types: [created]
+  workflow_run:
+    workflows: [Copilot]
+    types: [completed]
   steps:
     - name: Check relevance
       id: gate
