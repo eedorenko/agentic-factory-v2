@@ -130,23 +130,26 @@ Read the issue comments and PR comments to understand where you are:
 
 ## Start Review
 
-### Assign Copilot
+### Check for Copilot Review
 
-1. Use `add-reviewer` to assign `copilot` as a reviewer.
-2. Check if Copilot has already reviewed. Look for a review from
-   `copilot-pull-request-reviewer` in the PR reviews list.
-3. If Copilot's review IS present: read it, note findings, continue to
+1. Use `get_pull_request_reviews` to check if Copilot has already reviewed.
+   Look for a review from `copilot-pull-request-reviewer` or
+   `copilot-pull-request-reviewer[bot]`.
+2. If Copilot's review IS present: read it, note findings, continue to
    "Do Your Review" below.
-4. If Copilot's review is NOT present: post a checkpoint comment on the
-   linked issue:
+3. If Copilot's review is NOT present:
+   - Use `add-reviewer` to assign `copilot` as a reviewer.
+   - Post a checkpoint comment on the linked issue:
+     ```
+     Reviewer: assigned Copilot on PR #N, waiting for its review.
+     <!-- REVIEW:WAITING:COPILOT -->
+     ```
+   - Then call `noop`. Do NOT proceed to review without Copilot.
+     The next run will check again.
 
-   ```
-   Reviewer: assigned Copilot, waiting for its review before proceeding.
-   <!-- REVIEW:WAITING:COPILOT -->
-   ```
-
-   Then call `noop`. The next run (triggered by your own comment via the
-   gate's REVIEW:WAITING exception) will check again.
+**IMPORTANT: do NOT submit your review until Copilot has reviewed.**
+If Copilot hasn't reviewed after 3 REVIEW:WAITING:COPILOT comments,
+proceed without it and note "Copilot did not review" in your summary.
 
 ## Do Your Review
 
@@ -220,8 +223,15 @@ should use `APPROVE`.**
 
 1. For each finding on a specific line, use
    `create-pull-request-review-comment` (up to 10 per run).
-2. Submit via `submit-pull-request-review` with the correct event and
-   your review summary as the body.
+2. Submit via `submit_pull_request_review` with:
+   - `event`: the string `APPROVE`, `REQUEST_CHANGES`, or `COMMENT`
+   - `body`: your review summary
+   - `pull_request_number`: the PR number (required — not inferred)
+
+   **The `event` field determines the GitHub review state. If you pass
+   `COMMENT`, the executor CANNOT merge — it requires `APPROVE`. Only
+   use `COMMENT` for risky PRs needing human sign-off.**
+
 3. Post on the linked issue: `@executor` + verdict summary.
 
 ### Complex or Risky PRs
