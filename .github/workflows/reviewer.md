@@ -100,8 +100,11 @@ exists, it is ready for review.
 
 ### Step 2: What happened and is it for me?
 
-Read the event context — the PR, the comment (if any), and the recent
-conversation thread. Then decide:
+**Copilot finished reviewing** (`workflow_run` event from Copilot):
+- The triggering Copilot workflow run ID is: ${{ github.event.workflow_run.id }}
+  Use `actions_get` with this run ID to read the workflow run details.
+  The response contains `pull_requests[0].number` — that is the PR to
+  review. Then use `get_pull_request` to read it and proceed to full review.
 
 **New PR or new push** (`pull_request` event):
 - New PR or `ready_for_review` → proceed to full review.
