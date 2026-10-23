@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
-const { searchItems, paginate, formatSearchResults, exportToCSV } = require('./search');
+const { searchItems, paginate, formatSearchResults, exportToCSV, exportToJson } = require('./search');
 
 const testItems = Array.from({ length: 25 }, (_, i) => ({
   title: `Item ${i + 1}`,
@@ -65,5 +65,26 @@ describe('exportToCSV', () => {
   it('should escape commas, quotes and newlines', () => {
     const csv = exportToCSV({ items: [{ title: 'a,b', description: 'say "hi"\nnow' }] });
     assert.strictEqual(csv, 'title,description\n"a,b","say ""hi""\nnow"');
+  });
+});
+
+describe('exportToJson', () => {
+  it('should export normal results compactly', () => {
+    const json = exportToJson({ items: [{ title: 'A', description: 'B' }] });
+    assert.strictEqual(json, '[{"title":"A","description":"B"}]');
+  });
+
+  it('should return [] for empty results', () => {
+    assert.strictEqual(exportToJson({ items: [] }), '[]');
+  });
+
+  it('should drop extra fields', () => {
+    const out = JSON.parse(exportToJson({ items: [{ id: 1, title: 'A', description: 'B', x: 2 }] }));
+    assert.deepStrictEqual(out, [{ title: 'A', description: 'B' }]);
+  });
+
+  it('should round-trip commas and quotes', () => {
+    const items = [{ title: 'a,b', description: 'say "hi"' }];
+    assert.deepStrictEqual(JSON.parse(exportToJson({ items })), items);
   });
 });
