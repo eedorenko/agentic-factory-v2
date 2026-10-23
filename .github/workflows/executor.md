@@ -176,35 +176,6 @@ tools:
 imports:
   - shared/reporting.md
 
-steps:
-  - name: Clone repo-memory for scheduling
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GITHUB_REPOSITORY: ${{ github.repository }}
-      GITHUB_SERVER_URL: ${{ github.server_url }}
-    run: |
-      MEMORY_DIR="/tmp/gh-aw/repo-memory/goal"
-      BRANCH="memory/goal"
-      mkdir -p "$(dirname "$MEMORY_DIR")"
-      REPO_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
-      AUTH_URL="$(echo "$REPO_URL" | sed "s|https://|https://x-access-token:${GH_TOKEN}@|")"
-      if git ls-remote --exit-code --heads "$AUTH_URL" "$BRANCH" > /dev/null 2>&1; then
-        git clone --single-branch --branch "$BRANCH" --depth 1 "$AUTH_URL" "$MEMORY_DIR" 2>&1
-        echo "Cloned repo-memory branch to $MEMORY_DIR"
-      else
-        mkdir -p "$MEMORY_DIR"
-        echo "No repo-memory branch found yet. Created empty directory."
-      fi
-
-  - name: Select goal issue
-    env:
-      GITHUB_TOKEN: ${{ github.token }}
-      GITHUB_REPOSITORY: ${{ github.repository }}
-      GOAL_ISSUE: ${{ github.event.inputs.issue }}
-    run: |
-      python3 .github/workflows/scripts/goal_scheduler.py
-
-source: githubnext/goal # forked and customized
 engine: copilot
 ---
 
@@ -271,34 +242,6 @@ this event requires YOUR action:
 between you, the reviewer, and humans. Read the context, decide if it's
 your turn to act.
 
-Take heed of slash-command instructions: "${{ steps.sanitized.outputs.text }}"
-
-If the slash-command text is non-empty, treat it as steering for the selected
-goal issue. If no issue is selected and the command includes an issue number,
-run that issue. If it does not identify a goal issue, comment asking for the
-issue number or add the `in-progress` label to the intended issue, then stop.
-
-## Read The Scheduler Output
-
-At the start of every run, read `/tmp/gh-aw/goal.json`.
-
-Important fields:
-
-- `selected`: object for the chosen issue, or `null`.
-- `selected.number`: issue number.
-- `selected.title`: issue title.
-- `selected.slug`: stable issue slug.
-- `selected.branch`: canonical branch, always `executor/<issue-number>-<slug>`.
-- `selected.existing_pr`: open PR number for the canonical branch, or `null`.
-- `selected.definition_status`: `ready` or `needs_action`.
-- `selected.missing_sections`: sections the scheduler detected as missing.
-- `selected.state_file`: repo-memory file name for durable state.
-- `deferred`: other active goal issues that will run later.
-- `no_issues`: true when no open issues have the `in-progress` label.
-
-If `selected` is `null`, there is no goal to work. Stop without creating files or
-PRs.
-
 ## Issue Understanding
 
 Before changing code, read the issue body. Issues come in different formats —
@@ -309,25 +252,13 @@ adapt to what's there. Do NOT require a rigid template. Work with what you have.
 1. **What to do** — look for: Description, Goal, Requirements, or any clear
    statement of the desired outcome.
 2. **Definition of Done** — look for: Definition of Done, Acceptance Criteria,
-   Definition of Done, or verifiable conditions. If none exists, infer from
-   the requirements and state your assumptions in your first comment.
+   or verifiable conditions. If none exists, infer from the requirements and
+   state your assumptions in your first comment.
 3. **Scope** — look for: Scope, Constraints, or infer from context. If unclear,
    check AGENTS.md conventions and ask @advisor if truly ambiguous.
 
-**What you can work without (infer or discover):**
-
-- Evidence/verification commands — infer from the codebase (e.g., `npm test`)
-- Iteration policy — use your judgment to pick the smallest useful checkpoint
-- Blocked conditions — use common sense (missing info, unclear requirements,
-  breaking changes)
-
 **Only ask for clarification when you genuinely cannot proceed.** Most issues
-have enough information to start. If the issue is truly empty or gibberish,
-post a brief comment asking for requirements.
-
-Ignore the `definition_status` field from the scheduler if the issue body
-clearly describes what needs to be done — the scheduler's section detection
-is strict but your understanding should be flexible.
+have enough information to start.
 
 ## State
 
@@ -379,9 +310,9 @@ previous run before selecting the next checkpoint.
 
 Each issue has exactly one canonical branch and one PR.
 
-The branch name is always exactly the scheduler-provided `selected.branch`.
-Never add suffixes, hashes, run IDs, timestamps, or random tokens. Never let the
-framework auto-generate a branch name.
+The branch name follows the pattern `executor/<issue-number>-<slug>` where
+slug is a lowercase, hyphenated version of the issue title (max 80 chars).
+Never add suffixes, hashes, run IDs, timestamps, or random tokens.
 
 Synchronize the branch before making changes. Use the repository default branch
 in place of `<default>` below:
@@ -410,11 +341,12 @@ fi
 Create or update the PR:
 
 - Title: `[Executor #<issue>] <issue title>`
-- Branch: exactly `selected.branch`
+- Branch: `executor/<issue-number>-<slug>`
 - Body includes the description, definition of done, latest evidence, remaining work,
   run URL, issue link, and AI disclosure: `This PR is maintained by the Executor
   workflow. Each run may add commits to the same branch.`
-- If `selected.existing_pr` is not null, update that PR. Do not create another.
+- Check with `list_pull_requests` if a PR already exists for this branch.
+  If yes, update it. Do not create another.
 
 ## Run Loop
 
