@@ -4,29 +4,41 @@ This file is the factory's team directory. Every agent reads it (via AGENTS.md)
 to know who to ask for help, who to escalate to, and what each team member
 (agent or human) is responsible for.
 
-## Pipeline Agents
+## Agents
 
-| Handle | Agent | Workflow | What they handle |
+One agent = one role. No combined hats. In the human world, people wear
+multiple hats because humans are expensive. In the agentic world, agents
+are cheap and specialized agents are better — focused instructions, clear
+responsibility, no confusion.
+
+Any agent can ask any other agent based on the descriptions below. If an
+agent is unsure whom to ask, ask @orchestrator — it knows the team and
+can route the question. The orchestrator also detects when someone is
+asking the wrong agent and redirects.
+
+### Pipeline Agents
+
+| Handle | Role | Workflow | What they do |
 | --- | --- | --- | --- |
-| @advisor | Advisor | advisor.md | Triages issues, answers product questions, makes priority/scope decisions. The product knowledge center. |
-| @executor | Execution Agent | executor.md | Implements tasks via multi-run Goal pattern: plans if complex, codes, runs tests, runs the program, verifies Definition of Done, opens PRs. Communicates via issue and PR comments. |
-| @reviewer | Review Agent | reviewer.md | Multi-lens code review (Functional, Standards, Security, Readiness). Assigns Copilot as reviewer, incorporates its findings. Submits proper GitHub reviews (APPROVE/REQUEST_CHANGES). Severity taxonomy: Critical/High/Medium/Low. Depth tiers based on risk labels. |
-| @orchestrator | Orchestrator | orchestrator.md | Monitors pipeline health, detects stuck states, nudges agents via @mentions. Enforces Escalation Policy table. Runs after every agent completes + every 30m. Pure plumbing — no product decisions. |
+| @triager | Triager | triager.md | Classifies, prioritizes, and routes incoming issues. Moves issues from Backlog to Ready (or Blocked). Answers "is this a duplicate?" and backlog questions. Has backlog context. |
+| @executor | Executor | executor.md | Implements tasks via multi-run Goal pattern: plans if complex, codes, runs tests, runs the program, verifies Definition of Done, creates PRs. Moves issues: Ready → In Progress → In Review → Testing → Done. |
+| @reviewer | Reviewer | reviewer.md | Multi-lens code review (Functional, Standards, Security, Readiness). Assigns Copilot as reviewer, incorporates its findings. Submits proper GitHub reviews (APPROVE/REQUEST_CHANGES). Severity taxonomy + depth tiers. |
+| @orchestrator | Orchestrator | orchestrator.md | Monitors the project board. Detects stuck states, nudges agents. Routes misaddressed questions. Enforces escalation policy. Creates and maintains the project board. Pure plumbing — no product or technical decisions. |
 
-## Feedback Agents
+### Knowledge Agents
 
-| Handle | Agent | What they handle |
+| Handle | Role | Workflow | What they do |
+| --- | --- | --- | --- |
+| @architect | Architect | architect.md | Answers design and architecture questions. Reviews trade-offs, patterns, system coherence. Consulted by executor and reviewer when design decisions arise. Has codebase understanding. |
+| @qa | QA Specialist | (future) | Test strategy, coverage gaps, acceptance criteria, edge cases. |
+
+### Feedback Agents
+
+| Handle | Role | What they do |
 | --- | --- | --- |
 | @sre | SRE Agent | Detects + diagnoses production anomalies, creates incident/bug issues |
-| @analyst | Analyst | Analyzes usage patterns and trends, creates feature/enhancement issues |
+| @analyst | Analyst | Analyzes usage patterns, business metrics, user feedback. Proposes features and enhancements. Creates issues that feed back to the triager. |
 | @healer | Healer | Scores agent performance, creates harness improvement issues |
-
-## Verify Agents (Future)
-
-| Handle | Agent | Workflow | What they handle |
-| --- | --- | --- | --- |
-| @architect | Architecture Agent | (future) | Design patterns, architectural tradeoffs, system coherence |
-| @qa | QA Agent | (future) | Test strategy, coverage gaps, acceptance criteria, edge cases |
 
 ## Humans
 
@@ -51,7 +63,7 @@ using `set_issue_field` with field name `Status`.
 | Done | Verified, issue closed | Executor | — |
 
 **Transitions:**
-- Advisor: Backlog → Ready (or → Blocked if needs-info)
+- Triager: Backlog → Ready (or → Blocked if needs-info)
 - Executor: Ready → In Progress → In Review → Testing → Done
 - Executor: In Review → In Progress (if reviewer requests changes)
 - Reviewer: monitors In Review column
@@ -64,16 +76,21 @@ NOT for state tracking. State lives on the project board.
 
 ## Routing Rules
 
-When an agent needs input, choose the best responder:
+Any agent can ask any other agent. Read the agent descriptions above to
+find the right one. If unsure, ask @orchestrator — it will route your
+question to the right agent.
 
 1. **Trivial decision** → just decide, don't ask anyone
-2. **Routine product question** → @advisor
+2. **Is this a duplicate? Priority? Scope?** → @triager
 3. **Architecture/design question** → @architect
 4. **Test strategy question** → @qa
 5. **Operational/safety concern** → @sre
-6. **Need input from issue reporter** → @mention the issue author directly
-7. **Uncertain or high-risk** → @mention human from this file with your suggestion
-8. **Wrong agent asked you** → redirect to the right agent with context
+6. **Usage patterns, feature opportunity** → @analyst
+7. **Need input from issue reporter** → @mention the issue author directly
+8. **Uncertain or high-risk** → @mention human from this file
+9. **Don't know whom to ask** → @orchestrator (it routes for you)
+10. **Wrong agent asked you** → redirect to the right agent with context,
+    or tell @orchestrator so it can learn the routing pattern
 
 ## Escalation Policy
 
