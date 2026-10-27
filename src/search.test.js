@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
-const { searchItems, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults } = require('./search');
+const { truncateDescription, searchItems, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults } = require('./search');
 
 const testItems = Array.from({ length: 25 }, (_, i) => ({
   title: `Item ${i + 1}`,
@@ -146,5 +146,25 @@ describe('coloResults', () => {
   it('returns items unchanged for empty query or no match', () => {
     assert.deepStrictEqual(coloResults(res, '').items, res.items);
     assert.deepStrictEqual(coloResults(res, 'zzz').items, res.items);
+  });
+});
+
+describe('truncateDescription', () => {
+  it('truncates and appends ellipsis', () => {
+    assert.strictEqual(truncateDescription('Hello world', 5), 'Hello...');
+  });
+
+  it('returns text unchanged when within limit', () => {
+    assert.strictEqual(truncateDescription('Hello', 5), 'Hello');
+    assert.strictEqual(truncateDescription('Hi', 10), 'Hi');
+  });
+
+  it('returns empty string for null/undefined', () => {
+    assert.strictEqual(truncateDescription(null, 5), '');
+    assert.strictEqual(truncateDescription(undefined, 5), '');
+  });
+
+  it('handles empty string', () => {
+    assert.strictEqual(truncateDescription('', 5), '');
   });
 });

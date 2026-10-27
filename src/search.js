@@ -73,4 +73,10 @@ function coloResults(results, query) {
   };
 }
 
-module.exports = { searchItems, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults };
+function truncateDescription(text, maxLength) {
+  if (text == null) return '';
+  const str = String(text);
+  return str.length <= maxLength ? str : `${str.slice(0, maxLength)}...`;
+}
+
+module.exports = { truncateDescription, searchItems, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults };
