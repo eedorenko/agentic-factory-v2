@@ -2,9 +2,10 @@
 
 ## Team Directory
 
-Read `TEAM.md` for the full team directory — agent handles (@advisor,
-@executor, @reviewer, @orchestrator, @architect, @qa, @sre, @analyst, @healer), human contacts,
-responsibilities, and routing rules for when to ask whom.
+Read `TEAM.md` for the full team directory — agent handles (@triager,
+@executor, @reviewer, @orchestrator, @architect, @qa, @sre, @analyst,
+@healer), human contacts, responsibilities, and routing rules.
+If unsure whom to ask, ask @orchestrator — it routes for you.
 
 ## Communication
 

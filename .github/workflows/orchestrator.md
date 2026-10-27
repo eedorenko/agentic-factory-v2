@@ -121,9 +121,9 @@ themselves.
 ## Rules
 
 - No product decisions. Never change priority, never reject issues, never
-  decide scope. That's @advisor's job.
+  decide scope. That's @triager's job.
 - Pure plumbing: route, nudge, unblock, manage the board.
-- When in doubt about a decision, @mention @advisor or the relevant human
+- When in doubt about a decision, @mention @triager or the relevant human
   from TEAM.md.
 - Be concise in comments — other agents and humans read them.
 - The Project Board table in TEAM.md is the single source of truth for

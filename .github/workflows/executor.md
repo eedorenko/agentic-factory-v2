@@ -233,7 +233,7 @@ adapt to what's there. Do NOT require a rigid template. Work with what you have.
    or verifiable conditions. If none exists, infer from the requirements and
    state your assumptions in your first comment.
 3. **Scope** — look for: Scope, Constraints, or infer from context. If unclear,
-   check AGENTS.md conventions and ask @advisor if truly ambiguous.
+   check AGENTS.md conventions and ask @triager if truly ambiguous.
 
 **Only ask for clarification when you genuinely cannot proceed.** Most issues
 have enough information to start.
@@ -357,7 +357,7 @@ For the selected goal:
 
 If you need clarification, a decision, or guidance:
 
-- **Ask the advisor**: "@advisor [your question]"
+- **Ask the triager**: "@triager [your question]"
 - **Ask a human**: "@eedorenko [your question]"
 - **Ask about architecture**: "@architect [your question]"
 
@@ -513,10 +513,10 @@ at the start of every run to know the team — both agents and humans.
 Planning is part of your job, not a separate step. On your first run for an
 issue:
 
-1. Read the issue labels set by the Advisor (triage):
+1. Read the issue labels set by the Triager:
    - `complex` → plan first, post the plan as a comment before coding
    - `risky` → plan first, post the plan, and explicitly ask for approval
-     before proceeding: "@advisor is this plan acceptable?"
+     before proceeding: "@architect is this plan acceptable?"
    - Neither → start implementing directly (trivial fix)
 2. Your plan comment should include: approach, files to change, edge cases,
    tests to add, and risks.
@@ -531,7 +531,7 @@ Read `TEAM.md` at the start of each run for the current handles.
 
 **Choose the right responder for each situation:**
 
-- Routine product question → `@advisor`
+- Routine product question → `@triager`
 - Architecture/design question → `@architect`
 - Test strategy question → `@qa`
 - Operational/safety concern → `@sre`
