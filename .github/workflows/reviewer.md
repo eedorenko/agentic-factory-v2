@@ -53,6 +53,11 @@ on:
 
 if: needs.pre_activation.outputs.gate_skip != 'true'
 
+jobs:
+  pre-activation:
+    outputs:
+      gate_skip: ${{ steps.gate.outputs.skip }}
+
 max-daily-ai-credits: -1
 
 permissions:

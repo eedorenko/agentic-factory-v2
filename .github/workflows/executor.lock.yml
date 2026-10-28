@@ -1,5 +1,5 @@
-# gh-aw-metadata: {"schema_version":"v4","frontmatter_hash":"556b9d4c2b9b89aec3f61b2e8a4f45588525af065d42276bb4fefd4150d52920","body_hash":"7df9371b5b5a6af8bca2d88f26fcb5dcd5f083dd512240988c5f659cd38f8def","compiler_version":"v0.89.21","strict":true,"agent_id":"copilot","engine_versions":{"copilot":"1.0.87"}}
-# gh-aw-manifest: {"version":1,"secrets":["COPILOT_GITHUB_TOKEN","FACTORY_APP_PRIVATE_KEY","GH_AW_CI_TRIGGER_TOKEN","GH_AW_DEFAULT_OTLP_ENDPOINT","GH_AW_DEFAULT_OTLP_HEADERS","GH_AW_GITHUB_MCP_SERVER_TOKEN","GH_AW_GITHUB_TOKEN","GH_AW_PROJECT_GITHUB_TOKEN","GITHUB_TOKEN"],"actions":[{"repo":"actions/checkout","sha":"3d3c42e5aac5ba805825da76410c181273ba90b1","version":"v7.0.1"},{"repo":"actions/create-github-app-token","sha":"d72941d797fd3113feb6b93fd0dec494b13a2547","version":"v1"},{"repo":"actions/download-artifact","sha":"3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c","version":"v8.0.1"},{"repo":"actions/github-script","sha":"3a2844b7e9c422d3c10d287c895573f7108da1b3","version":"v9.0.0"},{"repo":"actions/setup-node","sha":"820762786026740c76f36085b0efc47a31fe5020","version":"v7.0.0"},{"repo":"actions/upload-artifact","sha":"043fb46d1a93c77aae656e7c1c64a875d1fc6a0a","version":"v7.0.1"},{"repo":"github/gh-aw-actions/setup","sha":"924af5fdc64061cfbf66fb584c8b07e2ac230c60","version":"v0.89.21"}],"containers":[{"image":"ghcr.io/github/gh-aw-firewall/agent:0.28.23","digest":"sha256:2c78aaba1c108e130e2d6d01e4f2cca334ea04c53e6f258913ac34173fe7e3b2","pinned_image":"ghcr.io/github/gh-aw-firewall/agent:0.28.23@sha256:2c78aaba1c108e130e2d6d01e4f2cca334ea04c53e6f258913ac34173fe7e3b2"},{"image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.28.23","digest":"sha256:c15c3d1208df10c5b588a3657be53742aa982ae0909d1eb1812525268794ca64","pinned_image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.28.23@sha256:c15c3d1208df10c5b588a3657be53742aa982ae0909d1eb1812525268794ca64"},{"image":"ghcr.io/github/gh-aw-firewall/squid:0.28.23","digest":"sha256:02ffc56dd40158223064ef03a78c2d9717473c93723b4e403d455ea6f0b09ae0","pinned_image":"ghcr.io/github/gh-aw-firewall/squid:0.28.23@sha256:02ffc56dd40158223064ef03a78c2d9717473c93723b4e403d455ea6f0b09ae0"},{"image":"ghcr.io/github/gh-aw-mcpg:v0.4.25","digest":"sha256:9be0a86220e807a0ecc89e53d7453468f7a53fbc6b3d1efd2299025ffe01d086","pinned_image":"ghcr.io/github/gh-aw-mcpg:v0.4.25@sha256:9be0a86220e807a0ecc89e53d7453468f7a53fbc6b3d1efd2299025ffe01d086"},{"image":"ghcr.io/github/gh-aw-node","digest":"sha256:11c2c544876cdbaffefe0f7f1283b74838c209654b4934a78e23ed11f750490f","pinned_image":"ghcr.io/github/gh-aw-node@sha256:11c2c544876cdbaffefe0f7f1283b74838c209654b4934a78e23ed11f750490f"},{"image":"ghcr.io/github/github-mcp-server:v1.12.2","digest":"sha256:508a0857ec762b1ab1cece29193345b501fab1dd9d1228a7b617062954cecac6","pinned_image":"ghcr.io/github/github-mcp-server:v1.12.2@sha256:508a0857ec762b1ab1cece29193345b501fab1dd9d1228a7b617062954cecac6"}],"mcp_servers":[{"name":"github","tools":["actions_get","actions_list","get_code_scanning_alert","get_commit","get_discussion","get_discussion_comments","get_file_contents","get_job_logs","get_label","get_latest_release","get_me","get_notification_details","get_pull_request","get_pull_request_comments","get_pull_request_diff","get_pull_request_files","get_pull_request_review_comments","get_pull_request_reviews","get_pull_request_status","get_release_by_tag","get_secret_scanning_alert","get_tag","issue_read","list_branches","list_code_scanning_alerts","list_commits","list_discussion_categories","list_discussions","list_issue_types","list_issues","list_label","list_notifications","list_pull_requests","list_releases","list_secret_scanning_alerts","list_starred_repositories","list_tags","pull_request_read","search_code","search_issues","search_orgs","search_pull_requests","search_repositories","search_users"]},{"name":"safeoutputs","tools":["add_comment","create_pull_request","merge_pr","missing_data","missing_tool","noop","push_to_pull_request_branch","update_issue","update_project","update_pull_request"]}]}
+# gh-aw-metadata: {"schema_version":"v4","frontmatter_hash":"2951e7cdc87ffc534e3784143633fc26448c833f94b895911bb8bec0f2f13585","body_hash":"8de52e14359bb7e81aa40261c76ca5b75000ac8834f63195fafd420c7d461d04","compiler_version":"v0.89.21","strict":true,"agent_id":"copilot","engine_versions":{"copilot":"1.0.87"}}
+# gh-aw-manifest: {"version":1,"secrets":["COPILOT_GITHUB_TOKEN","FACTORY_APP_PRIVATE_KEY","GH_AW_CI_TRIGGER_TOKEN","GH_AW_DEFAULT_OTLP_ENDPOINT","GH_AW_DEFAULT_OTLP_HEADERS","GH_AW_GITHUB_MCP_SERVER_TOKEN","GH_AW_GITHUB_TOKEN","GH_AW_PROJECT_GITHUB_TOKEN","GITHUB_TOKEN"],"actions":[{"repo":"actions/checkout","sha":"3d3c42e5aac5ba805825da76410c181273ba90b1","version":"v7.0.1"},{"repo":"actions/create-github-app-token","sha":"d72941d797fd3113feb6b93fd0dec494b13a2547","version":"v1"},{"repo":"actions/download-artifact","sha":"3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c","version":"v8.0.1"},{"repo":"actions/github-script","sha":"3a2844b7e9c422d3c10d287c895573f7108da1b3","version":"v9.0.0"},{"repo":"actions/setup-node","sha":"820762786026740c76f36085b0efc47a31fe5020","version":"v7.0.0"},{"repo":"actions/upload-artifact","sha":"043fb46d1a93c77aae656e7c1c64a875d1fc6a0a","version":"v7.0.1"},{"repo":"github/gh-aw-actions/setup","sha":"924af5fdc64061cfbf66fb584c8b07e2ac230c60","version":"v0.89.21"}],"containers":[{"image":"ghcr.io/github/gh-aw-firewall/agent:0.28.23","digest":"sha256:2c78aaba1c108e130e2d6d01e4f2cca334ea04c53e6f258913ac34173fe7e3b2","pinned_image":"ghcr.io/github/gh-aw-firewall/agent:0.28.23@sha256:2c78aaba1c108e130e2d6d01e4f2cca334ea04c53e6f258913ac34173fe7e3b2"},{"image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.28.23","digest":"sha256:c15c3d1208df10c5b588a3657be53742aa982ae0909d1eb1812525268794ca64","pinned_image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.28.23@sha256:c15c3d1208df10c5b588a3657be53742aa982ae0909d1eb1812525268794ca64"},{"image":"ghcr.io/github/gh-aw-firewall/squid:0.28.23","digest":"sha256:02ffc56dd40158223064ef03a78c2d9717473c93723b4e403d455ea6f0b09ae0","pinned_image":"ghcr.io/github/gh-aw-firewall/squid:0.28.23@sha256:02ffc56dd40158223064ef03a78c2d9717473c93723b4e403d455ea6f0b09ae0"},{"image":"ghcr.io/github/gh-aw-mcpg:v0.4.25","digest":"sha256:9be0a86220e807a0ecc89e53d7453468f7a53fbc6b3d1efd2299025ffe01d086","pinned_image":"ghcr.io/github/gh-aw-mcpg:v0.4.25@sha256:9be0a86220e807a0ecc89e53d7453468f7a53fbc6b3d1efd2299025ffe01d086"},{"image":"ghcr.io/github/gh-aw-node","digest":"sha256:11c2c544876cdbaffefe0f7f1283b74838c209654b4934a78e23ed11f750490f","pinned_image":"ghcr.io/github/gh-aw-node@sha256:11c2c544876cdbaffefe0f7f1283b74838c209654b4934a78e23ed11f750490f"},{"image":"ghcr.io/github/github-mcp-server:v1.12.2","digest":"sha256:508a0857ec762b1ab1cece29193345b501fab1dd9d1228a7b617062954cecac6","pinned_image":"ghcr.io/github/github-mcp-server:v1.12.2@sha256:508a0857ec762b1ab1cece29193345b501fab1dd9d1228a7b617062954cecac6"}],"has_pull_request":true,"mcp_servers":[{"name":"github","tools":["actions_get","actions_list","get_code_scanning_alert","get_commit","get_discussion","get_discussion_comments","get_file_contents","get_job_logs","get_label","get_latest_release","get_me","get_notification_details","get_pull_request","get_pull_request_comments","get_pull_request_diff","get_pull_request_files","get_pull_request_review_comments","get_pull_request_reviews","get_pull_request_status","get_release_by_tag","get_secret_scanning_alert","get_tag","issue_read","list_branches","list_code_scanning_alerts","list_commits","list_discussion_categories","list_discussions","list_issue_types","list_issues","list_label","list_notifications","list_pull_requests","list_releases","list_secret_scanning_alerts","list_starred_repositories","list_tags","pull_request_read","search_code","search_issues","search_orgs","search_pull_requests","search_repositories","search_users"]},{"name":"safeoutputs","tools":["add_comment","create_pull_request","merge_pr","missing_data","missing_tool","noop","push_to_pull_request_branch","update_issue","update_project","update_pull_request"]}]}
 # This file was automatically generated by gh-aw (v0.89.21). DO NOT EDIT. To debug this workflow, load the skill at https://github.com/github/gh-aw/blob/main/debug.md
 #
 #    ___                   _   _
@@ -68,6 +68,9 @@ on:
   issue_comment:
     types:
       - created
+  pull_request:
+    types:
+      - closed
   pull_request_review:
     types:
       - submitted
@@ -81,12 +84,23 @@ on:
   # COMMENT_BODY: ${{ github.event.comment.body || '' }}
   # EVENT: ${{ github.event_name }}
   # ISSUE_TITLE: ${{ github.event.issue.title || '' }}
+  # PR_HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
+  # PR_MERGED: ${{ github.event.pull_request.merged || '' }}
   # id: gate
   # name: Check relevance
   # run: |
   # # Skip gh-aw internal issues
   # if echo "$ISSUE_TITLE" | grep -q "^\[aw\]"; then
   # echo "skip=true" >> "$GITHUB_OUTPUT"
+  # exit 0
+  # fi
+  # # PR closed: only react to merged executor PRs (post-merge close-out)
+  # if [ "$EVENT" = "pull_request" ]; then
+  # if [ "$PR_MERGED" = "true" ] && echo "$PR_HEAD_REF" | grep -q "^executor/"; then
+  # echo "skip=false" >> "$GITHUB_OUTPUT"
+  # else
+  # echo "skip=true" >> "$GITHUB_OUTPUT"
+  # fi
   # exit 0
   # fi
   # # For comment events: skip own comments UNLESS checkpoint marker
@@ -136,7 +150,8 @@ jobs:
   activation:
     needs: pre_activation
     if: >
-      needs.pre_activation.outputs.activated == 'true' && ((needs.pre_activation.outputs.gate_skip != 'true') &&
+      needs.pre_activation.outputs.activated == 'true' && (((needs.pre_activation.outputs.gate_skip != 'true') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.id == github.repository_id)) &&
       ((github.event_name != 'pull_request' && github.event_name != 'pull_request_review') || github.event.pull_request.stack == null ||
       github.event.pull_request.stack.position == github.event.pull_request.stack.size))
     runs-on: ubuntu-slim
@@ -2119,6 +2134,7 @@ jobs:
     outputs:
       activated: ${{ steps.check_membership.outputs.is_team_member == 'true' }}
       gate_result: ${{ steps.gate.outcome }}
+      gate_skip: ${{ steps.gate.outputs.skip }}
       matched_command: ''
       setup-parent-span-id: ${{ steps.setup.outputs.parent-span-id || steps.setup.outputs.span-id }}
       setup-span-id: ${{ steps.setup.outputs.span-id }}
@@ -2159,6 +2175,15 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # PR closed: only react to merged executor PRs (post-merge close-out)
+          if [ "$EVENT" = "pull_request" ]; then
+            if [ "$PR_MERGED" = "true" ] && echo "$PR_HEAD_REF" | grep -q "^executor/"; then
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
           # For comment events: skip own comments UNLESS checkpoint marker
           if [ "$EVENT" = "issue_comment" ] || [ "$EVENT" = "pull_request_review_comment" ]; then
             if echo "$COMMENT_BODY" | grep -q "Generated by \[Executor"; then
@@ -2178,6 +2203,8 @@ jobs:
           COMMENT_BODY: ${{ github.event.comment.body || '' }}
           EVENT: ${{ github.event_name }}
           ISSUE_TITLE: ${{ github.event.issue.title || '' }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
+          PR_MERGED: ${{ github.event.pull_request.merged || '' }}
 
   push_repo_memory:
     needs:
@@ -2284,6 +2311,7 @@ jobs:
       GH_AW_DETECTION_REASON: ${{ needs.detection.outputs.detection_reason }}
       GH_AW_ENGINE_ID: "copilot"
       GH_AW_ENGINE_MODEL: ${{ needs.agent.outputs.model }}
+      GH_AW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       GH_AW_RUNTIME_FEATURES: ${{ vars.GH_AW_RUNTIME_FEATURES }}
       GH_AW_THREAT_DETECTION_AIC: ${{ needs.detection.outputs.aic }}
       GH_AW_WORKFLOW_ID: "executor"

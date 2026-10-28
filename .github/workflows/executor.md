@@ -22,6 +22,8 @@ on:
     types: [created]
   pull_request_review:
     types: [submitted]
+  pull_request:
+    types: [closed]
   schedule:
     - cron: "*/15 * * * *"
   bots: [a-factory-bot]
@@ -32,10 +34,21 @@ on:
         EVENT: ${{ github.event_name }}
         ISSUE_TITLE: ${{ github.event.issue.title || '' }}
         COMMENT_BODY: ${{ github.event.comment.body || '' }}
+        PR_MERGED: ${{ github.event.pull_request.merged || '' }}
+        PR_HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
       run: |
         # Skip gh-aw internal issues
         if echo "$ISSUE_TITLE" | grep -q "^\[aw\]"; then
           echo "skip=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        # PR closed: only react to merged executor PRs (post-merge close-out)
+        if [ "$EVENT" = "pull_request" ]; then
+          if [ "$PR_MERGED" = "true" ] && echo "$PR_HEAD_REF" | grep -q "^executor/"; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
           exit 0
         fi
         # For comment events: skip own comments UNLESS checkpoint marker
@@ -55,6 +68,11 @@ on:
         echo "skip=false" >> "$GITHUB_OUTPUT"
 
 if: needs.pre_activation.outputs.gate_skip != 'true'
+
+jobs:
+  pre-activation:
+    outputs:
+      gate_skip: ${{ steps.gate.outputs.skip }}
 
 max-daily-ai-credits: -1
 
@@ -187,6 +205,12 @@ On every run, figure out your situation:
   checkpoint.
 - If the reviewer requested changes: fix them.
 - If it's not relevant to you: call `noop`.
+
+### Triggered by `pull_request` (closed and merged)
+- One of your PRs was just merged. This is **Run B** of the merge flow.
+  Find the issue from the PR's branch name (`executor/<issue-number>-...`)
+  or its `Closes #N` line, then go straight to "Run B — Verify and close
+  out" below.
 
 ### Triggered by `schedule`
 - Scan the project board for issues in "In Progress" or "In Review"
@@ -465,7 +489,8 @@ Call `merge_pr(pr_number: "<your PR number>")` and NOTHING ELSE. No
 labels, no comments. Just merge. The next run will verify.
 
 **Run B — Verify and close out:**
-On your next run, read the PR state via MCP tools (e.g. `get_pull_request`).
+Triggered by the `pull_request` closed event (or, as a fallback, your next
+scheduled run). Read the PR state via MCP tools (e.g. `get_pull_request`).
 - If the PR state is `MERGED`: CALL the `update_project` tool to move the
   issue to Done (a comment is not a board move):
   `update_project(project: "https://github.com/users/eedorenko/projects/2", content_type: "issue", content_number: <issue number>, fields: {"Status": "Done"})`.
