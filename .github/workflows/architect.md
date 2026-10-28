@@ -5,7 +5,7 @@ description: |
   executor and reviewer when design decisions arise.
 
 concurrency:
-  group: "architect-${{ github.event.issue.number || 'default' }}"
+  group: "architect-${{ startsWith(github.event.issue.title, '[aw]') && github.run_id || github.event.issue.number || 'default' }}"
   cancel-in-progress: true
 
 on:

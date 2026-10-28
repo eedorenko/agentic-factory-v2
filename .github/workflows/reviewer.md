@@ -6,7 +6,7 @@ description: |
   a verdict. Uses issue comments as communication bus.
 
 concurrency:
-  group: "reviewer-${{ github.event.issue.number || github.event.pull_request.number || 'default' }}"
+  group: "reviewer-${{ startsWith(github.event.issue.title, '[aw]') && github.run_id || github.event.issue.number || github.event.pull_request.number || 'default' }}"
   cancel-in-progress: true
 
 on:

@@ -5,7 +5,7 @@ description: |
   Answers backlog questions from other agents.
 
 concurrency:
-  group: "triager-${{ github.event.issue.number || 'default' }}"
+  group: "triager-${{ startsWith(github.event.issue.title, '[aw]') && github.run_id || github.event.issue.number || 'default' }}"
   cancel-in-progress: true
 
 on:

@@ -6,7 +6,7 @@ description: |
   communication bus. The issue stays in-progress until the PR is merged.
 
 concurrency:
-  group: "executor-${{ github.event.issue.number || github.event.pull_request.number || 'default' }}"
+  group: "executor-${{ startsWith(github.event.issue.title, '[aw]') && github.run_id || github.event.issue.number || github.event.pull_request.number || 'default' }}"
   cancel-in-progress: true
 
 on:
