@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
-const { truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults } = require('./search');
+const { sortByRelevance, truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults } = require('./search');
 
 const testItems = Array.from({ length: 25 }, (_, i) => ({
   title: `Item ${i + 1}`,
@@ -191,5 +191,29 @@ describe('countMatches', () => {
   it('returns 0 for null input', () => {
     assert.strictEqual(countMatches(null, 'apple'), 0);
     assert.strictEqual(countMatches(undefined, 'apple'), 0);
+  });
+});
+
+describe('sortByRelevance', () => {
+  const data = [{ name: 'Banana' }, { name: 'apple pie' }, { name: 'Apricot' }, { name: 'APPLE' }];
+
+  it('puts case-insensitive prefix matches first, keeping order', () => {
+    assert.deepStrictEqual(sortByRelevance(data, 'app').map(r => r.name), ['apple pie', 'APPLE', 'Banana', 'Apricot']);
+  });
+
+  it('keeps order when nothing matches', () => {
+    assert.deepStrictEqual(sortByRelevance(data, 'zzz'), data);
+  });
+
+  it('returns [] for null/undefined input', () => {
+    assert.deepStrictEqual(sortByRelevance(null, 'a'), []);
+    assert.deepStrictEqual(sortByRelevance(undefined, 'a'), []);
+  });
+
+  it('does not mutate the input', () => {
+    const copy = data.map(d => ({ ...d }));
+    const out = sortByRelevance(data, 'app');
+    assert.notStrictEqual(out, data);
+    assert.deepStrictEqual(data, copy);
   });
 });
