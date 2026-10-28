@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
-const { truncateDescription, searchItems, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults } = require('./search');
+const { truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults } = require('./search');
 
 const testItems = Array.from({ length: 25 }, (_, i) => ({
   title: `Item ${i + 1}`,
@@ -166,5 +166,30 @@ describe('truncateDescription', () => {
 
   it('handles empty string', () => {
     assert.strictEqual(truncateDescription('', 5), '');
+  });
+});
+
+describe('countMatches', () => {
+  const items = [
+    { title: 'Apple pie', description: 'dessert' },
+    { title: 'Banana', description: 'fruit with apple flavor' },
+    { title: 'Cherry', description: 'fruit' },
+  ];
+
+  it('counts several matches', () => {
+    assert.strictEqual(countMatches(items, 'apple'), 2);
+  });
+
+  it('returns 0 for no matches', () => {
+    assert.strictEqual(countMatches(items, 'zzz'), 0);
+  });
+
+  it('returns 0 for empty array', () => {
+    assert.strictEqual(countMatches([], 'apple'), 0);
+  });
+
+  it('returns 0 for null input', () => {
+    assert.strictEqual(countMatches(null, 'apple'), 0);
+    assert.strictEqual(countMatches(undefined, 'apple'), 0);
   });
 });

@@ -11,6 +11,11 @@ function searchItems(items, query) {
   );
 }
 
+function countMatches(items, query) {
+  if (!items || items.length === 0) return 0;
+  return searchItems(items, query).length;
+}
+
 function paginate(items, page, pageSize = 10) {
   const totalPages = Math.ceil(items.length / pageSize);
   const start = (page - 1) * pageSize;
@@ -79,4 +84,4 @@ function truncateDescription(text, maxLength) {
   return str.length <= maxLength ? str : `${str.slice(0, maxLength)}...`;
 }
 
-module.exports = { truncateDescription, searchItems, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults };
+module.exports = { truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults };
