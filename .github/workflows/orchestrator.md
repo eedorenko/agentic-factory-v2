@@ -50,15 +50,17 @@ permissions:
 
 tools:
   github:
-    toolsets: [issues, pull_requests, search]
+    toolsets: [issues, pull_requests, search, projects]
+    github-token: ${{ secrets.GH_AW_PROJECT_GITHUB_TOKEN }}
 
 safe-outputs:
   add-comment:
     max: 5
     target: "*"
-  set-issue-field:
+  update-project:
     max: 10
-    target: "*"
+    project: "https://github.com/users/eedorenko/projects/2"
+    github-token: ${{ secrets.GH_AW_PROJECT_GITHUB_TOKEN }}
 
 timeout-minutes: 15
 ---
@@ -74,21 +76,20 @@ definition, and escalation policy.
 
 ## Project Board Management
 
-### Ensure the project exists
-
-On every run, check if a GitHub Project named "Factory Board" exists for
-this repository. Use `list_issues` or search to find it. If it doesn't
-exist, create it using `create_project` with:
-- Name: "Factory Board"
-- Columns (Status field): Backlog, Ready, Blocked, In Progress, In Review,
-  Testing, Done
-
-The column definitions come from the **Project Board** table in TEAM.md.
+The board is the "Factory Board" project at
+`https://github.com/users/eedorenko/projects/2`. It already exists — do not
+try to create it. Read its items with the GitHub `projects` tools (e.g.
+`list_project_items`). Column definitions come from the **Project Board**
+table in TEAM.md.
 
 ### Ensure issues are on the board
 
-Check if all open issues (excluding `[aw]` issues) are on the project.
-If an issue is not on the board, add it to the Backlog column.
+Auto-add normally puts new issues on the board, but it can miss some. Compare
+open issues (excluding `[aw]` issues) against the board items. For each open
+issue that is NOT on the board, CALL the `update_project` tool to add it —
+describing it in a comment does nothing:
+`update_project(project: "https://github.com/users/eedorenko/projects/2", content_type: "issue", content_number: <issue number>)`
+Do not set a Status; the triager sets the first column.
 
 ## Monitor the Board
 
@@ -104,9 +105,9 @@ On every run, scan the project board:
 
 ### Moving issues between columns
 
-Use `set_issue_field` with:
-- field name: `Status`
-- value: the target column name (e.g., "Ready", "In Progress", etc.)
+CALL the `update_project` tool:
+`update_project(project: "https://github.com/users/eedorenko/projects/2", content_type: "issue", content_number: <issue number>, fields: {"Status": "<target column>"})`
+where the target column is e.g. "Ready", "In Progress", etc.
 
 Only move issues when correcting stuck states (e.g., Done but PR not
 merged → back to In Review). Normal transitions are done by the agents

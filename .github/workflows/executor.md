@@ -98,9 +98,10 @@ safe-outputs:
   update-issue:
     target: "*"
     max: 3
-  set-issue-field:
+  update-project:
     max: 5
-    target: "*"
+    project: "https://github.com/users/eedorenko/projects/2"
+    github-token: ${{ secrets.GH_AW_PROJECT_GITHUB_TOKEN }}
   update-pull-request:
     max: 1
     target: "*"
@@ -172,8 +173,10 @@ Read `TEAM.md` (via `AGENTS.md`) for the team directory and routing rules.
 On every run, figure out your situation:
 
 ### Triggered by `issues.labeled` or advisor mentioned you
-- **FIRST:** move the issue to In Progress on the project board:
-  call `set_issue_field(field: "Status", value: "In Progress")`.
+- **FIRST:** move the issue to In Progress on the project board. You
+  MUST actually invoke the `update_project` tool — describing the move in a
+  comment does nothing:
+  `update_project(project: "https://github.com/users/eedorenko/projects/2", content_type: "issue", content_number: <issue number>, fields: {"Status": "In Progress"})`
   Do this before anything else.
 - Then proceed to the Run Loop.
 
@@ -373,8 +376,9 @@ comment via the gate exception) will check for the answer.
 
 9. Go through each DoD item. Cite evidence for each.
 10. **If DoD is fully met AND the program works:** call
-    `create_pull_request`, then move the issue to In Review on the board:
-    `set_issue_field(field: "Status", value: "In Review")`.
+    `create_pull_request`, then CALL the `update_project` tool to move the
+    issue to In Review (a comment is not a board move):
+    `update_project(project: "https://github.com/users/eedorenko/projects/2", content_type: "issue", content_number: <issue number>, fields: {"Status": "In Review"})`.
     The PR is your seal of quality.
 11. **If DoD is not yet met:** post a checkpoint comment and stop:
     ```
@@ -462,8 +466,9 @@ labels, no comments. Just merge. The next run will verify.
 
 **Run B — Verify and close out:**
 On your next run, read the PR state via MCP tools (e.g. `get_pull_request`).
-- If the PR state is `MERGED`: move the issue to Testing then Done on
-  the board: `set_issue_field(field: "Status", value: "Done")`.
+- If the PR state is `MERGED`: CALL the `update_project` tool to move the
+  issue to Done (a comment is not a board move):
+  `update_project(project: "https://github.com/users/eedorenko/projects/2", content_type: "issue", content_number: <issue number>, fields: {"Status": "Done"})`.
   Post `add_comment("PR merged. Issue complete.")`.
 - If the PR is NOT merged: the merge failed. Try again or report.
 

@@ -64,9 +64,10 @@ safe-outputs:
     max: 5
   add-comment:
     max: 2
-  set-issue-field:
+  update-project:
     max: 3
-    target: "*"
+    project: "https://github.com/users/eedorenko/projects/2"
+    github-token: ${{ secrets.GH_AW_PROJECT_GITHUB_TOKEN }}
 
 timeout-minutes: 10
 ---
@@ -110,9 +111,10 @@ Analyze the issue and route it.
 For a bug: look for reproduction steps, expected/actual behavior.
 For a feature: look for the problem being solved, desired outcome, scope.
 
-If essential details are missing: move the issue to Blocked on the project
-board (`set_issue_field(field: "Status", value: "Blocked")`) and ask
-specific questions. Do NOT route incomplete issues.
+If essential details are missing: CALL the `update_project` tool to move
+the issue to Blocked (a comment is not a board move):
+`update_project(project: "https://github.com/users/eedorenko/projects/2", content_type: "issue", content_number: <issue number>, fields: {"Status": "Blocked"})`
+and ask specific questions. Do NOT route incomplete issues.
 
 ### 3. Classify and prioritize
 
@@ -124,13 +126,14 @@ specific questions. Do NOT route incomplete issues.
 
 ### 4. Route
 
-- **Ready for execution**: move to Ready on the board
-  (`set_issue_field(field: "Status", value: "Ready")`), then mention
-  `@executor` in your triage comment so the executor picks it up.
-- **Complex or risky**: move to Ready + apply `complex`/`risky` labels,
-  mention `@executor`.
-- **Needs more info**: move to Blocked, ask questions. Do NOT mention
-  `@executor`.
+- **Ready for execution**: CALL the `update_project` tool to move the
+  issue to Ready (a comment is not a board move):
+  `update_project(project: "https://github.com/users/eedorenko/projects/2", content_type: "issue", content_number: <issue number>, fields: {"Status": "Ready"})`
+  then mention `@executor` in your triage comment so the executor picks it up.
+- **Complex or risky**: move to Ready (same `update_project` call) + apply
+  `complex`/`risky` labels, mention `@executor`.
+- **Needs more info**: move to Blocked (`update_project` with
+  `{"Status": "Blocked"}`), ask questions. Do NOT mention `@executor`.
 - **Architecture question needed first**: mention `@architect` to get a
   design decision before routing to executor.
 

@@ -48,13 +48,16 @@ asking the wrong agent and redirects.
 
 ## Project Board
 
-State is tracked via a GitHub Project board, not labels. The Orchestrator
-creates and maintains the project. Agents move issues between columns
-using `set_issue_field` with field name `Status`.
+State is tracked via a GitHub Project board, not labels. Project auto-add
+puts new issues on the board with no Status (treat empty as Backlog); the
+Orchestrator adds any it misses. Agents move issues between columns using
+the `update_project` safe-output with `fields: {"Status": "<column>"}`.
+(`set_issue_field` is NOT for this — it sets GitHub Issue Fields, not
+Project columns.)
 
 | Column | Meaning | Moved here by | Next |
 | --- | --- | --- | --- |
-| Backlog | New issue, not yet triaged | Auto (on creation) | Ready or Blocked |
+| Backlog | New issue, not yet triaged (empty Status) | Auto-add | Ready or Blocked |
 | Ready | Triaged, approved for execution | Advisor | In Progress |
 | Blocked | Waiting for input or clarification | Any agent | Ready (when unblocked) |
 | In Progress | Executor is working on it | Executor | In Review |
