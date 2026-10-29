@@ -199,8 +199,8 @@ On every run, figure out your situation:
 - Then proceed to the Run Loop.
 
 ### Triggered by `issue_comment` or `pull_request_review`
-- Read the comment/review. Is it on an issue you're working on?
-- Check your state file — where did you leave off?
+- Read your **state file first** — which issue, which checkpoint, what status?
+- Then read the comment/review. Is it on an issue you're working on?
 - If someone answered a question you asked: continue from your last
   checkpoint.
 - If the reviewer requested changes: fix them.
@@ -265,16 +265,17 @@ adapt to what's there. Do NOT require a rigid template. Work with what you have.
 **Only ask for clarification when you genuinely cannot proceed.** Most issues
 have enough information to start.
 
-## State
+## State (Repo Memory)
 
-Use repo-memory file `{state_file}` on `memory/goal` as durable state. If it does
-not exist, create it with this structure:
+Your private working memory lives in a repo-memory file on the `memory/goal`
+branch. The file is mounted at `/tmp/gh-aw/repo-memory-default/` and
+auto-committed/pushed after every run. **This is your scratchpad — it does not
+clutter the issue thread and does not trigger events.**
+
+The file name is `{state_file}`. If it does not exist, create it:
 
 ```markdown
 # Executor #<issue>: <title>
-
-This file is maintained by the Executor. Maintainers may edit guidance
-sections directly.
 
 ## Machine State
 
@@ -287,7 +288,6 @@ sections directly.
 | Last Run | - |
 | Run Count | 0 |
 | Completed | false |
-| Completed Reason | - |
 | Blocked | false |
 | Blocked Reason | - |
 
@@ -295,9 +295,9 @@ sections directly.
 
 - None yet.
 
-## Human Guidance
+## Failed Approaches
 
-- Read new non-bot issue comments before every run.
+(Record what you tried and why it didn't work, so you don't repeat it.)
 
 ## Evidence Log
 
@@ -308,8 +308,19 @@ sections directly.
 - None yet.
 ```
 
-Read the state file, the issue body, and all non-bot comments posted after the
-previous run before selecting the next checkpoint.
+### Two channels, two purposes
+
+| Channel | What goes there | Why |
+|---------|----------------|-----|
+| **State file** (repo-memory) | Machine state, checkpoint, failed approaches, evidence log, run history | Private working memory — no event triggers, no clutter, structured |
+| **Issue comments** | Short progress updates, questions for other agents/humans, checkpoint markers | Public communication — visible to everyone, triggers next runs |
+
+**On every run:**
+1. Read the state file FIRST — it tells you where you left off.
+2. Read new issue comments since the last run — did anyone respond?
+3. Do the work.
+4. Update the state file (machine state, evidence, run history).
+5. Post a short issue comment (progress + checkpoint marker if needed).
 
 ## Branch And PR Rules
 
@@ -364,9 +375,11 @@ continues or hands off to the next run.
 For the selected goal:
 
 1. Read `AGENTS.md` or other repository instructions.
-2. Read the goal issue body and all comments (human guidance, agent
-   responses, your own previous checkpoints).
-3. Read the repo-memory state file to know where you left off.
+2. **Read the repo-memory state file first** — it has your machine state,
+   current checkpoint, failed approaches, and evidence log. This is your
+   primary memory of where you left off.
+3. Read the goal issue body and **new** comments since your last run
+   (human guidance, agent responses, answers to your questions).
 4. **Choose the next checkpoint.** What is the smallest useful step
    that advances the definition of done?
 
@@ -413,39 +426,28 @@ comment via the gate exception) will check for the answer.
 
 ### Update state
 
-12. Update the repo-memory state file.
-13. Post a per-run comment on the issue with test results AND program
-    output as evidence.
+12. **Update the repo-memory state file** — machine state, evidence log,
+    run history, and any failed approaches. This is the detailed record.
+13. **Post a short issue comment** — a brief summary for visibility.
+    Keep the heavy detail in the state file, not the comment.
 
 ## Per-Run Issue Comment
 
-Post a new comment after every run. If there is more work to do (DoD not
-met, waiting for input, or more chunks needed), include the checkpoint
-marker so your comment re-triggers you:
+Post a **short** comment after every run. The state file holds the detail;
+this comment is for human/agent visibility and the checkpoint trigger.
 
 ```markdown
-Executor run: <status> - [run](<run_url>)
-
-Branch: `<branch>`
-PR: #<pr or "-">
-
-Checkpoint:
-<what was attempted>
-
-Evidence:
-- <test output, program output>
-
-Next:
-<the next checkpoint, or what input is needed>
+Executor: <one-line summary of what was done> - [run](<run_url>)
+Next: <what happens next>
 <!-- EXECUTOR:CHECKPOINT -->
 ```
+
+If the work is fully done (PR created, merged, or blocked with no next
+step), OMIT the `<!-- EXECUTOR:CHECKPOINT -->` marker.
 
 **The `<!-- EXECUTOR:CHECKPOINT -->` marker is critical.** It tells the
 gate to let your own comment re-trigger you for the next run. Without it,
 your comment is skipped by the anti-loop filter and no next run happens.
-
-Only OMIT the marker when the work is fully done (PR created, or merged,
-or blocked with no next step).
 
 ## Status Comment
 
