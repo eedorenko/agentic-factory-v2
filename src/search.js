@@ -94,4 +94,15 @@ function sortByRelevance(results, query) {
   return [...matched, ...rest];
 }
 
-module.exports = { sortByRelevance, truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults };
+function groupByCategory(results) {
+  const groups = {};
+  if (!Array.isArray(results)) return groups;
+  for (const item of results) {
+    const key = item && item.category ? item.category : 'uncategorized';
+    if (!Object.prototype.hasOwnProperty.call(groups, key)) groups[key] = [];
+    groups[key].push(item);
+  }
+  return groups;
+}
+
+module.exports = { groupByCategory, sortByRelevance, truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults };
