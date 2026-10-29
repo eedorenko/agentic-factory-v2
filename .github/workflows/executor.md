@@ -7,7 +7,7 @@ description: |
 
 concurrency:
   group: "executor-${{ startsWith(github.event.issue.title, '[aw]') && github.run_id || github.event.issue.number || github.event.pull_request.number || 'default' }}"
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 on:
   workflow_dispatch:
