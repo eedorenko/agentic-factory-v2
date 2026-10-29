@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
-const { groupByCategory, sortByRelevance, truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults } = require('./search');
+const { flattenNestedResults, groupByCategory, sortByRelevance, truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults } = require('./search');
 
 const testItems = Array.from({ length: 25 }, (_, i) => ({
   title: `Item ${i + 1}`,
@@ -240,5 +240,31 @@ describe('groupByCategory', () => {
     const b = { name: 'b', category: '' };
     const c = { name: 'c', category: 'x' };
     assert.deepStrictEqual(groupByCategory([a, b, c]), { uncategorized: [a, b], x: [c] });
+  });
+});
+
+describe('flattenNestedResults', () => {
+  it('flattens nested results depth-first and strips children', () => {
+    const input = { items: [{ id: 1, children: [{ id: 2 }, { id: 3, children: [{ id: 4 }] }] }, { id: 5 }] };
+    assert.deepStrictEqual(flattenNestedResults(input), [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }, { id: 5 }]);
+  });
+
+  it('accepts a plain array', () => {
+    assert.deepStrictEqual(flattenNestedResults([{ id: 1, children: [{ id: 2 }] }]), [{ id: 1 }, { id: 2 }]);
+  });
+
+  it('returns [] for empty results', () => {
+    assert.deepStrictEqual(flattenNestedResults({ items: [] }), []);
+    assert.deepStrictEqual(flattenNestedResults([]), []);
+    assert.deepStrictEqual(flattenNestedResults(null), []);
+  });
+
+  it('keeps items without children as-is', () => {
+    assert.deepStrictEqual(flattenNestedResults([{ id: 1 }, { id: 2 }]), [{ id: 1 }, { id: 2 }]);
+  });
+
+  it('handles 3+ levels of nesting', () => {
+    const input = [{ id: 1, children: [{ id: 2, children: [{ id: 3, children: [{ id: 4 }] }] }] }];
+    assert.deepStrictEqual(flattenNestedResults(input).map(i => i.id), [1, 2, 3, 4]);
   });
 });

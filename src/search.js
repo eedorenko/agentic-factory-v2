@@ -105,4 +105,19 @@ function groupByCategory(results) {
   return groups;
 }
 
-module.exports = { groupByCategory, sortByRelevance, truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults };
+function flattenNestedResults(results) {
+  const roots = Array.isArray(results) ? results : (results && Array.isArray(results.items) ? results.items : []);
+  const out = [];
+  const walk = list => {
+    for (const item of list) {
+      if (item == null || typeof item !== 'object') { out.push(item); continue; }
+      const { children, ...rest } = item;
+      out.push(rest);
+      if (Array.isArray(children)) walk(children);
+    }
+  };
+  walk(roots);
+  return out;
+}
+
+module.exports = { flattenNestedResults, groupByCategory, sortByRelevance, truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults };
