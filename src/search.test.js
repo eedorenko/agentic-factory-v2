@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
-const { sortByRelevance, truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults } = require('./search');
+const { groupByCategory, sortByRelevance, truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults } = require('./search');
 
 const testItems = Array.from({ length: 25 }, (_, i) => ({
   title: `Item ${i + 1}`,
@@ -215,5 +215,30 @@ describe('sortByRelevance', () => {
     const out = sortByRelevance(data, 'app');
     assert.notStrictEqual(out, data);
     assert.deepStrictEqual(data, copy);
+  });
+});
+
+describe('groupByCategory', () => {
+  it('groups items by category', () => {
+    const a = { name: 'a', category: 'x' };
+    const b = { name: 'b', category: 'y' };
+    const c = { name: 'c', category: 'x' };
+    const input = [a, b, c];
+    const out = groupByCategory(input);
+    assert.deepStrictEqual(out, { x: [a, c], y: [b] });
+    assert.strictEqual(out.x[0], a);
+    assert.strictEqual(input.length, 3);
+  });
+
+  it('returns empty object for empty results', () => {
+    assert.deepStrictEqual(groupByCategory([]), {});
+    assert.deepStrictEqual(groupByCategory(undefined), {});
+  });
+
+  it('puts items without category under uncategorized', () => {
+    const a = { name: 'a' };
+    const b = { name: 'b', category: '' };
+    const c = { name: 'c', category: 'x' };
+    assert.deepStrictEqual(groupByCategory([a, b, c]), { uncategorized: [a, b], x: [c] });
   });
 });
