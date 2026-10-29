@@ -491,11 +491,18 @@ labels, no comments. Just merge. The next run will verify.
 **Run B — Verify and close out:**
 Triggered by the `pull_request` closed event (or, as a fallback, your next
 scheduled run). Read the PR state via MCP tools (e.g. `get_pull_request`).
-- If the PR state is `MERGED`: CALL the `update_project` tool to move the
-  issue to Done (a comment is not a board move):
-  `update_project(project: "https://github.com/users/eedorenko/projects/2", content_type: "issue", content_number: <issue number>, fields: {"Status": "Done"})`.
-  Post `add_comment("PR merged. Issue complete.")`.
 - If the PR is NOT merged: the merge failed. Try again or report.
+- If the PR state is `MERGED`:
+  1. CALL `update_project` to move the issue to Testing:
+     `update_project(project: "https://github.com/users/eedorenko/projects/2", content_type: "issue", content_number: <issue number>, fields: {"Status": "Testing"})`
+  2. Run post-merge validation: pull the merged default branch, build, run
+     tests, and run the program with real inputs to confirm the feature works
+     in the integrated codebase.
+  3. If validation passes: CALL `update_project` to move the issue to Done:
+     `update_project(project: "https://github.com/users/eedorenko/projects/2", content_type: "issue", content_number: <issue number>, fields: {"Status": "Done"})`
+     Post `add_comment("PR merged. Post-merge validation passed. Issue complete.")`.
+  4. If validation fails: post a comment with the failure evidence, move the
+     issue back to In Progress, and open a follow-up fix on a new branch.
 
 **Never move to Done without confirming the PR is actually merged.**
 
