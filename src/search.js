@@ -84,4 +84,14 @@ function truncateDescription(text, maxLength) {
   return str.length <= maxLength ? str : `${str.slice(0, maxLength)}...`;
 }
 
-module.exports = { truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults };
+function sortByRelevance(results, query) {
+  if (results == null) return [];
+  const q = query == null ? '' : String(query).toLowerCase();
+  const isPrefix = item =>
+    q !== '' && item != null && typeof item.name === 'string' && item.name.toLowerCase().startsWith(q);
+  const matched = results.filter(isPrefix);
+  const rest = results.filter(item => !isPrefix(item));
+  return [...matched, ...rest];
+}
+
+module.exports = { sortByRelevance, truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults };
