@@ -199,7 +199,8 @@ On every run, figure out your situation:
 - Then proceed to the Run Loop.
 
 ### Triggered by `issue_comment` or `pull_request_review`
-- Read your **state file first** — which issue, which checkpoint, what status?
+- Read your **state file first**: `cat /tmp/gh-aw/repo-memory-default/issue-<number>.md`
+  — which issue, which checkpoint, what status?
 - Then read the comment/review. Is it on an issue you're working on?
 - If someone answered a question you asked: continue from your last
   checkpoint.
@@ -268,11 +269,20 @@ have enough information to start.
 ## State (Repo Memory)
 
 Your private working memory lives in a repo-memory file on the `memory/goal`
-branch. The file is mounted at `/tmp/gh-aw/repo-memory-default/` and
-auto-committed/pushed after every run. **This is your scratchpad — it does not
-clutter the issue thread and does not trigger events.**
+branch. gh-aw mounts this branch at `/tmp/gh-aw/repo-memory-default/` before
+your agent job starts, and auto-commits/pushes any changes after your job ends.
+**This is your scratchpad — it does not clutter the issue thread and does not
+trigger events.**
 
-The file name is `{state_file}`. If it does not exist, create it:
+The file path is `/tmp/gh-aw/repo-memory-default/issue-<number>.md` where
+`<number>` is the issue number (e.g. `issue-34.md` for issue #34).
+
+**At the start of every run**, check if the file exists:
+```bash
+cat /tmp/gh-aw/repo-memory-default/issue-<number>.md
+```
+If it exists, read it — this is your memory from the previous run.
+If it does not exist, create it with this structure:
 
 ```markdown
 # Executor #<issue>: <title>
@@ -375,9 +385,11 @@ continues or hands off to the next run.
 For the selected goal:
 
 1. Read `AGENTS.md` or other repository instructions.
-2. **Read the repo-memory state file first** — it has your machine state,
-   current checkpoint, failed approaches, and evidence log. This is your
-   primary memory of where you left off.
+2. **Read your state file first:** run
+   `cat /tmp/gh-aw/repo-memory-default/issue-<number>.md` — it has your
+   machine state, current checkpoint, failed approaches, and evidence log.
+   This is your primary memory of where you left off. If the file does not
+   exist, this is your first run for this issue — create it (see State).
 3. Read the goal issue body and **new** comments since your last run
    (human guidance, agent responses, answers to your questions).
 4. **Choose the next checkpoint.** What is the smallest useful step
@@ -426,8 +438,10 @@ comment via the gate exception) will check for the answer.
 
 ### Update state
 
-12. **Update the repo-memory state file** — machine state, evidence log,
-    run history, and any failed approaches. This is the detailed record.
+12. **Write the updated state file** to
+    `/tmp/gh-aw/repo-memory-default/issue-<number>.md` — machine state,
+    evidence log, run history, and any failed approaches. gh-aw will
+    auto-commit and push it after your job ends.
 13. **Post a short issue comment** — a brief summary for visibility.
     Keep the heavy detail in the state file, not the comment.
 
