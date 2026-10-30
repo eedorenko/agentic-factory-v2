@@ -188,20 +188,19 @@ Read `TEAM.md` (via `AGENTS.md`) for the team directory and routing rules.
 
 ## Determine What To Do
 
-On every run, figure out your situation:
+**FIRST on every run:** read your state file (see "State — MANDATORY").
+Then figure out your situation:
 
 ### Triggered by `issues.labeled` or advisor mentioned you
-- **FIRST:** move the issue to In Progress on the project board. You
+- Move the issue to In Progress on the project board. You
   MUST actually invoke the `update_project` tool — describing the move in a
   comment does nothing:
   `update_project(project: "https://github.com/users/eedorenko/projects/2", content_type: "issue", content_number: <issue number>, fields: {"Status": "In Progress"})`
-  Do this before anything else.
 - Then proceed to the Run Loop.
 
 ### Triggered by `issue_comment` or `pull_request_review`
-- Read your **state file first**: `cat /tmp/gh-aw/repo-memory-default/issue-<number>.md`
-  — which issue, which checkpoint, what status?
-- Then read the comment/review. Is it on an issue you're working on?
+- Your state file tells you which issue, which checkpoint, what status.
+- Read the comment/review. Is it on an issue you're working on?
 - If someone answered a question you asked: continue from your last
   checkpoint.
 - If the reviewer requested changes: fix them.
@@ -266,71 +265,41 @@ adapt to what's there. Do NOT require a rigid template. Work with what you have.
 **Only ask for clarification when you genuinely cannot proceed.** Most issues
 have enough information to start.
 
-## State (Repo Memory)
+## State (Repo Memory) — MANDATORY
 
-Your private working memory lives in a repo-memory file on the `memory/goal`
-branch. gh-aw mounts this branch at `/tmp/gh-aw/repo-memory-default/` before
-your agent job starts, and auto-commits/pushes any changes after your job ends.
-**This is your scratchpad — it does not clutter the issue thread and does not
-trigger events.**
+Your private memory: `/tmp/gh-aw/repo-memory-default/issue-<number>.md`
+(e.g. `issue-34.md` for issue #34). gh-aw auto-pushes it after your job ends.
+It does not trigger events.
 
-The file path is `/tmp/gh-aw/repo-memory-default/issue-<number>.md` where
-`<number>` is the issue number (e.g. `issue-34.md` for issue #34).
+**YOU MUST read this file at the start and write it at the end of EVERY run.**
 
-**At the start of every run**, check if the file exists:
+### Read (FIRST thing every run)
+
 ```bash
-cat /tmp/gh-aw/repo-memory-default/issue-<number>.md
-```
-If it exists, read it — this is your memory from the previous run.
-If it does not exist, create it with this structure:
-
-```markdown
-# Executor #<issue>: <title>
-
-## Machine State
-
-| Field | Value |
-|-------|-------|
-| Issue | #<issue> |
-| Branch | `executor/<issue>-<slug>` |
-| PR | - |
-| Status | active |
-| Last Run | - |
-| Run Count | 0 |
-| Completed | false |
-| Blocked | false |
-| Blocked Reason | - |
-
-## Current Checkpoint
-
-- None yet.
-
-## Failed Approaches
-
-(Record what you tried and why it didn't work, so you don't repeat it.)
-
-## Evidence Log
-
-- None yet.
-
-## Run History
-
-- None yet.
+cat /tmp/gh-aw/repo-memory-default/issue-34.md 2>/dev/null || echo "FIRST RUN"
 ```
 
-### Two channels, two purposes
+### Write (LAST thing every run)
 
-| Channel | What goes there | Why |
-|---------|----------------|-----|
-| **State file** (repo-memory) | Machine state, checkpoint, failed approaches, evidence log, run history | Private working memory — no event triggers, no clutter, structured |
-| **Issue comments** | Short progress updates, questions for other agents/humans, checkpoint markers | Public communication — visible to everyone, triggers next runs |
+```bash
+cat > /tmp/gh-aw/repo-memory-default/issue-34.md << 'STATEEOF'
+checkpoint: <what to do next, or "done">
+branch: executor/34-<slug>
+pr: <PR number or "none">
+runs: <total count>
+---
+run 2: <one-line what happened>
+run 1: <one-line what happened>
+---
+failed: <what didn't work and why, or "none">
+STATEEOF
+```
 
-**On every run:**
-1. Read the state file FIRST — it tells you where you left off.
-2. Read new issue comments since the last run — did anyone respond?
-3. Do the work.
-4. Update the state file (machine state, evidence, run history).
-5. Post a short issue comment (progress + checkpoint marker if needed).
+Replace `34` with the actual issue number. The `checkpoint` line is the most
+important — it tells your next run exactly where to pick up.
+
+Issue comments = communication (progress, questions, checkpoint triggers).
+State file = your memory (what you tried, what failed, what's next).
 
 ## Branch And PR Rules
 
@@ -385,11 +354,8 @@ continues or hands off to the next run.
 For the selected goal:
 
 1. Read `AGENTS.md` or other repository instructions.
-2. **Read your state file first:** run
-   `cat /tmp/gh-aw/repo-memory-default/issue-<number>.md` — it has your
-   machine state, current checkpoint, failed approaches, and evidence log.
-   This is your primary memory of where you left off. If the file does not
-   exist, this is your first run for this issue — create it (see State).
+2. **Read your state file** (see "State — MANDATORY" above). This tells you
+   where you left off. If it prints "FIRST RUN", this is a new issue.
 3. Read the goal issue body and **new** comments since your last run
    (human guidance, agent responses, answers to your questions).
 4. **Choose the next checkpoint.** What is the smallest useful step
@@ -438,10 +404,9 @@ comment via the gate exception) will check for the answer.
 
 ### Update state
 
-12. **Write the updated state file** to
-    `/tmp/gh-aw/repo-memory-default/issue-<number>.md` — machine state,
-    evidence log, run history, and any failed approaches. gh-aw will
-    auto-commit and push it after your job ends.
+12. **Write the state file** (see "State — MANDATORY" above). Use the
+    exact `cat >` bash command shown there. This is how your next run
+    knows where to pick up.
 13. **Post a short issue comment** — a brief summary for visibility.
     Keep the heavy detail in the state file, not the comment.
 
@@ -462,28 +427,6 @@ step), OMIT the `<!-- EXECUTOR:CHECKPOINT -->` marker.
 **The `<!-- EXECUTOR:CHECKPOINT -->` marker is critical.** It tells the
 gate to let your own comment re-trigger you for the next run. Without it,
 your comment is skipped by the anti-loop filter and no next run happens.
-
-## Status Comment
-
-Maintain one durable status comment on the issue. Find the earliest bot comment
-containing `<!-- GOAL:STATUS -->`; edit it if it exists, otherwise create it.
-
-```markdown
-<!-- GOAL:STATUS -->
-Executor status: <active | needs_action | blocked | completed>
-
-| Field | Value |
-|-------|-------|
-| Branch | `<branch>` |
-| PR | #<pr or "-"> |
-| Last Run | [<UTC time>](<run_url>) |
-| Run Count | <count> |
-| Latest Evidence | <one-line result> |
-| Remaining Work | <one-line summary> |
-
-Summary:
-<two or three concise sentences>
-```
 
 ## On Every Subsequent Run — Check Review Status
 
