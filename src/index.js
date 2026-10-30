@@ -1,5 +1,5 @@
 const { renderFooter } = require('./footer');
-const { searchItems, colorHighlight } = require('./search');
+const { searchItems, colorHighlight, limitResults, DEFAULT_LIMIT } = require('./search');
 
 const DESCRIPTION = 'agentic-factory-app: Simple app for testing agentic factory pipeline';
 const QUIT_TIP = 'Tip: Press Ctrl+Q to quit at any time.';
@@ -13,6 +13,8 @@ function getHelpText() {
     'Options:',
     '  --help           Show this help text',
     '  --search <term>  Search sample items and highlight matches',
+    `  --limit N        Show at most N results (default: ${DEFAULT_LIMIT})`,
+    '  --no-limit       Show all results',
     '',
     QUIT_TIP,
   ].join('\n');
@@ -22,6 +24,10 @@ const SAMPLE_ITEMS = [
   { title: 'Color support', description: 'Highlight matches in search results' },
   { title: 'Pagination', description: 'Split results into pages' },
   { title: 'CSV export', description: 'Export search results to CSV' },
+  ...Array.from({ length: 25 }, (_, n) => ({
+    title: `Item ${n + 1}`,
+    description: `Description for item ${n + 1}`,
+  })),
 ];
 
 function main(argv) {
@@ -32,7 +38,19 @@ function main(argv) {
   const i = argv.indexOf('--search');
   if (i !== -1) {
     const query = argv[i + 1];
-    const { items } = colorHighlight({ items: searchItems(SAMPLE_ITEMS, query) }, query);
+    let limit = DEFAULT_LIMIT;
+    const li = argv.indexOf('--limit');
+    if (li !== -1) {
+      limit = Number(argv[li + 1]);
+      if (!Number.isInteger(limit) || limit < 0) {
+        console.error('Error: --limit requires a non-negative integer');
+        process.exitCode = 1;
+        return;
+      }
+    }
+    if (argv.includes('--no-limit')) limit = Infinity;
+    const found = limitResults(searchItems(SAMPLE_ITEMS, query), limit);
+    const { items } = colorHighlight({ items: found }, query);
     for (const item of items) console.log(`${item.title} - ${item.description}`);
     return;
   }
