@@ -66,14 +66,6 @@ on:
         fi
         # All other events (schedule, workflow_dispatch, issues, pull_request_review) pass through
         echo "skip=false" >> "$GITHUB_OUTPUT"
-    - name: Seed comment-memory
-      run: |
-        mkdir -p /tmp/gh-aw/comment-memory
-        FILE="/tmp/gh-aw/comment-memory/executor-state.md"
-        if [ ! -s "$FILE" ]; then
-          printf 'checkpoint: start\nbranch: none\npr: none\nruns: 0\n---\n(no runs yet)\n---\nfailed: none\n' > "$FILE"
-        fi
-
 if: needs.pre_activation.outputs.gate_skip != 'true'
 
 jobs:
