@@ -46,3 +46,10 @@ describe('renderFooter', () => {
     assert.ok(html.includes('Copyright'));
   });
 });
+
+describe('version', () => {
+  it('shows v1.0.0 at the end of the footer', () => {
+    assert.strictEqual(getFooterContent('TestSite').version, 'v1.0.0');
+    assert.ok(renderFooter('TestSite').endsWith('<p>v1.0.0</p>\n</footer>'));
+  });
+});
