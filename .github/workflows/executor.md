@@ -434,14 +434,26 @@ a comment). Please submit with event APPROVE."
 
 Merging takes TWO runs because writes are buffered.
 
-**Run A — Merge only (after confirming APPROVED review exists):**
-Call `merge_pr(pr_number: "<your PR number>")` and NOTHING ELSE. No
-labels, no comments. Just merge. The next run will verify.
+**Run A — Request merge (after confirming APPROVED review exists):**
+Do two things in this run:
+1. Call `merge_pr(pr_number: "<your PR number>")`.
+2. Post a checkpoint comment on the issue so your next run can verify:
+   ```
+   Executor: merge requested for PR #<N>, verifying on next run.
+   <!-- EXECUTOR:CHECKPOINT -->
+   ```
+
+The checkpoint comment is critical — if the merge fails (e.g. conflict),
+the `pull_request` closed event won't fire, and this comment is the only
+way to re-trigger yourself.
 
 **Run B — Verify and close out:**
-Triggered by the `pull_request` closed event (or, as a fallback, your next
-scheduled run). Read the PR state via MCP tools (e.g. `get_pull_request`).
-- If the PR is NOT merged: the merge failed. Try again or report.
+Triggered by the `pull_request` closed event, your checkpoint comment,
+or your next scheduled run. Read the PR state via MCP tools
+(e.g. `get_pull_request`).
+- If the PR is NOT merged: the merge failed. Investigate (e.g. merge
+  conflict, branch protection). Rebase or fix, then retry merge_pr.
+  Post another checkpoint comment.
 - If the PR state is `MERGED`:
   1. CALL `update_project` to move the issue to Testing:
      `update_project(project: "https://github.com/users/eedorenko/projects/2", content_type: "issue", content_number: <issue number>, fields: {"Status": "Testing"})`
