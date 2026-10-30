@@ -24,7 +24,14 @@ const SAMPLE_ITEMS = [
   { title: 'CSV export', description: 'Export search results to CSV' },
 ];
 
+function formatTimestamp(date = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
 function main(argv) {
+  console.log(`Started at: ${formatTimestamp()}`);
   if (argv.includes('--help')) {
     console.log(getHelpText());
     return;
@@ -44,4 +51,4 @@ if (require.main === module) {
   main(process.argv.slice(2));
 }
 
-module.exports = { getHelpText, main, QUIT_TIP };
+module.exports = { formatTimestamp, getHelpText, main, QUIT_TIP };

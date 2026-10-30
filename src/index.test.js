@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
-const { getHelpText, QUIT_TIP } = require('./index');
+const { formatTimestamp, getHelpText, QUIT_TIP } = require('./index');
 
 test('help text ends with the quit tip', () => {
   assert.strictEqual(QUIT_TIP, 'Tip: Press Ctrl+Q to quit at any time.');
@@ -20,7 +20,8 @@ test('default output shows version in footer', () => {
 });
 
 const runSearch = (term) =>
-  execFileSync('node', [path.join(__dirname, 'index.js'), '--search', term], { encoding: 'utf8' });
+  execFileSync('node', [path.join(__dirname, 'index.js'), '--search', term], { encoding: 'utf8' })
+    .split('\n').slice(1).join('\n');
 
 test('--search highlights title matches', () => {
   const out = runSearch('pagination');
@@ -36,4 +37,13 @@ test('--search highlights description matches', () => {
 
 test('--search with no matches prints nothing', () => {
   assert.strictEqual(runSearch('zzzz'), '');
+});
+
+test('formatTimestamp uses YYYY-MM-DD HH:MM:SS', () => {
+  assert.strictEqual(formatTimestamp(new Date(2026, 0, 2, 3, 4, 5)), '2026-01-02 03:04:05');
+});
+
+test('first output line is the startup timestamp', () => {
+  const out = execFileSync('node', [path.join(__dirname, 'index.js')], { encoding: 'utf8' });
+  assert.match(out.split('\n')[0], /^Started at: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
 });
