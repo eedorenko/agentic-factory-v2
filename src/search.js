@@ -11,6 +11,14 @@ function searchItems(items, query) {
   );
 }
 
+const DEFAULT_LIMIT = 10;
+
+function limitResults(results, limit = DEFAULT_LIMIT) {
+  const rows = Array.isArray(results) ? results : [];
+  if (limit === Infinity || limit == null) return rows.slice();
+  return rows.slice(0, limit);
+}
+
 function countMatches(items, query) {
   if (!items || items.length === 0) return 0;
   return searchItems(items, query).length;
@@ -120,4 +128,4 @@ function flattenNestedResults(results) {
   return out;
 }
 
-module.exports = { flattenNestedResults, groupByCategory, sortByRelevance, truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults };
+module.exports = { DEFAULT_LIMIT, limitResults, flattenNestedResults, groupByCategory, sortByRelevance, truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults };
