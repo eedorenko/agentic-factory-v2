@@ -56,22 +56,14 @@ function exportToJson(results) {
   return JSON.stringify(rows.map(({ title, description }) => ({ title, description })));
 }
 
-function highlightResults(results, query) {
-  const rows = (results && results.items) || [];
-  if (!query) return { ...results, items: rows.map(item => ({ ...item })) };
-  const re = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-  const mark = text => (typeof text === 'string' ? text.replace(re, m => `<mark>${m}</mark>`) : text);
-  return {
-    ...results,
-    items: rows.map(item => ({ ...item, title: mark(item.title), description: mark(item.description) })),
-  };
-}
+const ANSI_YELLOW_BOLD = '\x1b[1;33m';
+const ANSI_RESET = '\x1b[0m';
 
-function coloResults(results, query) {
+function colorHighlight(results, query) {
   const rows = (results && results.items) || [];
   if (!query) return { ...results, items: rows.map(item => ({ ...item })) };
-  const re = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-  const color = text => (typeof text === 'string' ? text.replace(re, m => `<span style="color:red">${m}</span>`) : text);
+  const re = new RegExp(String(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  const color = text => (typeof text === 'string' ? text.replace(re, m => `${ANSI_YELLOW_BOLD}${m}${ANSI_RESET}`) : text);
   return {
     ...results,
     items: rows.map(item => ({ ...item, title: color(item.title), description: color(item.description) })),
@@ -120,4 +112,4 @@ function flattenNestedResults(results) {
   return out;
 }
 
-module.exports = { flattenNestedResults, groupByCategory, sortByRelevance, truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults };
+module.exports = { flattenNestedResults, groupByCategory, sortByRelevance, truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, colorHighlight };

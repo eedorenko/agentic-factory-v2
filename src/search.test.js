@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
-const { flattenNestedResults, groupByCategory, sortByRelevance, truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults } = require('./search');
+const { flattenNestedResults, groupByCategory, sortByRelevance, truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, colorHighlight } = require('./search');
 
 const testItems = Array.from({ length: 25 }, (_, i) => ({
   title: `Item ${i + 1}`,
@@ -94,58 +94,29 @@ describe('exportToJson', () => {
   });
 });
 
-describe('highlightResults', () => {
+describe('colorHighlight', () => {
   const res = { page: 1, items: [{ title: 'Hello World', description: 'hello again, HELLO' }] };
+  const y = m => `\x1b[1;33m${m}\x1b[0m`;
 
-  it('highlights matches', () => {
-    const out = highlightResults(res, 'World');
-    assert.strictEqual(out.items[0].title, 'Hello <mark>World</mark>');
+  it('wraps matches in yellow bold, case-insensitively, preserving casing', () => {
+    const out = colorHighlight(res, 'hello');
+    assert.strictEqual(out.items[0].title, `${y('Hello')} World`);
     assert.strictEqual(out.page, 1);
   });
 
-  it('is case-insensitive and preserves original casing', () => {
-    assert.strictEqual(highlightResults(res, 'hello').items[0].title, '<mark>Hello</mark> World');
-  });
-
-  it('leaves unchanged when no match', () => {
-    assert.deepStrictEqual(highlightResults(res, 'zzz').items, res.items);
-  });
-
-  it('handles multiple occurrences', () => {
-    assert.strictEqual(highlightResults(res, 'hello').items[0].description, '<mark>hello</mark> again, <mark>HELLO</mark>');
+  it('highlights the description and multiple occurrences', () => {
+    assert.strictEqual(colorHighlight(res, 'hello').items[0].description, `${y('hello')} again, ${y('HELLO')}`);
   });
 
   it('escapes regex characters and does not mutate input', () => {
     const r = { items: [{ title: 'a.b axb', description: '' }] };
-    assert.strictEqual(highlightResults(r, 'a.b').items[0].title, '<mark>a.b</mark> axb');
-    assert.strictEqual(r.items[0].title, 'a.b axb');
-  });
-
-  it('returns items unchanged for empty query', () => {
-    assert.deepStrictEqual(highlightResults(res, '').items, res.items);
-  });
-});
-
-describe('coloResults', () => {
-  const res = { page: 1, items: [{ title: 'Hello World', description: 'hello again' }] };
-  const open = '<span style="color:red">';
-
-  it('wraps matches case-insensitively, preserving casing', () => {
-    const out = coloResults(res, 'hello');
-    assert.strictEqual(out.items[0].title, `${open}Hello</span> World`);
-    assert.strictEqual(out.items[0].description, `${open}hello</span> again`);
-    assert.strictEqual(out.page, 1);
-  });
-
-  it('escapes regex characters and does not mutate input', () => {
-    const r = { items: [{ title: 'a.b axb', description: '' }] };
-    assert.strictEqual(coloResults(r, 'a.b').items[0].title, `${open}a.b</span> axb`);
+    assert.strictEqual(colorHighlight(r, 'a.b').items[0].title, `${y('a.b')} axb`);
     assert.strictEqual(r.items[0].title, 'a.b axb');
   });
 
   it('returns items unchanged for empty query or no match', () => {
-    assert.deepStrictEqual(coloResults(res, '').items, res.items);
-    assert.deepStrictEqual(coloResults(res, 'zzz').items, res.items);
+    assert.deepStrictEqual(colorHighlight(res, '').items, res.items);
+    assert.deepStrictEqual(colorHighlight(res, 'zzz').items, res.items);
   });
 });
 
