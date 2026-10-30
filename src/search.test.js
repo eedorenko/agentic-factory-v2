@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
-const { flattenNestedResults, groupByCategory, sortByRelevance, truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults } = require('./search');
+const { limitResults, DEFAULT_LIMIT, flattenNestedResults, groupByCategory, sortByRelevance, truncateDescription, searchItems, countMatches, paginate, formatSearchResults, exportToCSV, exportToJson, highlightResults, coloResults } = require('./search');
 
 const testItems = Array.from({ length: 25 }, (_, i) => ({
   title: `Item ${i + 1}`,
@@ -266,5 +266,25 @@ describe('flattenNestedResults', () => {
   it('handles 3+ levels of nesting', () => {
     const input = [{ id: 1, children: [{ id: 2, children: [{ id: 3, children: [{ id: 4 }] }] }] }];
     assert.deepStrictEqual(flattenNestedResults(input).map(i => i.id), [1, 2, 3, 4]);
+  });
+});
+
+describe('limitResults', () => {
+  it('defaults to 10', () => {
+    assert.strictEqual(DEFAULT_LIMIT, 10);
+    assert.strictEqual(limitResults(testItems).length, 10);
+  });
+
+  it('limits to N', () => {
+    assert.strictEqual(limitResults(testItems, 5).length, 5);
+  });
+
+  it('returns all with Infinity', () => {
+    assert.strictEqual(limitResults(testItems, Infinity).length, 25);
+  });
+
+  it('handles fewer results than limit and bad input', () => {
+    assert.strictEqual(limitResults(testItems.slice(0, 3), 5).length, 3);
+    assert.deepStrictEqual(limitResults(null), []);
   });
 });
