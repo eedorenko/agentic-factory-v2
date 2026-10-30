@@ -2,6 +2,8 @@
  * Footer component utilities.
  */
 
+const VERSION = 'v1.0.0';
+
 function getFooterContent(siteName, itemCount) {
   const year = new Date().getFullYear();
   const content = {
@@ -11,6 +13,7 @@ function getFooterContent(siteName, itemCount) {
       { text: 'Terms of Service', url: '/terms' },
       { text: 'Contact', url: '/contact' },
     ],
+    version: VERSION,
   };
   if (itemCount !== undefined && itemCount !== null) {
     content.searchInfo = `Searching ${itemCount} items`;
@@ -25,7 +28,8 @@ function renderFooter(siteName, itemCount) {
 ${content.searchInfo ? `  <p>${content.searchInfo}</p>\n` : ''}  <nav>
     ${content.links.map(link => `<a href="${link.url}">${link.text}</a>`).join(' | ')}
   </nav>
+  <p>${content.version}</p>
 </footer>`;
 }
 
-module.exports = { getFooterContent, renderFooter };
+module.exports = { getFooterContent, renderFooter, VERSION };

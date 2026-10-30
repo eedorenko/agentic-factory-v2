@@ -1,3 +1,5 @@
+const { renderFooter } = require('./footer');
+
 const DESCRIPTION = 'agentic-factory-app: Simple app for testing agentic factory pipeline';
 const QUIT_TIP = 'Tip: Press Ctrl+Q to quit at any time.';
 
@@ -20,6 +22,7 @@ function main(argv) {
     return;
   }
   console.log(DESCRIPTION);
+  console.log(renderFooter('agentic-factory-app'));
 }
 
 if (require.main === module) {

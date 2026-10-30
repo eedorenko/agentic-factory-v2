@@ -13,3 +13,8 @@ test('--help prints tip as last line', () => {
   const out = execFileSync('node', [path.join(__dirname, 'index.js'), '--help'], { encoding: 'utf8' });
   assert.strictEqual(out.trimEnd().split('\n').pop(), QUIT_TIP);
 });
+
+test('default output shows version in footer', () => {
+  const out = execFileSync('node', [path.join(__dirname, 'index.js')], { encoding: 'utf8' });
+  assert.ok(out.includes('v1.0.0'));
+});
