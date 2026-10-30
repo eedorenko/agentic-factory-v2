@@ -3,7 +3,8 @@ description: |
   Review Agent — orchestrates the code review process for PRs from the
   Executor. Multi-run: assigns Copilot, waits for its review, does its
   own analysis, communicates with other agents if needed, and submits
-  a verdict. Uses issue comments as communication bus.
+  a verdict. Uses comment-memory for state and issue comments as
+  communication bus.
 
 concurrency:
   group: "reviewer-${{ startsWith(github.event.issue.title, '[aw]') && github.run_id || github.event.issue.number || github.event.pull_request.number || 'default' }}"
@@ -68,6 +69,8 @@ permissions:
 tools:
   github:
     toolsets: [pull_requests, issues, repos, search]
+  comment-memory:
+    memory-id: reviewer-state
 
 safe-outputs:
   github-app:
@@ -106,9 +109,38 @@ a review in one shot. You can:
 
 Read `TEAM.md` (via `AGENTS.md`) for the team directory and routing rules.
 
+## State (Comment Memory)
+
+Your working memory is in `/tmp/gh-aw/comment-memory/reviewer-state.md`.
+gh-aw loads it from a managed comment on the triggering PR before your job
+starts, and auto-syncs changes back after your job ends. No explicit tool
+calls needed — just edit the file.
+
+On your first run for a PR the file may be empty or missing. Write it with
+this structure:
+
+```
+pr: #<number>
+checkpoint: <what to do next>
+copilot_reviewed: false
+verdict: pending
+runs: 1
+---
+run 1: <what happened>
+---
+findings: none yet
+```
+
+On subsequent runs, update `checkpoint`, `copilot_reviewed`, `verdict`,
+`runs`, the run log, and `findings`.
+
+Note: on schedule or workflow_run triggers there may be no triggering PR, so
+comment-memory won't be available. Use PR comments to reconstruct context.
+
 ## Determine What To Do
 
-On every run, figure out your situation:
+**FIRST on every run:** read your comment-memory state file (see "State").
+Then figure out your situation:
 
 ### 1. Find PRs to review
 
@@ -126,7 +158,7 @@ If no PRs need review: call `noop`.
 
 ### 2. Check your state on this PR
 
-Read the issue comments and PR comments to understand where you are:
+Your comment-memory state tells you where you are. If empty (first run):
 
 - **First time seeing this PR**: Go to "Start Review" below.
 - **You posted a REVIEW:WAITING comment**: Check if what you were
@@ -291,6 +323,11 @@ Use this as the body of your `submit-pull-request_review`:
 ### Copilot Review
 [Agree/disagree with Copilot's findings, or "No Copilot review present"]
 ```
+
+## Update State
+
+At the end of every run, update your comment-memory state file —
+checkpoint, verdict, copilot_reviewed, run log. gh-aw auto-syncs it.
 
 ## Rules
 
