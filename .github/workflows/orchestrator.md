@@ -6,7 +6,7 @@ description: |
   Pure plumbing — no product decisions.
 
 concurrency:
-  group: "orchestrator-${{ startsWith(github.event.issue.title, '[aw]') && github.run_id || github.event_name }}"
+  group: "orchestrator-${{ github.event_name == 'issue_comment' && github.event.issue.number || github.run_id }}"
   cancel-in-progress: true
 
 on:
@@ -107,6 +107,21 @@ safe-outputs:
     max: 10
     project: "https://github.com/users/eedorenko/projects/2"
     github-token: ${{ secrets.GH_AW_PROJECT_GITHUB_TOKEN }}
+  jobs:
+    next-run:
+      description: "Queue the next orchestrator scan after a delay"
+      runs-on: ubuntu-latest
+      permissions:
+        contents: read
+      steps:
+        - name: Wait for current run to finish
+          run: sleep 120
+        - name: Trigger next scan
+          env:
+            GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+          run: |
+            gh api repos/${{ github.repository }}/dispatches \
+              -f event_type=orchestrator-heartbeat
 
 timeout-minutes: 15
 ---
@@ -264,10 +279,20 @@ safeoutputs ledger_append '{"ledger":"nudges","operation":"append","value":{"iss
 safeoutputs ledger_append '{"ledger":"scans","operation":"increment","name":"total","amount":1}'
 ```
 
+### Step 6 — Self-Trigger
+
+If there is ANY active work on the board (issues in Backlog, Ready,
+In Progress, In Review, or Blocked), call `next_run()` to queue the
+next orchestrator scan. This ensures continuous monitoring without
+relying on GitHub's unreliable cron scheduler.
+
+Do NOT call `next_run()` if the board is idle (all issues Done or no
+open issues). The schedule cron will wake you up when new work appears.
+
 ## When You Run
 
-- **Schedule / heartbeat / workflow_dispatch** → full scan (Steps 0–5)
-- **@orchestrator mention** → handle the request (Step 3), then quick scan (always read/write ledger)
+- **Schedule / heartbeat / workflow_dispatch** → full scan (Steps 0–6)
+- **@orchestrator mention** → handle the request (Step 3), then quick scan (always read/write ledger + self-trigger)
 
 ## Moving Issues Between Columns
 
