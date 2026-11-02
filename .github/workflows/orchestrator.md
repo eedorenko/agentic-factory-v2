@@ -235,54 +235,31 @@ Post a comment on the issue with the risk assessment and recommended action.
 
 ### Step 5 — Write Ledger
 
-Queue mutations via `ledger_append`. These writes are **queued** and persisted
-after the agent run completes — they will NOT be visible to queries in this
-same run.
+Queue mutations via the `safeoutputs` CLI in bash. These writes are **queued**
+and persisted after the agent run completes — they will NOT be visible to
+queries in this same run.
 
-IMPORTANT: The `value` parameter MUST be a JSON object, NOT a JSON string.
-Pass `value: {"key": "val"}` not `value: "{\"key\": \"val\"}"`.
-The validator rejects stringified JSON.
+IMPORTANT: Use the `safeoutputs` bash CLI (not the MCP tool) for ledger writes.
+The `value` field MUST be a nested JSON object, not a string.
 
 **Board state** — for each tracked issue, upsert its current state:
-```
-ledger_append(
-  ledger: "board",
-  operation: "upsert",
-  value: {
-    "issue_number": "<N>",
-    "column": "<current column>",
-    "since": "<ISO timestamp — keep existing if column unchanged>",
-    "prev_column": "<old column if changed, else keep existing>",
-    "nudge_count": <count>,
-    "last_nudge": "<ISO timestamp or empty>",
-    "bounce_count": <count>,
-    "flags": "<comma-separated flags or empty>"
-  }
-)
+```bash
+safeoutputs ledger_append '{"ledger":"board","operation":"upsert","value":{"issue_number":"43","column":"In Review","since":"2026-11-02T19:00:00Z","prev_column":"Ready","nudge_count":0,"last_nudge":"","bounce_count":0,"flags":""}}'
 ```
 
 For issues that are closed/done and no longer on the board:
-```
-ledger_append(ledger: "board", operation: "delete", key: "<issue_number>")
+```bash
+safeoutputs ledger_append '{"ledger":"board","operation":"delete","key":"43"}'
 ```
 
 **Nudge log** — for each nudge sent this run, append a record:
-```
-ledger_append(
-  ledger: "nudges",
-  operation: "append",
-  value: {
-    "issue_number": "<N>",
-    "action": "<nudge|escalate|move>",
-    "target": "<@agent or @human>",
-    "reason": "<why>"
-  }
-)
+```bash
+safeoutputs ledger_append '{"ledger":"nudges","operation":"append","value":{"issue_number":"43","action":"nudge","target":"@executor","reason":"No activity in 1h"}}'
 ```
 
 **Scan counter** — increment once per run:
-```
-ledger_append(ledger: "scans", operation: "increment", name: "total", amount: 1)
+```bash
+safeoutputs ledger_append '{"ledger":"scans","operation":"increment","name":"total","amount":1}'
 ```
 
 ## When You Run
