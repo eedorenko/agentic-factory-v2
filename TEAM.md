@@ -23,7 +23,7 @@ asking the wrong agent and redirects.
 | @triager | Triager | triager.md | Classifies, prioritizes, and routes incoming issues. Moves issues from Backlog to Ready (or Blocked). Answers "is this a duplicate?" and backlog questions. Has backlog context. |
 | @executor | Executor | executor.md | Implements tasks via multi-run Goal pattern: plans if complex, codes, runs tests, runs the program, verifies Definition of Done, creates PRs. Moves issues: Ready → In Progress → In Review → Testing → Done. |
 | @reviewer | Reviewer | reviewer.md | Multi-lens code review (Functional, Standards, Security, Readiness). Assigns Copilot as reviewer, incorporates its findings. Submits proper GitHub reviews (APPROVE/REQUEST_CHANGES). Severity taxonomy + depth tiers. |
-| @orchestrator | Orchestrator | orchestrator.md | Monitors the project board. Detects stuck states, nudges agents. Routes misaddressed questions. Enforces escalation policy. Creates and maintains the project board. Pure plumbing — no product or technical decisions. |
+| @orchestrator | Orchestrator | orchestrator.md | Monitors the project board. Detects stuck states, nudges agents. Routes misaddressed questions. Enforces escalation policy. Tracks velocity (time-in-column), predicts risks (churn, bottlenecks, struggling agents). Ensures process compliance. Pure plumbing — no product or technical decisions. |
 
 ### Knowledge Agents
 
