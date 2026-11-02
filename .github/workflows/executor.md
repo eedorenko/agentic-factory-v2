@@ -164,6 +164,10 @@ checkout:
 tools:
   github:
     toolsets: [all]
+    min-integrity: approved
+    trusted-users:
+      - copilot-pull-request-reviewer
+      - a-factory-bot
   bash: true
   comment-memory:
     memory-id: executor-state

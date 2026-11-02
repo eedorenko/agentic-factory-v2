@@ -70,6 +70,10 @@ permissions:
 tools:
   github:
     toolsets: [pull_requests, issues, repos, search]
+    min-integrity: approved
+    trusted-users:
+      - copilot-pull-request-reviewer
+      - a-factory-bot
   comment-memory:
     memory-id: reviewer-state
 

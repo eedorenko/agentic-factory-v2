@@ -65,6 +65,10 @@ tools:
   github:
     toolsets: [issues, pull_requests, search, projects]
     github-token: ${{ secrets.GH_AW_PROJECT_GITHUB_TOKEN }}
+    min-integrity: approved
+    trusted-users:
+      - copilot-pull-request-reviewer
+      - a-factory-bot
   ledger:
     board:
       type: table

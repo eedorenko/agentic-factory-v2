@@ -59,6 +59,10 @@ permissions:
 tools:
   github:
     toolsets: [issues, pull_requests, repos, search]
+    min-integrity: approved
+    trusted-users:
+      - copilot-pull-request-reviewer
+      - a-factory-bot
 
 safe-outputs:
   add-comment:
