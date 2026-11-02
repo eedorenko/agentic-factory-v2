@@ -22,6 +22,7 @@ on:
   workflow_run:
     workflows: [Copilot]
     types: [completed]
+    branches: ["executor/*"]
   schedule:
     - cron: "*/30 * * * *"
   bots: [Copilot, a-factory-bot]

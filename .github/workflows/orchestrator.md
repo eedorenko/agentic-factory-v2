@@ -65,6 +65,39 @@ tools:
   github:
     toolsets: [issues, pull_requests, search, projects]
     github-token: ${{ secrets.GH_AW_PROJECT_GITHUB_TOKEN }}
+  ledger:
+    board:
+      type: table
+      key: issue_number
+      schema:
+        type: object
+        required: [issue_number, column, since]
+        properties:
+          issue_number: { type: string }
+          column: { type: string }
+          since: { type: string }
+          prev_column: { type: string }
+          nudge_count: { type: number }
+          last_nudge: { type: string }
+          bounce_count: { type: number }
+          flags: { type: string }
+    nudges:
+      type: log
+      schema:
+        type: object
+        required: [issue_number, action, target]
+        properties:
+          issue_number: { type: string }
+          action: { type: string }
+          target: { type: string }
+          reason: { type: string }
+      max-segment-kb: 100
+      compaction:
+        schedule: weekly
+        min-segments: 32
+        max-segments: 128
+    scans:
+      type: counter
 
 safe-outputs:
   add-comment:
@@ -86,6 +119,41 @@ Read TEAM.md for the team directory, board definition, and escalation policy.
 
 ## What To Do Each Run
 
+### Step 0 — Read Ledger State
+
+Query three SQLite databases to load your memory from previous runs.
+The `state.value` column in board and nudges tables is canonical JSON text —
+use `json_extract()` to access fields.
+
+**Board snapshot** (`/tmp/gh-aw/ledgers/board/ledger.db`):
+```sql
+SELECT key AS issue_number,
+       json_extract(value, '$.column') AS column,
+       json_extract(value, '$.since') AS since,
+       json_extract(value, '$.prev_column') AS prev_column,
+       json_extract(value, '$.nudge_count') AS nudge_count,
+       json_extract(value, '$.last_nudge') AS last_nudge,
+       json_extract(value, '$.bounce_count') AS bounce_count,
+       json_extract(value, '$.flags') AS flags
+FROM state;
+```
+If the table is empty, this is a fresh scan — no prior state.
+
+**Recent nudges** (`/tmp/gh-aw/ledgers/nudges/ledger.db`):
+```sql
+SELECT json_extract(value, '$.issue_number') AS issue_number,
+       json_extract(value, '$.action') AS action,
+       json_extract(value, '$.target') AS target,
+       json_extract(value, '$.reason') AS reason
+FROM state ORDER BY position DESC LIMIT 50;
+```
+
+**Scan count** (`/tmp/gh-aw/ledgers/scans/ledger.db`):
+```sql
+SELECT value FROM state WHERE name = 'total';
+```
+Returns the total number of scans completed.
+
 ### Step 1 — Read the Board
 
 Read the project board via `list_project_items` on
@@ -104,6 +172,16 @@ For each column, apply escalation rules from TEAM.md:
 - **Blocked:** response arrived but issue not moved → move back, notify agent
 - **Blocked:** no response in >48h → escalate to human from TEAM.md
 - **Done:** PR not actually merged → move back to In Review, notify @executor
+
+**Anti-duplication:** Before nudging, query the board ledger:
+```sql
+SELECT key AS issue_number
+FROM state
+WHERE json_extract(value, '$.last_nudge') > datetime('now', '-1 hour');
+```
+Skip any issue in that result set. When you DO nudge, track it in your
+working memory (in-context list) — ledger writes are queued and won't be
+visible until the next run.
 
 Also check process compliance:
 
@@ -127,9 +205,25 @@ Read the comment that mentioned you. Route the request:
 
 ### Step 4 — Velocity & Risk Assessment
 
+**Bounce detection** — query the board ledger:
+```sql
+SELECT key AS issue_number,
+       json_extract(value, '$.column') AS column,
+       json_extract(value, '$.prev_column') AS prev_column,
+       json_extract(value, '$.bounce_count') AS bounce_count
+FROM state
+WHERE json_extract(value, '$.bounce_count') > 1;
+```
+These issues are bouncing between columns. Flag as churn.
+
+For each issue, compare its current board column to the `column` in the ledger:
+- If column changed: note the new column and old column (will become `prev_column`)
+- If column unchanged and same as `prev_column`: issue may be bouncing — increment bounce count
+- If current column == `prev_column` and different from ledger `column`: confirmed bounce
+
 **Velocity:** For each issue in In Progress or In Review:
-- Check how long it's been there (created_at or last column-move comment)
-- If abnormally long: post a comment noting the delay
+- Use the ledger's `since` timestamp to calculate time-in-column
+- If abnormally long: post a comment noting the delay (respecting anti-duplication from Step 2)
 
 **Risk patterns** across issues:
 - Same issue bouncing between columns (In Progress ↔ In Review) → flag as churn
@@ -139,15 +233,58 @@ Read the comment that mentioned you. Route the request:
 
 Post a comment on the issue with the risk assessment and recommended action.
 
-### Step 5 — Anti-Duplication
+### Step 5 — Write Ledger
 
-Before posting any nudge or observation, check if you already posted a
-similar comment on that issue recently (within the last hour). Don't spam.
+Queue mutations via `ledger_append`. These writes are **queued** and persisted
+after the agent run completes — they will NOT be visible to queries in this
+same run.
+
+**Board state** — for each tracked issue, upsert its current state:
+```
+ledger_append(
+  ledger: "board",
+  operation: "upsert",
+  value: {
+    "issue_number": "<N>",
+    "column": "<current column>",
+    "since": "<ISO timestamp — keep existing if column unchanged>",
+    "prev_column": "<old column if changed, else keep existing>",
+    "nudge_count": <count>,
+    "last_nudge": "<ISO timestamp or empty>",
+    "bounce_count": <count>,
+    "flags": "<comma-separated flags or empty>"
+  }
+)
+```
+
+For issues that are closed/done and no longer on the board:
+```
+ledger_append(ledger: "board", operation: "delete", key: "<issue_number>")
+```
+
+**Nudge log** — for each nudge sent this run, append a record:
+```
+ledger_append(
+  ledger: "nudges",
+  operation: "append",
+  value: {
+    "issue_number": "<N>",
+    "action": "<nudge|escalate|move>",
+    "target": "<@agent or @human>",
+    "reason": "<why>"
+  }
+)
+```
+
+**Scan counter** — increment once per run:
+```
+ledger_append(ledger: "scans", operation: "increment", name: "total", amount: 1)
+```
 
 ## When You Run
 
-- **Schedule / heartbeat / workflow_dispatch** → full scan (Steps 1–5)
-- **@orchestrator mention** → handle the request (Step 3), then quick scan
+- **Schedule / heartbeat / workflow_dispatch** → full scan (Steps 0–5)
+- **@orchestrator mention** → handle the request (Step 3), then quick scan (always read/write ledger)
 
 ## Moving Issues Between Columns
 
@@ -163,6 +300,7 @@ done by the agents themselves.
 - Pure plumbing: route, nudge, unblock, assess.
 - When in doubt, @mention @triager or the relevant human from TEAM.md.
 - Be concise — other agents and humans read your comments.
-- Check for duplicate nudges before posting.
+- Check the ledger for duplicate nudges before posting.
 - The Escalation Policy in TEAM.md is the source of truth for thresholds.
 - Never @mention yourself (@orchestrator) in your comments.
+- Ledger writes are queued — track in-run state in working memory (context).

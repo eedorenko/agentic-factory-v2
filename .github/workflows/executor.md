@@ -141,6 +141,9 @@ safe-outputs:
           with:
             app-id: ${{ vars.FACTORY_APP_ID }}
             private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
+            repositories: ${{ github.repository }}
+            permission-contents: write
+            permission-pull-requests: write
         - name: Merge PR
           env:
             GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -159,7 +162,6 @@ checkout:
   fetch-depth: 0
 
 tools:
-  web-fetch:
   github:
     toolsets: [all]
   bash: true
