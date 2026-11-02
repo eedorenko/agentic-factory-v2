@@ -177,11 +177,13 @@ For each column, apply escalation rules from TEAM.md:
 ```sql
 SELECT key AS issue_number
 FROM state
-WHERE json_extract(value, '$.last_nudge') > datetime('now', '-1 hour');
+WHERE json_extract(value, '$.last_nudge') > datetime('now', '-10 minutes');
 ```
-Skip any issue in that result set. When you DO nudge, track it in your
-working memory (in-context list) — ledger writes are queued and won't be
-visible until the next run.
+Skip any issue nudged in the last 10 minutes. If the last nudge was
+>10 min ago and the issue hasn't moved, nudge again — the previous nudge
+went unanswered. When you DO nudge, track it in your working memory
+(in-context list) — ledger writes are queued and won't be visible until
+the next run.
 
 Also check process compliance:
 
