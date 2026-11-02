@@ -1,0 +1,1 @@
+{"id":"ldg-6a24472a-3ce9-4b3f-a7bd-4425f5159137","parents":[],"payload":{"amount":1,"id":"ldg-758b3acd-c3f3-4a25-8515-5641c7283642","name":"total","operation":"increment"},"sha":"sha256:4a735c2b1ff2b7f6e5d198dfcae7dc076002103269c03a44f31f65b0f92062ff","timestamp":"2026-11-02T22:03:43.620Z","type":"ledger_append","version":1}
