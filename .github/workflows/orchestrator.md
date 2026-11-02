@@ -239,6 +239,10 @@ Queue mutations via `ledger_append`. These writes are **queued** and persisted
 after the agent run completes — they will NOT be visible to queries in this
 same run.
 
+IMPORTANT: The `value` parameter MUST be a JSON object, NOT a JSON string.
+Pass `value: {"key": "val"}` not `value: "{\"key\": \"val\"}"`.
+The validator rejects stringified JSON.
+
 **Board state** — for each tracked issue, upsert its current state:
 ```
 ledger_append(
