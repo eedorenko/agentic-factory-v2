@@ -37,3 +37,17 @@ test('--search highlights description matches', () => {
 test('--search with no matches prints nothing', () => {
   assert.strictEqual(runSearch('zzzz'), '');
 });
+
+const run = args => execFileSync('node', [path.join(__dirname, 'index.js'), ...args], { encoding: 'utf8' }).trim().split('\n');
+
+test('--search --limit 5 shows at most 5 results', () => {
+  assert.strictEqual(run(['--search', 'item', '--limit', '5']).length, 5);
+});
+
+test('--search defaults to 10 results', () => {
+  assert.strictEqual(run(['--search', 'item']).length, 10);
+});
+
+test('--no-limit shows all results', () => {
+  assert.strictEqual(run(['--search', 'item', '--no-limit']).length, 25);
+});
