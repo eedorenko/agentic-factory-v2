@@ -72,8 +72,8 @@ tools:
     toolsets: [pull_requests, issues, repos, search]
     min-integrity: approved
     trusted-users:
-      - copilot-pull-request-reviewer
-      - a-factory-bot
+      - "copilot-pull-request-reviewer[bot]"
+      - "a-factory-bot[bot]"
   comment-memory:
     memory-id: reviewer-state
 

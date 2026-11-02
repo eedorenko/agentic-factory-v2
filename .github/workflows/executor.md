@@ -166,8 +166,8 @@ tools:
     toolsets: [all]
     min-integrity: approved
     trusted-users:
-      - copilot-pull-request-reviewer
-      - a-factory-bot
+      - "copilot-pull-request-reviewer[bot]"
+      - "a-factory-bot[bot]"
   bash: true
   comment-memory:
     memory-id: executor-state
