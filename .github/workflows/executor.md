@@ -164,7 +164,7 @@ checkout:
 tools:
   github:
     toolsets: [all]
-    min-integrity: approved
+    min-integrity: none
     trusted-users:
       - "copilot-pull-request-reviewer[bot]"
       - "a-factory-bot[bot]"
