@@ -2,7 +2,7 @@
 description: |
   Execution Agent — picks up issues in Ready column, implements them across
   multiple runs, and opens a PR. Each issue keeps one canonical branch,
-  one PR, comment-memory state, and issue comments as the communication
+  one PR, cache-memory state, and issue comments as the communication
   bus. The issue stays in-progress until the PR is merged.
 
 concurrency:
@@ -180,8 +180,8 @@ tools:
       - "copilot-pull-request-reviewer[bot]"
       - "a-factory-bot[bot]"
   bash: true
-  comment-memory:
-    memory-id: executor-state
+  cache-memory:
+    key: executor-${{ github.event.issue.number || 'default' }}
 
 imports:
   - shared/reporting.md
@@ -202,7 +202,7 @@ Read `TEAM.md` (via `AGENTS.md`) for the team directory and routing rules.
 
 ## Determine What To Do
 
-**FIRST on every run:** read your comment-memory state file (see "State").
+**FIRST on every run:** read your cache-memory state file (see "State").
 Then figure out your situation:
 
 ### Triggered by `issues.labeled` or advisor mentioned you
@@ -213,7 +213,7 @@ Then figure out your situation:
 - Then proceed to the Run Loop.
 
 ### Triggered by `issue_comment` or `pull_request_review`
-- Your comment-memory state tells you which issue, which checkpoint, what status.
+- Your cache-memory state tells you which issue, which checkpoint, what status.
 - Read the comment/review. Is it on an issue you're working on?
 - If someone answered a question you asked: continue from your last
   checkpoint.
@@ -279,12 +279,13 @@ adapt to what's there. Do NOT require a rigid template. Work with what you have.
 **Only ask for clarification when you genuinely cannot proceed.** Most issues
 have enough information to start.
 
-## State (Comment Memory)
+## State (Cache Memory)
 
-Your working memory is in `/tmp/gh-aw/comment-memory/executor-state.md`.
-gh-aw loads it from a managed comment on the triggering issue before your job
-starts, and auto-syncs changes back after your job ends. No explicit tool
-calls needed — just edit the file.
+Your working memory is in `/tmp/gh-aw/cache-memory/executor-state.md`.
+gh-aw restores it from the Actions cache before your job starts and saves it
+back after your job ends. The cache key includes the issue number, so each
+issue gets its own isolated state. No explicit tool calls needed — just edit
+the file.
 
 **Why this matters:** You are a stateless agent. Every run starts from zero
 context — you have no memory of previous runs except what's in this file and
@@ -293,11 +294,14 @@ runs depends entirely on how well you write and maintain it.
 
 ### Budget
 
-The state file has a **10 KB hard limit**. That's roughly 10,000 characters or
-~150 lines. You must be disciplined: store references (file paths, commit SHAs,
-function names) not content (file bodies, full outputs). Store reasoning (why a
-decision was made) not narration (what commands you ran). Prune aggressively —
-old run details that no longer inform future work should be dropped.
+Cache memory has no tight per-file limit (backed by Actions cache, 10 GB
+repo-wide), but **unused caches are evicted after 7 days**. Keep the state
+file focused and useful regardless of size — store references (file paths,
+commit SHAs, function names) not content (file bodies, full outputs). Store
+reasoning (why a decision was made) not narration (what commands you ran).
+Prune aggressively — old run details that no longer inform future work should
+be dropped. Aim for under 20 KB; if you find yourself writing more, you're
+probably storing content instead of references.
 
 ### Structure
 
@@ -365,8 +369,10 @@ pkg/otel/metrics.go" not "continue implementation."
 
 ### On schedule or PR-closed triggers
 
-There is no triggering issue, so comment-memory won't be available.
-Use issue comments to reconstruct context.
+On schedule triggers there is no triggering issue, so the cache key
+defaults to `executor-default`. Your state file may contain state from a
+different issue. Check the `issue:` field and use issue comments to
+reconstruct context if needed.
 
 ## Branch And PR Rules
 
@@ -471,7 +477,7 @@ comment via the gate exception) will check for the answer.
 
 ### Update state
 
-12. **Rewrite your comment-memory state file.** Don't just append — reread
+12. **Rewrite your cache-memory state file.** Don't just append — reread
     the whole file and rewrite it with everything your next run needs to
     continue effectively. Ask yourself: "If I lost all context except this
     file, could I pick up where I left off?" Update Understanding with what
