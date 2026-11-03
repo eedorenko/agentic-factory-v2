@@ -141,7 +141,7 @@ safe-outputs:
           with:
             app-id: ${{ vars.FACTORY_APP_ID }}
             private-key: ${{ secrets.FACTORY_APP_PRIVATE_KEY }}
-            repositories: ${{ github.repository }}
+            repositories: ${{ github.event.repository.name }}
             permission-contents: write
             permission-pull-requests: write
         - name: Merge PR
