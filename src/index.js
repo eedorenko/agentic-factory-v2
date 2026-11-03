@@ -1,6 +1,8 @@
 const { renderFooter } = require('./footer');
 const { searchItems, colorHighlight, limitResults, DEFAULT_LIMIT } = require('./search');
 
+const { runInteractive } = require('./interactive');
+
 const DESCRIPTION = 'agentic-factory-app: Simple app for testing agentic factory pipeline';
 const QUIT_TIP = 'Tip: Press Ctrl+Q to quit at any time.';
 
@@ -15,6 +17,8 @@ function getHelpText() {
     '  --search <term>  Search sample items and highlight matches',
     `  --limit N        Show at most N results (default: ${DEFAULT_LIMIT})`,
     '  --no-limit       Show all results',
+    '  --interactive    Start an interactive search session',
+    '                   Commands: /page N, /limit N, /export csv|json, /quit',
     '',
     QUIT_TIP,
   ].join('\n');
@@ -41,6 +45,9 @@ function main(argv) {
   if (argv.includes('--help')) {
     console.log(getHelpText());
     return;
+  }
+  if (argv.includes('--interactive')) {
+    return runInteractive(SAMPLE_ITEMS);
   }
   const i = argv.indexOf('--search');
   if (i !== -1) {
