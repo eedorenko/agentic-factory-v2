@@ -275,29 +275,87 @@ gh-aw loads it from a managed comment on the triggering issue before your job
 starts, and auto-syncs changes back after your job ends. No explicit tool
 calls needed — just edit the file.
 
+**Why this matters:** You are a stateless agent. Every run starts from zero
+context — you have no memory of previous runs except what's in this file and
+in issue comments. This file IS your memory. The quality of your work across
+runs depends entirely on how well you write and maintain it.
+
+### Budget
+
+The state file has a **10 KB hard limit**. That's roughly 10,000 characters or
+~150 lines. You must be disciplined: store references (file paths, commit SHAs,
+function names) not content (file bodies, full outputs). Store reasoning (why a
+decision was made) not narration (what commands you ran). Prune aggressively —
+old run details that no longer inform future work should be dropped.
+
+### Structure
+
 On your first run for an issue the file may be empty or missing. Write it with
 this structure:
 
 ```
+# State
+
 issue: #<number>
-checkpoint: <what to do next>
 branch: executor/<number>-<slug>
 pr: none
+phase: <research|planning|implementation|verification>
+checkpoint: <specific next action to take>
 runs: 1
----
-run 1: <what happened>
----
-failed: none
+
+# Understanding
+
+<What you've learned about the codebase and problem that future runs need.
+Key files and their roles. Architecture decisions. Domain concepts.
+This section is the most valuable — it's what prevents re-research.>
+
+# Plan
+
+<Current approach. Phases and their status. What's done, what remains.
+Update this as the plan evolves — don't keep outdated plans.>
+
+# Decisions
+
+<Key decisions made and WHY. Design choices, trade-offs, alternatives
+considered and rejected. This prevents flip-flopping between runs.>
+
+# Failed approaches
+
+<What was tried and didn't work, with the reason. Prevents repeating
+mistakes. Remove entries that are no longer relevant.>
+
+# Run log
+
+<Last 3-5 runs only. One line each: run number, what was accomplished.
+Drop older entries — they served their purpose. The Understanding and
+Decisions sections carry forward what matters from old runs.>
 ```
 
-On subsequent runs, update `checkpoint`, `runs`, the run log, and `failed`
-(record approaches that didn't work so you don't repeat them).
+### How to maintain the state file
 
-**The `checkpoint` line is the most important** — it tells your next run
-exactly where to pick up.
+**REWRITE, don't just append.** Each run, read the whole file and rewrite it
+with current understanding. This is curated memory, not a log file.
 
-Note: on schedule or PR-closed triggers there is no triggering issue, so
-comment-memory won't be available. Use issue comments to reconstruct context.
+- **Understanding section**: Add what you learned this run. Remove details
+  that are no longer relevant (e.g., you explored a file that turned out
+  to be unrelated). Consolidate — if you learned the same subsystem across
+  3 runs, merge into one coherent description.
+- **Plan section**: Update to reflect current reality. If the plan changed,
+  write the new plan — don't keep the old one "for reference."
+- **Decisions section**: Add new decisions. Keep old ones only if they're
+  still relevant to future work.
+- **Failed approaches**: Add failures. Remove ones that no longer matter
+  (e.g., a failed approach to a subproblem you've since solved differently).
+- **Run log**: Keep last 3-5 entries. Drop older ones.
+
+**The checkpoint line is the most critical** — it tells your next run exactly
+where to pick up. Be specific: "implement the MetricsExporter struct in
+pkg/otel/metrics.go" not "continue implementation."
+
+### On schedule or PR-closed triggers
+
+There is no triggering issue, so comment-memory won't be available.
+Use issue comments to reconstruct context.
 
 ## Branch And PR Rules
 
@@ -402,8 +460,13 @@ comment via the gate exception) will check for the answer.
 
 ### Update state
 
-12. **Update your comment-memory state file** — checkpoint, run log, failed
-    approaches. gh-aw auto-syncs it after your job ends.
+12. **Rewrite your comment-memory state file.** Don't just append — reread
+    the whole file and rewrite it with everything your next run needs to
+    continue effectively. Ask yourself: "If I lost all context except this
+    file, could I pick up where I left off?" Update Understanding with what
+    you learned, Plan with current status, Decisions with any choices made,
+    and set a specific checkpoint. Drop stale run log entries beyond the
+    last 3-5. Stay within the 10 KB budget.
 13. **Post a short issue comment** — a brief summary for visibility.
     Keep the heavy detail in the state file, not the comment.
 
