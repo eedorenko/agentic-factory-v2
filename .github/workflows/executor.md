@@ -90,6 +90,7 @@ network:
   - github
 
 safe-outputs:
+  github-token: ${{ secrets.GH_AW_AGENT_TOKEN }}
   max-patch-size: 10240
   add-comment:
     max: 8
@@ -98,6 +99,7 @@ safe-outputs:
   create-pull-request:
     draft: false
     labels: [automation]
+    allowed-repos: ["eedorenko/agentic-factory-v2", "eedorenko/gh-aw"]
     protected-files:
       policy: fallback-to-issue
       exclude:
@@ -106,12 +108,13 @@ safe-outputs:
     max: 1
   push-to-pull-request-branch:
     target: "*"
+    allowed-repos: ["eedorenko/agentic-factory-v2", "eedorenko/gh-aw"]
     title-prefix: "[Executor"
     protected-files:
       policy: fallback-to-issue
       exclude:
         - README.md
-    max: 1
+    max: 3
   update-issue:
     target: "*"
     max: 3
@@ -158,13 +161,21 @@ safe-outputs:
             echo "Merged PR #$PR_NUMBER"
 
 checkout:
-  fetch: ["*"]
-  fetch-depth: 0
+  - fetch: ["*"]
+    fetch-depth: 0
+  - repository: eedorenko/gh-aw
+    path: ./external/gh-aw
+    github-token: ${{ secrets.GH_AW_AGENT_TOKEN }}
+    fetch-depth: 0
 
 tools:
   github:
     toolsets: [all]
     min-integrity: none
+    github-token: ${{ secrets.GH_AW_AGENT_TOKEN }}
+    allowed-repos:
+      - "eedorenko/gh-aw"
+      - "github/gh-aw"
     trusted-users:
       - "copilot-pull-request-reviewer[bot]"
       - "a-factory-bot[bot]"
