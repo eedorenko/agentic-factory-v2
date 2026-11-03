@@ -63,3 +63,17 @@ test('--interactive runs a REPL over stdin', () => {
   assert.ok(out.includes('search> '));
   assert.ok(out.includes('1 results found, showing page 1 of 1'));
 });
+
+test('commands buffered after /quit are ignored', async () => {
+  const { PassThrough } = require('node:stream');
+  const { runInteractive } = require('./interactive');
+  const input = new PassThrough();
+  const output = new PassThrough();
+  let text = '';
+  output.on('data', (d) => { text += d; });
+  const done = runInteractive(ITEMS, { input, output });
+  input.end('/quit\nItem\n/export json\n');
+  await done;
+  assert.ok(!text.includes('results found'));
+  assert.ok(!text.includes('"title"'));
+});

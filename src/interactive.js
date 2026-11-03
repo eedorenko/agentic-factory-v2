@@ -94,6 +94,7 @@ function runInteractive(items, { input = process.stdin, output = process.stdout,
   const rl = readline.createInterface({ input, output, prompt: PROMPT });
   return new Promise((resolve) => {
     rl.on('line', (line) => {
+      if (session.state.done) return;
       for (const out of session.handle(line)) output.write(`${out}\n`);
       if (session.state.done) rl.close();
       else rl.prompt();
