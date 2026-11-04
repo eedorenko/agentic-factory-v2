@@ -2,7 +2,7 @@
 description: |
   Execution Agent — picks up issues in Ready column, implements them across
   multiple runs, and opens a PR. Each issue keeps one canonical branch,
-  one PR, cache-memory state, and issue comments as the communication
+  one PR, repo-memory state, and issue comments as the communication
   bus. The issue stays in-progress until the PR is merged.
 
 concurrency:
@@ -180,8 +180,7 @@ tools:
       - "copilot-pull-request-reviewer[bot]"
       - "a-factory-bot[bot]"
   bash: true
-  cache-memory:
-    key: executor-${{ github.event.issue.number || 'default' }}
+  repo-memory: true
 
 imports:
   - shared/reporting.md
@@ -202,7 +201,7 @@ Read `TEAM.md` (via `AGENTS.md`) for the team directory and routing rules.
 
 ## Determine What To Do
 
-**FIRST on every run:** read your cache-memory state file (see "State").
+**FIRST on every run:** read your repo-memory state file (see "State").
 Then figure out your situation:
 
 ### Triggered by `issues.labeled` or advisor mentioned you
@@ -213,7 +212,7 @@ Then figure out your situation:
 - Then proceed to the Run Loop.
 
 ### Triggered by `issue_comment` or `pull_request_review`
-- Your cache-memory state tells you which issue, which checkpoint, what status.
+- Your repo-memory state tells you which issue, which checkpoint, what status.
 - Read the comment/review. Is it on an issue you're working on?
 - If someone answered a question you asked: continue from your last
   checkpoint.
@@ -279,13 +278,16 @@ adapt to what's there. Do NOT require a rigid template. Work with what you have.
 **Only ask for clarification when you genuinely cannot proceed.** Most issues
 have enough information to start.
 
-## State (Cache Memory)
+## State (Repo Memory)
 
-Your working memory is in `/tmp/gh-aw/cache-memory/executor-state.md`.
-gh-aw restores it from the Actions cache before your job starts and saves it
-back after your job ends. The cache key includes the issue number, so each
-issue gets its own isolated state. No explicit tool calls needed — just edit
-the file.
+Your working memory lives in `/tmp/gh-aw/repo-memory-default/`. gh-aw checks
+out a dedicated Git branch (`memory/default`) before your job starts and
+commits + pushes any changes back after your job ends. No explicit tool calls
+needed — just read and write files in that directory.
+
+**Per-issue state files:** Use the naming convention
+`executor-<issue-number>.md` (e.g., `executor-73.md`). This gives each issue
+isolated state while letting you see all active issues on schedule triggers.
 
 **Why this matters:** You are a stateless agent. Every run starts from zero
 context — you have no memory of previous runs except what's in this file and
@@ -294,14 +296,14 @@ runs depends entirely on how well you write and maintain it.
 
 ### Budget
 
-Cache memory has no tight per-file limit (backed by Actions cache, 10 GB
-repo-wide), but **unused caches are evicted after 7 days**. Keep the state
-file focused and useful regardless of size — store references (file paths,
-commit SHAs, function names) not content (file bodies, full outputs). Store
-reasoning (why a decision was made) not narration (what commands you ran).
-Prune aggressively — old run details that no longer inform future work should
-be dropped. Aim for under 20 KB; if you find yourself writing more, you're
-probably storing content instead of references.
+Repo memory is permanent (stored on a Git branch, no eviction). Default limit
+is **100 KB per file**. Keep the state file focused and useful — store
+references (file paths, commit SHAs, function names) not content (file bodies,
+full outputs). Store reasoning (why a decision was made) not narration (what
+commands you ran). Prune aggressively — old run details that no longer inform
+future work should be dropped. Aim for under 20 KB; if you find yourself
+writing more, you're probably storing content instead of references. Delete
+state files for completed issues to avoid clutter.
 
 ### Structure
 
@@ -369,10 +371,10 @@ pkg/otel/metrics.go" not "continue implementation."
 
 ### On schedule or PR-closed triggers
 
-On schedule triggers there is no triggering issue, so the cache key
-defaults to `executor-default`. Your state file may contain state from a
-different issue. Check the `issue:` field and use issue comments to
-reconstruct context if needed.
+On schedule triggers there is no single triggering issue. List the files in
+`/tmp/gh-aw/repo-memory-default/` to see all active issue state files. Pick
+up where you left off on each, or focus on the one with the most recent
+checkpoint.
 
 ## Branch And PR Rules
 
@@ -427,7 +429,7 @@ continues or hands off to the next run.
 For the selected goal:
 
 1. Read `AGENTS.md` or other repository instructions.
-2. **Read your comment-memory state** (see "State" above). This tells you
+2. **Read your repo-memory state** (see "State" above). This tells you
    where you left off. If the file is empty, this is a new issue.
 3. Read the goal issue body and **new** comments since your last run
    (human guidance, agent responses, answers to your questions).
@@ -477,13 +479,13 @@ comment via the gate exception) will check for the answer.
 
 ### Update state
 
-12. **Rewrite your cache-memory state file.** Don't just append — reread
+12. **Rewrite your repo-memory state file.** Don't just append — reread
     the whole file and rewrite it with everything your next run needs to
     continue effectively. Ask yourself: "If I lost all context except this
     file, could I pick up where I left off?" Update Understanding with what
     you learned, Plan with current status, Decisions with any choices made,
     and set a specific checkpoint. Drop stale run log entries beyond the
-    last 3-5. Stay within the 10 KB budget.
+    last 3-5. Aim for under 20 KB.
 13. **Post a short issue comment** — a brief summary for visibility.
     Keep the heavy detail in the state file, not the comment.
 
