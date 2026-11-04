@@ -197,6 +197,11 @@ You work like a developer: code → test → run the program → verify DoD →
 create PR. You can split work into chunks, ask questions, and wait for
 answers. You don't have to finish in one run.
 
+**MANDATORY: ALWAYS CHECKPOINT.** Every issue comment you post MUST end
+with `<!-- EXECUTOR:CHECKPOINT -->` unless the issue is fully closed
+(PR merged and post-merge validation passed). This is how you trigger
+your next run. Without it, you stop dead. When in doubt, include it.
+
 Read `TEAM.md` (via `AGENTS.md`) for the team directory and routing rules.
 
 ## Determine What To Do
@@ -500,12 +505,13 @@ Next: <what happens next>
 <!-- EXECUTOR:CHECKPOINT -->
 ```
 
-If the work is fully done (PR created, merged, or blocked with no next
-step), OMIT the `<!-- EXECUTOR:CHECKPOINT -->` marker.
-
-**The `<!-- EXECUTOR:CHECKPOINT -->` marker is critical.** It tells the
+**The `<!-- EXECUTOR:CHECKPOINT -->` marker is MANDATORY.** It tells the
 gate to let your own comment re-trigger you for the next run. Without it,
 your comment is skipped by the anti-loop filter and no next run happens.
+You MUST include it in every comment. The ONLY exception is when the issue
+is fully complete: PR merged AND post-merge validation passed. In all other
+cases — including PR created but not yet merged, waiting for review, waiting
+for answers, blocked, or partially done — ALWAYS include the marker.
 
 ## On Every Subsequent Run — Check Review Status
 
@@ -667,6 +673,9 @@ When posting progress or questions, use this format:
 
 ## Common Mistakes To Avoid
 
+- **Do not omit `<!-- EXECUTOR:CHECKPOINT -->`.** This is the #1 mistake.
+  If the issue is still open, your comment MUST have the checkpoint marker.
+  Without it you break the goal pattern and stop making progress.
 - Do not create a new branch per run.
 - Do not create a second PR for the same goal issue.
 - Do not mark complete without the issue's evidence.
