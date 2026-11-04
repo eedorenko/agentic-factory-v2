@@ -1,0 +1,63 @@
+From 696dd3d5d1268456d412316c896a6fc736e6cadd Mon Sep 17 00:00:00 2001
+From: "github-actions[bot]" <github-actions[bot]@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 21:10:46 +0000
+Subject: [PATCH] feat(otel): emit built-in run.duration metric from setup span
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+---
+ actions/setup/js/send_otlp_span.cjs      | 11 +++++++++++
+ actions/setup/js/send_otlp_span.test.cjs | 16 ++++++++++++++++
+ 2 files changed, 27 insertions(+)
+
+diff --git a/actions/setup/js/send_otlp_span.cjs b/actions/setup/js/send_otlp_span.cjs
+index 70c09f7e36..7f695c73d3 100644
+--- a/actions/setup/js/send_otlp_span.cjs
++++ b/actions/setup/js/send_otlp_span.cjs
+@@ -1559,6 +1559,17 @@ async function sendJobSetupSpan(options = {}) {
+   // Always mirror to JSONL — the artifact is useful even without a live collector.
+   appendToOTLPJSONL(payload);
+ 
++  // Built-in setup metrics are opt-in (GH_AW_OTEL_METRICS=true); failures never affect the workflow.
++  if (process.env.GH_AW_OTEL_METRICS === "true") {
++    try {
++      const { buildBuiltinRunMetrics, buildOTLPMetricsPayload, sendOTLPMetrics } = require("./otlp_metrics.cjs");
++      const metrics = buildBuiltinRunMetrics({ jobName, workflow: workflowName, engine: engineId, conclusion: "success", startMs, endMs });
++      await sendOTLPMetrics(buildOTLPMetricsPayload({ serviceName, scopeVersion, resourceAttributes, metrics }));
++    } catch (err) {
++      console.warn(`[otlp] failed to emit setup metrics: ${getErrorMessage(err)}`);
++    }
++  }
++
+   const endpoints = parseOTLPEndpoints();
+   if (endpoints.length === 0) {
+     return { traceId, spanId, parentSpanId };
+diff --git a/actions/setup/js/send_otlp_span.test.cjs b/actions/setup/js/send_otlp_span.test.cjs
+index 1ec93eae78..cf22a8f0c0 100644
+--- a/actions/setup/js/send_otlp_span.test.cjs
++++ b/actions/setup/js/send_otlp_span.test.cjs
+@@ -1391,6 +1391,22 @@ describe("sendJobSetupSpan", () => {
+     return undefined;
+   }
+ 
++  it("emits a gh_aw.run.duration metric only when GH_AW_OTEL_METRICS=true", async () => {
++    const metricWrites = () => appendSpy.mock.calls.filter(c => String(c[0]).endsWith("otel-metrics.jsonl"));
++    await sendJobSetupSpan();
++    expect(metricWrites()).toHaveLength(0);
++
++    process.env.GH_AW_OTEL_METRICS = "true";
++    try {
++      await sendJobSetupSpan();
++    } finally {
++      delete process.env.GH_AW_OTEL_METRICS;
++    }
++    const writes = metricWrites();
++    expect(writes.length).toBeGreaterThan(0);
++    expect(String(writes[0][1])).toContain("gh_aw.run.duration");
++  });
++
+   it("returns a trace ID and span ID even when GH_AW_OTLP_ENDPOINTS is not set", async () => {
+     const { traceId, spanId } = await sendJobSetupSpan();
+     expect(traceId).toMatch(/^[0-9a-f]{32}$/);
+-- 
+2.56.0
+
