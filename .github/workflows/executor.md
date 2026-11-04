@@ -280,7 +280,7 @@ have enough information to start.
 
 ## State (Repo Memory)
 
-Your working memory lives in `/tmp/gh-aw/repo-memory-default/`. gh-aw checks
+Your working memory lives in `/tmp/gh-aw/repo-memory/default/`. gh-aw checks
 out a dedicated Git branch (`memory/default`) before your job starts and
 commits + pushes any changes back after your job ends. No explicit tool calls
 needed — just read and write files in that directory.
@@ -372,7 +372,7 @@ pkg/otel/metrics.go" not "continue implementation."
 ### On schedule or PR-closed triggers
 
 On schedule triggers there is no single triggering issue. List the files in
-`/tmp/gh-aw/repo-memory-default/` to see all active issue state files. Pick
+`/tmp/gh-aw/repo-memory/default/` to see all active issue state files. Pick
 up where you left off on each, or focus on the one with the most recent
 checkpoint.
 
