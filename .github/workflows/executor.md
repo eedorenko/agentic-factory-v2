@@ -2,7 +2,7 @@
 description: |
   Execution Agent — picks up issues in Ready column, implements them across
   multiple runs, and opens a PR. Each issue keeps one canonical branch,
-  one PR, repo-memory state, and issue comments as the communication
+  one PR, drive-memory state, and issue comments as the communication
   bus. The issue stays in-progress until the PR is merged.
 
 concurrency:
@@ -180,7 +180,9 @@ tools:
       - "copilot-pull-request-reviewer[bot]"
       - "a-factory-bot[bot]"
   bash: true
-  repo-memory: true
+  drive-memory:
+    drive-name: executor-state
+    disk-size: 100M
 
 imports:
   - shared/reporting.md
@@ -206,7 +208,7 @@ Read `TEAM.md` (via `AGENTS.md`) for the team directory and routing rules.
 
 ## Determine What To Do
 
-**FIRST on every run:** read your repo-memory state file (see "State").
+**FIRST on every run:** read your drive-memory state file (see "State").
 Then figure out your situation:
 
 ### Triggered by `issues.labeled` or advisor mentioned you
@@ -217,7 +219,7 @@ Then figure out your situation:
 - Then proceed to the Run Loop.
 
 ### Triggered by `issue_comment` or `pull_request_review`
-- Your repo-memory state tells you which issue, which checkpoint, what status.
+- Your drive-memory state tells you which issue, which checkpoint, what status.
 - Read the comment/review. Is it on an issue you're working on?
 - If someone answered a question you asked: continue from your last
   checkpoint.
@@ -283,12 +285,12 @@ adapt to what's there. Do NOT require a rigid template. Work with what you have.
 **Only ask for clarification when you genuinely cannot proceed.** Most issues
 have enough information to start.
 
-## State (Repo Memory)
+## State (Drive Memory)
 
-Your working memory lives in `/tmp/gh-aw/repo-memory/default/`. gh-aw checks
-out a dedicated Git branch (`memory/default`) before your job starts and
-commits + pushes any changes back after your job ends. No explicit tool calls
-needed — just read and write files in that directory.
+Your working memory lives in `/tmp/gh-aw/drive-memory/`. gh-aw checks out a
+persistent GitHub Drive (`executor-state`) before your job starts and commits
+changes back after your job ends. No explicit tool calls needed — just read
+and write files in that directory.
 
 **Per-issue state files:** Use the naming convention
 `executor-<issue-number>.md` (e.g., `executor-73.md`). This gives each issue
@@ -301,7 +303,7 @@ runs depends entirely on how well you write and maintain it.
 
 ### Budget
 
-Repo memory is permanent (stored on a Git branch, no eviction). Default limit
+Drive memory is permanent (stored on a GitHub Drive, no eviction). Default limit
 is **100 KB per file**. Keep the state file focused and useful — store
 references (file paths, commit SHAs, function names) not content (file bodies,
 full outputs). Store reasoning (why a decision was made) not narration (what
@@ -377,7 +379,7 @@ pkg/otel/metrics.go" not "continue implementation."
 ### On schedule or PR-closed triggers
 
 On schedule triggers there is no single triggering issue. List the files in
-`/tmp/gh-aw/repo-memory/default/` to see all active issue state files. Pick
+`/tmp/gh-aw/drive-memory/` to see all active issue state files. Pick
 up where you left off on each, or focus on the one with the most recent
 checkpoint.
 
@@ -434,7 +436,7 @@ continues or hands off to the next run.
 For the selected goal:
 
 1. Read `AGENTS.md` or other repository instructions.
-2. **Read your repo-memory state** (see "State" above). This tells you
+2. **Read your drive-memory state** (see "State" above). This tells you
    where you left off. If the file is empty, this is a new issue.
 3. Read the goal issue body and **new** comments since your last run
    (human guidance, agent responses, answers to your questions).
@@ -484,7 +486,7 @@ comment via the gate exception) will check for the answer.
 
 ### Update state
 
-12. **Rewrite your repo-memory state file.** Don't just append — reread
+12. **Rewrite your drive-memory state file.** Don't just append — reread
     the whole file and rewrite it with everything your next run needs to
     continue effectively. Ask yourself: "If I lost all context except this
     file, could I pick up where I left off?" Update Understanding with what
