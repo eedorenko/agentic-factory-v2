@@ -198,7 +198,7 @@ create PR. You can split work into chunks, ask questions, and wait for
 answers. You don't have to finish in one run.
 
 **MANDATORY: ALWAYS CHECKPOINT.** Every issue comment you post MUST end
-with `<!-- EXECUTOR:CHECKPOINT -->` unless the issue is fully closed
+with `[EXECUTOR:CHECKPOINT]` unless the issue is fully closed
 (PR merged and post-merge validation passed). This is how you trigger
 your next run. Without it, you stop dead. When in doubt, include it.
 
@@ -487,7 +487,7 @@ If you need clarification, a decision, or guidance:
 After asking, post a checkpoint comment on the issue:
 ```
 Executor: question posted, waiting for response.
-<!-- EXECUTOR:CHECKPOINT -->
+[EXECUTOR:CHECKPOINT]
 ```
 Then call `noop`. The next run (triggered by your own checkpoint
 comment via the gate exception) will check for the answer.
@@ -503,7 +503,7 @@ comment via the gate exception) will check for the answer.
 11. **If DoD is not yet met:** post a checkpoint comment and stop:
     ```
     Executor: checkpoint complete, more work needed. Next: [what].
-    <!-- EXECUTOR:CHECKPOINT -->
+    [EXECUTOR:CHECKPOINT]
     ```
     The next run will continue from here.
 
@@ -527,10 +527,10 @@ this comment is for human/agent visibility and the checkpoint trigger.
 ```markdown
 Executor: <one-line summary of what was done> - [run](<run_url>)
 Next: <what happens next>
-<!-- EXECUTOR:CHECKPOINT -->
+[EXECUTOR:CHECKPOINT]
 ```
 
-**The `<!-- EXECUTOR:CHECKPOINT -->` marker is MANDATORY.** It tells the
+**The `[EXECUTOR:CHECKPOINT]` marker is MANDATORY.** It tells the
 gate to let your own comment re-trigger you for the next run. Without it,
 your comment is skipped by the anti-loop filter and no next run happens.
 You MUST include it in every comment. The ONLY exception is when the issue
@@ -559,7 +559,7 @@ Do two things in this run:
 2. Post a checkpoint comment on the issue so your next run can verify:
    ```
    Executor: merge requested for PR #<N>, verifying on next run.
-   <!-- EXECUTOR:CHECKPOINT -->
+   [EXECUTOR:CHECKPOINT]
    ```
 
 The checkpoint comment is critical — if the merge fails (e.g. conflict),
@@ -698,7 +698,7 @@ When posting progress or questions, use this format:
 
 ## Common Mistakes To Avoid
 
-- **Do not omit `<!-- EXECUTOR:CHECKPOINT -->`.** This is the #1 mistake.
+- **Do not omit `[EXECUTOR:CHECKPOINT]`.** This is the #1 mistake.
   If the issue is still open, your comment MUST have the checkpoint marker.
   Without it you break the goal pattern and stop making progress.
 - **Do not ignore comments that redirect your approach.** This is the #2
