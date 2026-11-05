@@ -208,7 +208,23 @@ Read `TEAM.md` (via `AGENTS.md`) for the team directory and routing rules.
 
 ## Determine What To Do
 
-**FIRST on every run:** read your drive-memory state file (see "State").
+**FIRST on every run, do these two steps IN ORDER:**
+
+1. **Read ALL recent comments on the issue** — not just the triggering one.
+   Read the last 10+ comments. Comments from anyone (humans, agents, bots)
+   may contain new instructions, feedback, root-cause analysis, or changed
+   requirements. **The situation may have changed since your last run.**
+
+2. **Read your drive-memory state file** (see "State"). Compare what the
+   comments say vs what your state file says. If the comments give new
+   direction, updated analysis, or correct your approach — **your state
+   file is stale. Update your plan to match the new information.**
+
+**CRITICAL: Comments override your state file.** If a comment says "the
+root cause is X, fix Y" but your state file says "check Z", follow the
+comment. The state file is YOUR notes from a previous run — it can be
+wrong or outdated. Comments are live communication from the team.
+
 Then figure out your situation:
 
 ### Triggered by `issues.labeled` or advisor mentioned you
@@ -219,12 +235,16 @@ Then figure out your situation:
 - Then proceed to the Run Loop.
 
 ### Triggered by `issue_comment` or `pull_request_review`
-- Your drive-memory state tells you which issue, which checkpoint, what status.
-- Read the comment/review. Is it on an issue you're working on?
+- Read ALL recent comments — not just the one that triggered you.
+- Identify what changed: new instructions? new analysis? answered questions?
+  review feedback? If ANY comment provides new direction or corrects your
+  approach, **pivot immediately**. Do not continue your old plan.
 - If someone answered a question you asked: continue from your last
-  checkpoint.
+  checkpoint, incorporating their answer.
 - If the reviewer requested changes: fix them.
-- If it's not relevant to you: call `noop`.
+- If comments redirect your approach: update your plan and follow the
+  new direction. This is the most common case — do not ignore it.
+- If it's genuinely not relevant to you: call `noop`.
 
 ### Triggered by `pull_request` (closed and merged)
 - One of your PRs was just merged. This is **Run B** of the merge flow.
@@ -438,10 +458,15 @@ For the selected goal:
 1. Read `AGENTS.md` or other repository instructions.
 2. **Read your drive-memory state** (see "State" above). This tells you
    where you left off. If the file is empty, this is a new issue.
-3. Read the goal issue body and **new** comments since your last run
-   (human guidance, agent responses, answers to your questions).
-4. **Choose the next checkpoint.** What is the smallest useful step
-   that advances the definition of done?
+3. **Read ALL recent issue comments** — not just the last one. Look for
+   new instructions, root-cause analysis, feedback, or changed direction
+   from ANY participant (humans, agents, bots). **If comments contradict
+   or redirect your state file's plan, the comments win.** Update your
+   understanding and plan accordingly before doing any work.
+4. **Choose the next checkpoint** based on the CURRENT situation (comments
+   + state file combined). What is the smallest useful step that advances
+   the definition of done? If comments told you to do something specific,
+   that IS your next checkpoint.
 
 ### Do the work
 
@@ -678,6 +703,13 @@ When posting progress or questions, use this format:
 - **Do not omit `<!-- EXECUTOR:CHECKPOINT -->`.** This is the #1 mistake.
   If the issue is still open, your comment MUST have the checkpoint marker.
   Without it you break the goal pattern and stop making progress.
+- **Do not ignore comments that redirect your approach.** This is the #2
+  mistake. If someone posts new analysis, root-cause findings, or changed
+  requirements — follow them. Do not keep repeating your old plan from the
+  state file. Read comments carefully and pivot when directed.
+- **Do not repeat the same action across runs.** If you did the same thing
+  last run and it didn't advance the goal, doing it again won't help.
+  Change your approach.
 - Do not create a new branch per run.
 - Do not create a second PR for the same goal issue.
 - Do not mark complete without the issue's evidence.
