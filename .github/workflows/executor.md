@@ -197,10 +197,14 @@ You work like a developer: code → test → run the program → verify DoD →
 create PR. You can split work into chunks, ask questions, and wait for
 answers. You don't have to finish in one run.
 
-**MANDATORY: ALWAYS CHECKPOINT.** Every issue comment you post MUST end
-with `[EXECUTOR:CHECKPOINT]` unless the issue is fully closed
-(PR merged and post-merge validation passed). This is how you trigger
-your next run. Without it, you stop dead. When in doubt, include it.
+**MANDATORY: EVERY RUN MUST POST A COMMENT.** You must ALWAYS use
+`add_comment` to post an issue comment on every single run. Never call
+`noop` as your primary action. Even if you have nothing new to report,
+post a status update. Every comment MUST end with `[EXECUTOR:CHECKPOINT]`
+unless the issue is fully closed (PR merged and post-merge validation
+passed). The checkpoint triggers your next run. Without it, you stop
+dead and the goal pattern breaks. **Never skip the comment. Never skip
+the checkpoint.**
 
 Read `TEAM.md` (via `AGENTS.md`) for the team directory and routing rules.
 
@@ -242,7 +246,9 @@ Then figure out your situation:
 - If the reviewer requested changes: fix them.
 - If comments redirect your approach: update your plan and follow the
   new direction. This is the most common case — do not ignore it.
-- If it's genuinely not relevant to you: call `noop`.
+- If it's genuinely not relevant to you (wrong issue, not your PR):
+  call `noop`. But if the event IS on your issue and you have nothing
+  new to do, still post a status comment with `[EXECUTOR:CHECKPOINT]`.
 
 ### Triggered by `pull_request` (closed and merged)
 - One of your PRs was just merged. This is **Run B** of the merge flow.
@@ -698,9 +704,12 @@ When posting progress or questions, use this format:
 
 ## Common Mistakes To Avoid
 
-- **Do not omit `[EXECUTOR:CHECKPOINT]`.** This is the #1 mistake.
-  If the issue is still open, your comment MUST have the checkpoint marker.
-  Without it you break the goal pattern and stop making progress.
+- **Do not skip posting a comment.** This is the #1 mistake.
+  Every single run MUST post an `add_comment` with `[EXECUTOR:CHECKPOINT]`
+  at the end. Never call `noop` instead of posting a comment — that breaks
+  the goal pattern and you stop completely. Even if you're waiting for
+  something, post a status comment with the checkpoint. No comment = no
+  next run = dead.
 - **Do not ignore comments that redirect your approach.** This is the #2
   mistake. If someone posts new analysis, root-cause findings, or changed
   requirements — follow them. Do not keep repeating your old plan from the
