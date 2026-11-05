@@ -2,12 +2,13 @@
 issue: #73
 branch: fork eedorenko/gh-aw PR #2 (metrics prototype)
 phase: verification
-checkpoint: setup-metric commit pushed via push_to_pull_request_branch (repo eedorenko/gh-aw, PR 2; works with allowed-repos). Next: verify CI/review on PR 2; confirm /tmp/gh-aw/otel-metrics.jsonl populated by conclusion step (not present mid-run; conclusion runs after agent).
+checkpoint: await human re-deploy test of metrics via unauthenticated collector; fork PR is #1 (not #2). Old: setup-metric commit pushed via push_to_pull_request_branch (repo eedorenko/gh-aw, PR 2; works with allowed-repos). Next: verify CI/review on PR 2; confirm /tmp/gh-aw/otel-metrics.jsonl populated by conclusion step (not present mid-run; conclusion runs after agent).
 runs: many
 # Understanding
 - Fork checkout at external/gh-aw; branch executor/73-add-opentelemetry-metrics-support-to-gh-aw. Apply patch with git am then call push_to_pull_request_branch(repo=eedorenko/gh-aw, pull_request_number=2).
 - GH_AW_OTEL_METRICS=true now in workflow env; metrics file written by conclusion step.
 # Run log
+- run 41939550286: per human root-cause comment, removed GH_AW_OTLP_IF_MISSING=ignore drop of header-less endpoints in parseOTLPEndpoints (send_otlp_span.cjs + test); pushed to fork PR 1 (open PR; PR 2 closed). vitest not installable (npm cert), verified via node snippet.
 - run 41936701329: file still absent mid-run (conclusion writes it post-agent); nothing to push.
 - run 41934799961: metrics file still absent mid-run; fork PR 2 is merged into the fork executor/73 branch (not default). Awaiting conclusion-step evidence/human direction.
 - run 41933719053: re-checked; otel-metrics.jsonl still absent mid-run (written by conclusion step after agent). Nothing new to push; awaiting PR 2 review.
