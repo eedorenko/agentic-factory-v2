@@ -1,0 +1,1 @@
+{"id":"ldg-e318bc30-6774-41fa-905e-09d9dcd2d343","parents":["sha256:29b94e4768014ebc22f5ae89ce8d7352868c563e67c5105e6589090b1ecfc6d0"],"payload":{"id":"ldg-537dd201-799a-483a-9219-0e142a9bb2cf","key":"73","operation":"delete"},"sha":"sha256:f4e7fc9c9223cfbec02d769c94fe6c0fed92bc54a2ecbe992f6c0dd979a82a99","timestamp":"2026-11-07T09:23:33.973Z","type":"ledger_append","version":1}
