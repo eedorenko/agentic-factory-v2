@@ -1,6 +1,7 @@
 const { renderFooter } = require('./footer');
 const { searchItems, colorHighlight, limitResults, DEFAULT_LIMIT } = require('./search');
 
+const { COMMANDS, executeCommand } = require('./commands');
 const { runInteractive } = require('./interactive');
 
 const DESCRIPTION = 'agentic-factory-app: Simple app for testing agentic factory pipeline';
@@ -17,6 +18,8 @@ function getHelpText() {
     '  --search <term>  Search sample items and highlight matches',
     `  --limit N        Show at most N results (default: ${DEFAULT_LIMIT})`,
     '  --no-limit       Show all results',
+    '  run|build|deploy Run a command',
+    '  --dry-run        Print the actions a command would perform without doing them',
     '  --interactive    Start an interactive search session',
     '                   Commands: /page N, /limit N, /export csv|json, /quit',
     '',
@@ -44,6 +47,11 @@ function main(argv) {
   console.log(`Started at: ${formatTimestamp()}`);
   if (argv.includes('--help')) {
     console.log(getHelpText());
+    return;
+  }
+  const cmd = argv[0];
+  if (cmd && Object.prototype.hasOwnProperty.call(COMMANDS, cmd)) {
+    executeCommand(cmd, { dryRun: argv.includes('--dry-run') });
     return;
   }
   if (argv.includes('--interactive')) {
