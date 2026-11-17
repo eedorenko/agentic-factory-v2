@@ -26,3 +26,9 @@ test('--help documents --dry-run', () => {
   const out = execFileSync('node', [path.join(__dirname, 'index.js'), '--help'], { encoding: 'utf8' });
   assert.ok(out.includes('--dry-run'));
 });
+
+test('option values matching command names are not treated as commands', () => {
+  const out = execFileSync('node', [path.join(__dirname, 'index.js'), '--search', 'build'], { encoding: 'utf8' });
+  assert.ok(!out.includes('Dry run complete'));
+  assert.ok(!out.includes('would'));
+});

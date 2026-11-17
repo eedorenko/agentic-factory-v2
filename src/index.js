@@ -49,8 +49,8 @@ function main(argv) {
     console.log(getHelpText());
     return;
   }
-  const cmd = argv.find((a) => Object.prototype.hasOwnProperty.call(COMMANDS, a));
-  if (cmd) {
+  const cmd = argv[0];
+  if (cmd && Object.prototype.hasOwnProperty.call(COMMANDS, cmd)) {
     executeCommand(cmd, { dryRun: argv.includes('--dry-run') });
     return;
   }
