@@ -77,6 +77,12 @@ tools:
   comment-memory:
     memory-id: reviewer-state
 
+skills:
+  - skill: microsoft/hve-core/.github/skills/coding-standards/code-review@4e84aee97eb0019afcb19bceb63347e096803ed5
+  - skill: microsoft/hve-core/.github/skills/security/owasp-top-10@4e84aee97eb0019afcb19bceb63347e096803ed5
+  - skill: microsoft/hve-core/.github/skills/security/owasp-agentic@4e84aee97eb0019afcb19bceb63347e096803ed5
+  - skill: microsoft/hve-core/.github/skills/security/supply-chain-security@4e84aee97eb0019afcb19bceb63347e096803ed5
+
 safe-outputs:
   github-app:
     client-id: ${{ vars.FACTORY_APP_ID }}
@@ -203,7 +209,10 @@ proceed without it and note "Copilot did not review" in your summary.
 
 ### Orient Before Judging
 
-Read the full diff before making any judgments.
+Read the full diff before making any judgments. Your loaded skills (code-review,
+owasp-top-10, owasp-agentic, supply-chain-security) provide detailed checklists
+and severity taxonomies. Use them as reference when evaluating each lens —
+especially for Security.
 
 1. Read the PR description, diff, and linked issue(s).
 2. Read the issue's labels — `complex`, `risky`, `in-progress`.
@@ -226,6 +235,9 @@ Read the full diff before making any judgments.
 - **Functional**: meets acceptance criteria? success/failure paths covered?
 - **Standards**: follows conventions? naming, structure, patterns?
 - **Security**: auth checks? input validation? secrets handled safely?
+  Apply the OWASP Top 10 and OWASP Agentic checklists from your loaded
+  skills for systematic coverage. For PRs that change dependencies,
+  also apply the supply-chain-security checklist.
 - **Readiness**: PR description accurate? scoped? linked issue satisfied?
 
 ### Need Clarification?
