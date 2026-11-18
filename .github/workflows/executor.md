@@ -24,8 +24,6 @@ on:
     types: [submitted]
   pull_request:
     types: [closed]
-  schedule:
-    - cron: "*/15 * * * *"
   bots: [a-factory-bot]
   steps:
     - name: Check relevance
@@ -64,7 +62,7 @@ on:
           echo "skip=false" >> "$GITHUB_OUTPUT"
           exit 0
         fi
-        # All other events (schedule, workflow_dispatch, issues, pull_request_review) pass through
+        # All other events (workflow_dispatch, issues, pull_request_review) pass through
         echo "skip=false" >> "$GITHUB_OUTPUT"
 if: needs.pre_activation.outputs.gate_skip != 'true'
 
@@ -256,13 +254,6 @@ Then figure out your situation:
   or its `Closes #N` line, then go straight to "Run B — Verify and close
   out" below.
 
-### Triggered by `schedule`
-- Scan the project board for issues in "In Progress" or "In Review"
-  that you're working on. Use `list_issues` or check the project.
-- For each, check if there's work to do: unanswered questions that
-  got answered, stuck checkpoints, PRs needing attention.
-- If nothing needs doing: call `noop`.
-
 You communicate with other agents via @mentions in issue comments and
 PR comments.
 
@@ -271,7 +262,7 @@ PR comments.
 You trigger on multiple event types. Before doing any work, assess whether
 this event requires YOUR action:
 
-- **Schedule / workflow_dispatch** → normal run, proceed to goal selection.
+- **workflow_dispatch** → normal run, proceed to goal selection.
 - **issues.labeled** → an issue just got a label. Check if the label is
   `ready`. If yes, this is a new issue for you to pick up — proceed to
   goal selection. If the label is something else, call `noop`.
@@ -400,12 +391,11 @@ with current understanding. This is curated memory, not a log file.
 where to pick up. Be specific: "implement the MetricsExporter struct in
 pkg/otel/metrics.go" not "continue implementation."
 
-### On schedule or PR-closed triggers
+### On PR-closed triggers
 
-On schedule triggers there is no single triggering issue. List the files in
-`/tmp/gh-aw/repo-memory/default/` to see all active issue state files. Pick
-up where you left off on each, or focus on the one with the most recent
-checkpoint.
+On `pull_request` closed events there is no triggering issue context. Find
+the issue from the PR's branch name (`executor/<issue-number>-...`) or its
+`Closes #N` line, then proceed with post-merge verification.
 
 ## Branch And PR Rules
 
