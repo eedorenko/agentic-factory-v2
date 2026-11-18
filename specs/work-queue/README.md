@@ -26,6 +26,8 @@ from the existing launch and worker models.
 verified Claim results and native reservation release.
 `ClaimDeliveryRecovery` refines released pending-delivery recovery, private
 receipt loss, authenticated cleanup and conditional maintenance progress.
+`ObsoleteWorkRetirement` isolates checked backlog retirement, legacy
+cancellation receipts, expiration-sensitive selection and failure isolation.
 
 The original `WorkQueue.tla` is retained as historical model evidence for
 [issue #64852](https://github.com/github/gh-aw/issues/64852). Its best-effort
@@ -33,6 +35,35 @@ oldest-first selection, competing Claim arbitration and scalar worker behavior
 do not describe the new current protocol.
 
 The design rationale and trade-offs are recorded in [ADR-64955](../../docs/adr/64955-git-backed-work-queue-coordination.md).
+
+## Analysis Index
+
+| Section | Goal | Risk |
+|---|---|---|
+| [Current operator interface](#current-operator-interface) | Point operators to the supported commands and deployment guidance. | Historical model details could be mistaken for current operator guidance. |
+| [Unclaimed Work expiration model](#unclaimed-work-expiration-model) | Check immutable deadlines without changing Claim authority. | Bounded deadline checks do not prove wall-clock scheduling or eventual service. |
+| [Obsolete Work retirement model](#obsolete-work-retirement-model) | Check fresh retirement eligibility and preserve legacy receipts and core recovery. | Approved routes and deterministic byte ordering are premises, not authentication or codec proofs. |
+| [Retained Claim completion model](#retained-claim-completion-model) | Check retained completion, delivery barriers, and subsequent re-claim. | Abstract receipts do not prove external effects or runtime refinement. |
+| [Claim delivery health and native capacity](#claim-delivery-health-and-native-capacity) | Separate aggregate delivery reporting from per-Claim results and capacity release. | Trusted receipt and terminal evidence are model premises, not verified implementations. |
+| [Released Claim delivery recovery](#released-claim-delivery-recovery) | Check recovery of released Claims whose delivery remains pending. | Fair recovery depends on stable terminal evidence, writable storage, and successful retries. |
+| [Abandoned dispatcher reservation recovery](#abandoned-dispatcher-reservation-recovery) | Check bounded recovery of reservations whose original dispatch never started. | Abstract evidence and checked publication do not prove GitHub identity or live Git CAS. |
+| [First-submit bootstrap model](#first-submit-bootstrap-model) | Check first-submit Policy installation and admission boundaries. | The bounded bootstrap model does not prove deployment ordering or live repository behavior. |
+| [Prospective worker evolution model](#prospective-worker-evolution-model) | Check prospective worker and policy updates without changing existing assignments. | Bounded transitions do not establish deployment behavior for every configuration. |
+| [Local stress simulator](#local-stress-simulator) | Exercise queue behavior under reproducible local stress scenarios. | Simulation results are not exhaustive protocol or production-load evidence. |
+| [Runtime scaling and compaction](#runtime-scaling-and-compaction) | Describe replay indexes, scaling controls, and compaction behavior. | Resource and compaction behavior still depends on the concrete runtime and storage. |
+| [Historical queue inspection and operator commands](#historical-queue-inspection-and-operator-commands) | Preserve historical inspection and migration context. | Historical commands and formats are not current supported deployment guidance. |
+| [Inline worker termination](#inline-worker-termination) | Release execution capacity from authenticated, quiescent inline termination evidence. | Capacity release alone does not establish native terminality or delivery settlement. |
+| [Current wire contract and schema checks](#current-wire-contract-and-schema-checks) | Define the current version-3 wire contract and generated-schema checks. | Local schema and parity checks do not establish live API writes or full codec refinement. |
+| [Historical arbitration model](#historical-arbitration-model) | Retain the original arbitration model as historical evidence. | Its scalar and best-effort behavior does not describe the current protocol. |
+| [Historical model's concrete protocol choices](#historical-models-concrete-protocol-choices) | Record concrete choices made by the historical model. | Those choices must not be read as current runtime requirements. |
+| [Historical model's state and job boundaries](#historical-models-state-and-job-boundaries) | Explain the historical model's durable state and job boundaries. | Abstract branch versions and jobs do not model all runtime persistence details. |
+| [Required protections](#required-protections) | State the protections represented by the retained historical model. | Model-level protections do not prove implementation conformance. |
+| [Invariants](#invariants) | Enumerate the historical model's safety properties. | Invariant checking is bounded by the stated model configuration. |
+| [Inductive proof argument](#inductive-proof-argument) | Explain why the stated safety predicates are inductive. | The argument applies only to its abstraction and assumptions. |
+| [Reproduce verification](#reproduce-verification) | Provide commands for reproducing formal checks. | Results depend on the pinned tools, bounds, and available runtime. |
+| [Inspect execution traces](#inspect-execution-traces) | Generate and inspect bounded execution traces. | Sampled traces do not enumerate all reachable behavior. |
+| [Runtime smoke coverage](#runtime-smoke-coverage) | Record read-only runtime smoke evidence. | Smoke coverage does not prove production execution or end-to-end refinement. |
+| [Limits](#limits) | Summarize protocol and verification limits. | Safety evidence must not be interpreted as liveness or exactly-once delivery. |
 
 ## Current operator interface
 
@@ -80,6 +111,57 @@ The model abstracts retry counts, DAG structure, publication contention and
 physical pruning. The native conformance tests cover those runtime boundaries
 separately. No liveness property promises service before a finite expiration;
 the existing `QueueService` result remains conditional on continuous eligibility.
+
+## Obsolete Work retirement model
+
+`ObsoleteWorkRetirement.tla` supplements the existing deployment and expiration
+models without changing their configurations. Six Work nodes distinguish
+expired, incompatible, pinned, claimed, delivery-barrier and compatible-profile
+cases. The approved active route can change once; selection and publication can
+observe different routes, ownership, delivery barriers or timestamps.
+
+Selection uses a disposable current-time expiration view and a deterministic
+prefix bounded to one or two operations. Publication checks the fresh prefix
+atomically. A route, Claim, barrier or expiration race rejects the whole batch;
+publication/authentication failure likewise commits no retirement. Both outcomes
+still permit the existing recovery and compaction phases to be attempted.
+Recovery success and independently fatal core errors remain runtime concerns.
+
+The checked cancellation form represents operation `version: 1`. Historical
+reason-only cancellations remain accepted for compatible or pinned Work.
+Terminal metadata cannot change between the two forms, and an abstract checkpoint
+preserves the marker. Expiration is derived `work_expired` metadata, not a
+synthetic cancellation operation. Retirement preserves existing Claims, fairness
+charges, reservations and historical Results; it does not authorize effect replay.
+
+| Configuration | Required verdict |
+|---|---|
+| `Retirement.cfg`, `RetirementSingle.cfg` | Exhaust bounded `Safety` for two- and one-operation prefixes. |
+| `BrokenRetirementExpiry.cfg` | Reject selection from a stale, unexpired projection. |
+| `BrokenRetirementPublication.cfg` | Reject publication that skips fresh eligibility checks. |
+| `BrokenRetirementPin.cfg`, `BrokenRetirementOwnership.cfg`, `BrokenRetirementBarrier.cfg`, `BrokenRetirementAvailability.cfg` | Reject cancellation of protected or unavailable Work. |
+| `BrokenRetirementLegacy.cfg`, `BrokenRetirementCheckpoint.cfg`, `BrokenRetirementTerminal.cfg` | Reject retroactive legacy checks, checkpoint marker changes or terminal receipt rewrites. |
+| `BrokenRetirementDebt.cfg`, `BrokenRetirementReservation.cfg`, `BrokenRetirementResult.cfg` | Reject loss of charges, reservations or historical Results. |
+| `BrokenRetirementMaintenance.cfg` | Reject retirement failures that skip core recovery. |
+| `RetirementCheckedWitness.cfg`, `RetirementLegacyWitness.cfg`, `RetirementRecoveryWitness.cfg`, `RetirementExpirationWitness.cfg` | Reach checked retirement, legacy checkpoint preservation, recovery after failure and an elapsed-deadline prefix under `Safety`. |
+
+Official TLC 2.19 (pinned jar SHA below) with Java 21 exhausted **9,411 distinct
+states at depth 11** for `Retirement.cfg` and **9,195 at depth 11** for
+`RetirementSingle.cfg`. All thirteen mutation controls and four safety-guarded
+witnesses produced their exact named counterexamples and expected exit statuses.
+
+```bash
+TLA2TOOLS_JAR=/path/to/tla2tools.jar JAVA_BIN=/path/to/java \
+  TLC_MODEL_FILTER=ObsoleteWorkRetirement bash specs/work-queue/check.sh
+```
+
+The runner requires exact named counterexamples and exit statuses for all
+mutation controls and safety-guarded witnesses. These are bounded reachability
+checks, not liveness or a Go/JavaScript refinement proof. Approved deployment
+identity, immutable pins/contracts, deterministic UTF-8 ordering and trusted
+timestamps are premises. The checkpoint is an abstract record copy, not a JSON
+codec or Git history proof. The model does not establish actual API availability,
+authentication, global scheduling fairness or successful recovery effects.
 
 ## Retained Claim completion model
 
@@ -257,13 +339,15 @@ maintenance forever without preparing a failure; the fixed model excludes that
 behavior under the stated fairness assumptions. Without fairness, even a
 prepared sibling failure can remain unpublished forever.
 
-The related regression run also exhausted both `ClaimDeliveryHealth` positives
+The related historical regression run also exhausted both `ClaimDeliveryHealth` positives
 (73 and 6 states), both `QueueLifecycle` positives (496 and 207,612 states), and
 `FairKeepOpen` (83,865 states); every registered control/witness in those first
 two modules returned its exact expected verdict. The runner's 11 unit tests
 check verdict handling, not protocol correctness. The existing 16-case
 Go/JavaScript deadline-parity test separately confirms real replay checks for
 deadline/attempt exhaustion and unknown/none/partial evidence dispositions.
+Those lifecycle counts predate the accepted-receipt model described below;
+they are not current-model verification evidence.
 
 This is bounded safety and conditional temporal evidence, not an unbounded
 proof or runtime refinement. It omits actual Git CAS, arbitrary wire records,
@@ -277,6 +361,14 @@ existing `QueueLifecycle` model separately checks the finite verification-attemp
 budget, and `ClaimDeliveryHealth` checks staged isolation and aggregate reporting.
 Existing historical verification counts elsewhere in this guide are not results
 for this new refinement.
+
+These safeguards are normative for the current Claim delivery recovery protocol,
+not only for the historical `WorkQueue.tla` model.
+
+**Safeguards:** Recovery MUST use exact authenticated terminal evidence and checked
+publication against the original owner and pending barrier. It MUST NOT infer
+terminality from elapsed time or capacity release, reconstruct a Result, or replay
+completed effects.
 
 ## Abandoned dispatcher reservation recovery
 
@@ -603,6 +695,8 @@ The separate [Work Queue Stress workflow](../../.github/workflows/work-queue-str
 runs on pull requests and `main` pushes changing `actions/setup/js` JavaScript,
 the simulator, its workflow or protocol fixtures. It runs the 100,000-item history
 profile, 1,024 live lifecycles and admission saturation independently. Its step
+budgets allow ten minutes each for history and live lifecycles, with a thirty-minute
+job deadline covering invariant checks, saturation and diagnostic uploads. The
 summary reports profile outcomes, measured workload, elapsed time, throughput and
 peak memory, with phase timings and Git contention in a collapsible section.
 History validation throughput is separate from live Work completion throughput;
@@ -708,7 +802,7 @@ do not change the queue's canonical Git authority.
 | `compact` | Canonically order facts and remove only identical duplicates |
 | `submit-work` | `--file work.json` (or `--file -` for stdin); derives an id from the canonical JSON object |
 | `claim` | `--run-id RUN [--work-id ID]`; defaults to the oldest available Work |
-| `finish` | `--claim-id ID --attempt-id ATTEMPT [--outcome TEXT]` |
+| `finish` | `--claim-id ID --attempt-id ATTEMPT [--adoption TEXT]` |
 | `cancel-work` | `--work-id ID` |
 | `cancel-claim` | `--claim-id ID` |
 
@@ -792,6 +886,12 @@ per-worker completion-triggered workflow. Upgrade closed-schema readers before
 publishing the new evidence variant. Cross-language worker-termination tests
 cover the new release boundary; existing native-terminal formal models continue
 to cover the recovery path, not the inline job-inventory receipt check.
+
+**Safeguards:** Inline termination evidence MUST come from the authenticated
+original run and a complete, quiescent job inventory. It MUST NOT be treated as
+proof that the native run completed or that delivery barriers settled. Hard-cancelled
+workers MUST continue through scheduled reconciliation with exact native-terminal
+evidence.
 
 ## Current wire contract and schema checks
 
@@ -1350,29 +1450,46 @@ these exhausted counts.
 fairness arithmetic. Its independent FIFO packing oracle uses profile order
 X/Y/X: one available dispatch admits the first X only; two dispatches permit
 X/X and Y without skipping the middle winner. Immutable assignments, one
-selected sender, activation recovery, conflicting bindings, attempt-1 effects,
+selected sender, accepted-but-unbound observations, normal trusted activation,
+conflicting bindings, attempt-1 effects,
 Controls, logical/native release, delivery outcomes and replacement admission
 are checked together.
 
+`ObserveReceipt` records only volatile controls-output knowledge; the derived
+`LaunchStatus` becomes `activation_pending` while the durable launch is unbound.
+It may arrive before or after trusted activation. `LoseReceipt` changes no
+binding, Claim or reservation. `Exhaust` abstracts an unavailable bounded scan,
+overflow or exhausted polling budget: it retains unbound capacity as
+unresolved/conflicted, and only later checked evidence can recover authority.
+The model does not promise that activation or sufficient recovery evidence
+eventually occurs.
+
 | Configuration | Expected result | Exhausted evidence |
 |---|---|---|
-| `LifecycleRecurring` | Safety across two fully drained epochs | 496 states, depth 20 |
-| `LifecyclePacked` | Safety for the bounded packed assignment | 207,612 states, depth 33 |
+| `LifecycleRecurring` | Safety across two fully drained epochs | 1,032 states, depth 21 |
+| `LifecyclePacked` | Safety for the bounded packed assignment | 875,532 states, depth 35 |
 
-Eleven negative controls require the exact named violations for fair-prefix
+Twelve negative controls require the exact named violations for fair-prefix
 packing, one sender, binding authority, unauthenticated activation, reruns,
 premature release, conflict release, pause/preemption confusion, delivery
-exclusivity, replacement safety and delivery-verification budgets. Three guarded
-witnesses reach mixed DAG outcomes, recovered activation and retained capacity
-after conflicting activation. Witness violations are expected reachability
+exclusivity, replacement safety, delivery-verification budgets and receipt-only
+binding. Seven guarded witnesses reach mixed DAG outcomes, recovered activation,
+retained capacity after conflicting activation, released pending delivery,
+accepted-but-unbound status, accepted/bound status and unresolved retained capacity.
+Witness violations are expected reachability
 diagnostics, not failures of the guarded safety properties.
 
 ```mermaid
 flowchart LR
     Prefix["Independent X/Y/X packing oracle"] --> Assignment["Immutable group membership"]
     Assignment --> Marker["One sender marker"]
-    Marker --> Unknown["Launch uncertain: retain native slot"]
-    Unknown --> Activation["Checked activation recovers binding"]
+    Marker --> Unknown["Launch unbound: retain native slot"]
+    Unknown --> Accepted["Receipt observed: activation pending"]
+    Accepted --> Activation["Checked activation establishes binding"]
+    Unknown --> Activation
+    Accepted --> Unresolved["Bounded recovery exhausted: retain native slot"]
+    Unknown --> Unresolved
+    Unresolved --> Activation
     Activation --> Members["Independent Claim closures and delivery barriers"]
     Activation --> Conflict["Conflicting run: retain reservation"]
     Members --> Terminal["Exact terminal evidence releases shared slot"]
@@ -1380,10 +1497,14 @@ flowchart LR
 ```
 
 Reproduce these checks with `TLC_MODEL_FILTER=QueueLifecycle`. The positive
-total is **208,108 exhausted states**, not an unbounded proof or runtime test.
+total is **876,564 exhausted states**, checked with the pinned TLC 2.19 and
+Java 21 on 2026-11-09, not an unbounded proof or runtime test.
+All 21 lifecycle configurations returned their exact expected verdicts.
 Terminal, activation and receipt predicates abstract independently checked
 evidence; they do not verify real GitHub responses, credentials, artifact
-authenticity or resource targets. The model does not cover actual Git CAS,
+authenticity or resource targets. Exact run hints, transient HTTP failures,
+dispatcher metadata-GET counts and the concrete two-page/50-run scan are
+runtime regression obligations, not modeled API behavior. The model does not cover actual Git CAS,
 wire codecs, arbitrary graphs, the native scheduler, all handler types or a
 liveness theorem. These checks do not complete the two interrupted large
 searches or the supported-host integration gate.

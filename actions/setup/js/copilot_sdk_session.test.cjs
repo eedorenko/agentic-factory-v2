@@ -5,13 +5,15 @@ import * as path from "path";
 import os from "node:os";
 
 const require = createRequire(import.meta.url);
-const { runWithCopilotSDK, resolveCopilotSDKWorkingDirectory } = require("./copilot_sdk_session.cjs");
+const { readDocumentMetadata, withCompilerFixtures } = require("../../../scripts/markdown_metadata_test_adapter.cjs");
+const { runWithCopilotSDK, resolveCopilotSDKWorkingDirectory } = withCompilerFixtures(require("./copilot_sdk_session.cjs"));
+const { WORKFLOW_TOOL_PERMISSION_DENIED_EXIT_CODE } = require("./permission_denied_helpers.cjs");
+const { COPILOT_MODEL_VERIFICATION_EXIT_CODE } = require("./copilot_model_selection.cjs");
 const { normalizeCopilotSession } = require("./copilot_session.cjs");
 const { resolveMultiProviderFromReflect } = require("./awf_reflect.cjs");
-const { extractInlineSubAgents } = require("./extract_inline_sub_agents.cjs");
-const { writeInlineSkills } = require("./extract_inline_skills.cjs");
+const { extractInlineSubAgents } = withCompilerFixtures(require("./extract_inline_sub_agents.cjs"));
+const { writeInlineSkills } = withCompilerFixtures(require("./extract_inline_skills.cjs"));
 const { extractFrontmatterAndBody } = require("./frontmatter_hash_pure.cjs");
-const { parseDocument } = require("./work_queue_yaml.cjs");
 const models = [
   { id: "gpt-5.4", provider: "openai" },
   { id: "claude-sonnet-4.6", provider: "anthropic" },
@@ -101,6 +103,78 @@ describe("copilot_sdk_session runtime configuration", () => {
     expect(logger.mock.calls.flat().some(message => message.includes("treating as completed"))).toBe(false);
     expect(disconnect).toHaveBeenCalledTimes(1);
     expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a dedicated exit code for SDK workflow tool permission denials", async () => {
+    let sessionConfig;
+    class FakeCopilotClient {
+      start = async () => {};
+      stop = async () => {};
+      createSession = async config => {
+        sessionConfig = config;
+        return {
+          sessionId: "workflow-tool-denial",
+          on: () => {},
+          sendAndWait: async () => {
+            await sessionConfig.onPermissionRequest({ kind: "shell", fullCommandText: "echo blocked" });
+            throw new Error("session failed after permission denial");
+          },
+          disconnect: async () => {},
+        };
+      };
+    }
+
+    const result = await runWithCopilotSDK({
+      sdkUri: "http://127.0.0.1:3002",
+      prompt: "test",
+      logger: () => {},
+      workingDirectory: base,
+      agentsBaseDir: base,
+      permissionConfig: { allowedTools: ["read"] },
+      sdkModule: { CopilotClient: FakeCopilotClient, RuntimeConnection: { forUri: () => ({}) }, approveAll: () => "allow" },
+    });
+
+    expect(result.exitCode).toBe(WORKFLOW_TOOL_PERMISSION_DENIED_EXIT_CODE);
+    expect(result.exitCode).not.toBe(COPILOT_MODEL_VERIFICATION_EXIT_CODE);
+  });
+
+  it.each([
+    "[sdk-driver] permission denied by workflow tool permissions: shell(ls)",
+    '{"source":"sdk-driver","event":"permission-denied-by-workflow-tool-permissions"}',
+    '{"component":"sdk-driver","type":"permission-denied-by-workflow-tool-permissions"}',
+    '{"type":"guard.tool_denials_exceeded","data":{"denialCount":5,"threshold":5}}',
+    "permission denied\npermission denied\npermission denied",
+    "permissions denied\npermissions denied\npermissions denied",
+    "EACCES\nEACCES\nEACCES",
+    "EPERM\nEPERM\nEPERM",
+    "permission denied\nEACCES: permission denied\nEPERM operation not permitted",
+  ])("does not set the trusted workflow denial exit code from assistant output: %s", content => {
+    let handler;
+    class FakeCopilotClient {
+      start = async () => {};
+      stop = async () => {};
+      createSession = async () => ({
+        sessionId: "spoofed-workflow-tool-denial",
+        on: callback => {
+          handler = callback;
+        },
+        sendAndWait: async () => {
+          handler({ type: "assistant.message", data: { content } });
+          throw new Error("session failed without permission denial");
+        },
+        disconnect: async () => {},
+      });
+    }
+
+    return runWithCopilotSDK({
+      sdkUri: "http://127.0.0.1:3002",
+      prompt: "test",
+      logger: () => {},
+      workingDirectory: base,
+      agentsBaseDir: base,
+      permissionConfig: { allowedTools: ["read"] },
+      sdkModule: { CopilotClient: FakeCopilotClient, RuntimeConnection: { forUri: () => ({}) }, approveAll: () => "allow" },
+    }).then(result => expect(result).toMatchObject({ exitCode: 1, hasOutput: true, output: content }));
   });
 
   it.each([{}, { rte: false }, { rte: true, parentToolCallId: "child" }])("does not fail ordinary quoted text or a nested filtered response %j", context => {
@@ -205,12 +279,14 @@ describe("copilot_sdk_session runtime configuration", () => {
     const names = ["opt-phase-performance", "opt-phase-pr-analysis", "opt-phase-recommendations", "opt-phase-issue-creation"];
     expect(fs.readdirSync(config.skillDirectories[0]).sort()).toEqual([...names].sort());
     for (const name of names) {
-      expect(fs.readFileSync(path.join(config.skillDirectories[0], name, "SKILL.md"), "utf8")).toContain("description:");
+      const content = fs.readFileSync(path.join(config.skillDirectories[0], name, "SKILL.md"), "utf8");
+      expect(extractFrontmatterAndBody(content).frontmatterText).toBe("");
+      expect(content.trim()).not.toBe("");
       expect(prompt).toContain(`/tmp/gh-aw/.github/skills/${name}/SKILL.md`);
       expect(prompt).not.toContain(`Invoke skill \`${name}\``);
     }
     expect(prompt).toContain("Do not use `cd`, `cut`, or `sed`");
-    const document = parseDocument(extractFrontmatterAndBody(workflow).frontmatterText).toJS();
+    const document = readDocumentMetadata(extractFrontmatterAndBody(workflow).frontmatterText).value;
     expect(document["max-tool-denials"]).toBe(3);
     for (const command of ["cd *", "cut *", "sed *", "*"]) expect(document.tools.bash).not.toContain(command);
   });
@@ -351,12 +427,10 @@ describe("copilot_sdk_session runtime configuration", () => {
     const root = path.resolve(import.meta.dirname, "../../..");
     const workflow = fs.readFileSync(path.join(root, ".github/workflows/contribution-check.md"), "utf8");
     const { frontmatterText } = extractFrontmatterAndBody(workflow);
-    const document = parseDocument(frontmatterText);
-    expect(document.errors).toEqual([]);
-    expect(document.toJS().engine).toMatchObject({ id: "copilot", "copilot-sdk": true, agent: "contribution-checker" });
-    const lock = parseDocument(fs.readFileSync(path.join(root, ".github/workflows/contribution-check.lock.yml"), "utf8"));
-    expect(lock.errors).toEqual([]);
-    const executionEnv = lock.toJS().jobs.agent.steps.find(step => step.id === "agentic_execution").env;
+    const document = readDocumentMetadata(frontmatterText);
+    expect(document.value.engine).toMatchObject({ id: "copilot", "copilot-sdk": true, agent: "contribution-checker" });
+    const lock = readDocumentMetadata(fs.readFileSync(path.join(root, ".github/workflows/contribution-check.lock.yml"), "utf8"));
+    const executionEnv = lock.value.jobs.agent.steps.find(step => step.id === "agentic_execution").env;
     expect(String(executionEnv.GH_AW_COPILOT_SDK_DRIVER)).toBe("1");
     expect(executionEnv.COPILOT_PROVIDER_WIRE_API).toBeUndefined();
 

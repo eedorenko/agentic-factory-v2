@@ -14,6 +14,7 @@ const { writeWorkQueueUpdateSummary } = require("./work_queue_summary_renderer.c
 const { queueAuthenticationScope } = require("./work_queue_auth_cache.cjs");
 const { queueGitScope, queueLedgerClient } = require("./work_queue_git_transport.cjs");
 const { expirationView } = require("./work_queue_expiration.cjs");
+const { observeQueueOperation, publicationAttempt, publicationRecovery } = require("./work_queue_telemetry.cjs");
 const {
   appendCommit,
   causalChain,
@@ -25,6 +26,7 @@ const {
   reconstructCheckpoint,
   proposedCommitId,
   replayTransactionLog,
+  replayCheckpointSource,
   replayTransactions,
   validateClaimAuthority,
   validateRequest,
@@ -36,7 +38,9 @@ const WORK_QUEUE_BRANCH = "work-queue";
 const WORK_QUEUE_LOG_PATH = "work-queue.jsonl";
 const LEGACY_BRANCHES = ["dispatch-coordinator", "gh-aw-work-queue"];
 const LEGACY_LOGS = ["dispatch-work-coordinator.jsonl"];
-const DEFAULT_MAX_RETRIES = 5;
+// Contended publications routinely need 10+ fast-forward attempts; exponential backoff caps at 1 s, so 33 attempts bound a publication to ~30 s of sleep.
+const DEFAULT_MAX_RETRIES = 32;
+const DEFAULT_COMPACTION_MAX_RETRIES = 5;
 /** @type {WeakMap<object, {scope: object, proofs: Set<string>}>} */
 const verifiedCheckpointHistory = new WeakMap();
 /** @type {WeakMap<object, {scope: object, repository: string, sha: string, treeSha: string, contents: string}>} */
@@ -118,7 +122,12 @@ async function readRef(githubClient, owner, repo, branch) {
 }
 
 /** @param {QueueReadOptions} options */
-async function readWorkQueueLog({ githubClient, owner, repo, branch = WORK_QUEUE_BRANCH, eventIds, core: coreApi = undefined }) {
+async function readWorkQueueLog(options) {
+  return observeQueueOperation("read", options, () => readWorkQueueLogImpl(options));
+}
+
+/** @param {QueueReadOptions} options */
+async function readWorkQueueLogImpl({ githubClient, owner, repo, branch = WORK_QUEUE_BRANCH, eventIds, core: coreApi = undefined }) {
   log.debug("ledger.read.start");
   validateBranch(branch);
   if (eventIds !== undefined && (!Array.isArray(eventIds) || eventIds.length > 256 || eventIds.some(member => !member || typeof member.work_id !== "string" || typeof member.claim_id !== "string")))
@@ -180,9 +189,10 @@ async function readVerifiedQueueAtSHA(options, sha, verify = true, recover = tru
  * @param {string} sha
  * @param {Record<string, unknown> | undefined} [request]
  * @param {(code: string, message: string) => Error} [onInvalid]
+ * @param {Map<string, string> | undefined} [knownPrefixes]
  * @throws {Error} If queue contents are invalid, using onInvalid when provided.
  */
-async function readQueueContentsAtSHA({ githubClient, owner, repo }, sha, request = undefined, onInvalid = undefined) {
+async function readQueueContentsAtSHA({ githubClient, owner, repo }, sha, request = undefined, onInvalid = undefined, knownPrefixes = undefined) {
   /**
    * @type {(code: string, message: string) => never}
    * @throws {Error} Always throws the error from onInvalid or queueError.
@@ -201,6 +211,8 @@ async function readQueueContentsAtSHA({ githubClient, owner, repo }, sha, reques
   if (entries.some(entry => LEGACY_LOGS.includes(entry.path))) fail("unsupported_protocol", "legacy transaction log cannot be adopted");
   const logs = entries.filter(entry => entry.path === WORK_QUEUE_LOG_PATH);
   if (logs.length !== 1 || logs[0].type !== "blob" || typeof logs[0].sha !== "string" || logs[0].mode !== "100644") fail("ledger_invalid", "existing queue must contain exactly one regular canonical log");
+  const known = knownPrefixes?.get(logs[0].sha);
+  if (known !== undefined) return { treeSha, contents: known, prefixVerified: true };
   const blob = await githubClient.rest.git.getBlob({ owner, repo, file_sha: logs[0].sha, ...requestOptions });
   if (blob?.data?.encoding !== "base64" || typeof blob.data.content !== "string") fail("ledger_invalid", "queue blob encoding is unsupported");
   const encoded = blob.data.content.replace(/\s/g, "");
@@ -342,7 +354,7 @@ async function replayVerifiedQueueLog(options, sha, contents, verify = true, rec
     checkpointRecovered = true;
   }
   if (state.transactions.some(transaction => transaction.actor.repository.toLowerCase() !== options.repository.full_name.toLowerCase())) throw queueError("actor_unauthorized", "queue log contains an actor from another repository");
-  if (verify && !checkpointRecovered && state.transactions[0]?.operations[0]?.kind === "Checkpoint") await verifyCheckpointGitHistory(options, sha, state.transactions[0]);
+  if (verify && !checkpointRecovered && state.transactions[0]?.operations[0]?.kind === "Checkpoint") await verifyCheckpointGitHistory(options, sha, state.transactions);
   return { state, checkpointRecovered };
 }
 
@@ -365,14 +377,14 @@ async function recoverDeploymentCheckpoint(options, sha, contents, failure) {
   validateExtendingPrefix(original.transactions, repaired, "checkpoint recovery cannot change accepted history");
   const state = replayTransactions(repaired);
   if (canonical(damaged.operations[0].state.deployments) !== canonical(serializeDeployments(state))) throw failure;
-  await verifyCheckpointGitHistory(options, parent, root);
+  await verifyCheckpointGitHistory(options, parent, original.transactions);
   const message = "Work queue: recovered aliased checkpoint deployments from its verified Git parent; the next checked publication will persist the unchanged checkpoint and retained requests.";
   if (typeof coreApi?.warning === "function") coreApi.warning(message);
   else coreApi?.info(message);
   return state;
 }
 
-async function verifyCheckpointGitHistory(options, head, root) {
+async function verifyCheckpointGitHistory(options, head, transactions) {
   options = { ...options, githubClient: queueLedgerClient(options.githubClient, options.owner, options.repo, options.branch) };
   const { githubClient, owner, repo } = options;
   const invalid = () => queueError("checkpoint_invalid", "checkpoint does not match its Git parent history");
@@ -382,9 +394,14 @@ async function verifyCheckpointGitHistory(options, head, root) {
   if (!scope || cached?.scope !== scope) verifiedCheckpointHistory.delete(githubClient);
   const verified = cached && scope && cached.scope === scope ? cached.proofs : new Set();
   const pending = new Set();
+  let root = transactions[0];
   verification: while (root?.operations?.[0]?.kind === "Checkpoint") {
     const checkpoint = root.operations[0];
     const checkpointDigest = digest(root);
+    let lines = transactions.map(transaction => canonical(transaction) + "\n");
+    const rootBytes = Buffer.byteLength(lines[0], "utf8");
+    let validatedPrefix = lines.join("");
+    let prefixes = queueGitScope(githubClient) ? canonicalGitPrefixes(lines, head.length) : undefined;
     let current = head;
     for (;;) {
       // Git reads recheck repository access; other transports require static auth.
@@ -397,9 +414,36 @@ async function verifyCheckpointGitHistory(options, head, root) {
       const parents = commit?.data?.parents;
       if (!Array.isArray(parents) || parents.length !== 1 || !parents[0]?.sha || parents[0].sha === current) throw invalid();
       const parent = parents[0].sha;
-      const previous = await readVerifiedQueueAtSHA({ ...options, coreApi: undefined }, parent, false);
+      const cachedParent = verifiedQueueContents.get(githubClient);
+      const immutable =
+        cachedParent && scope && cachedParent.scope === scope && cachedParent.repository === options.repository.full_name.toLowerCase() && cachedParent.sha === parent
+          ? cachedParent
+          : await readQueueContentsAtSHA(options, parent, undefined, undefined, prefixes);
+      const { contents } = immutable;
+      // Exact canonical causal prefixes inherit validation, not mutable projections.
+      if (("prefixVerified" in immutable && immutable.prefixVerified) || (contents.endsWith("\n") && Buffer.byteLength(contents, "utf8") >= rootBytes && validatedPrefix.startsWith(contents))) {
+        current = parent;
+        continue;
+      }
+      if (parent === checkpoint.prior_git_sha) {
+        try {
+          const state = replayCheckpointSource(contents, parent, root);
+          head = parent;
+          transactions = state.transactions;
+          root = transactions[0];
+          break;
+        } catch (error) {
+          // Preserve the existing deployment-checkpoint recovery path.
+          if (error?.code !== "checkpoint_invalid") throw error;
+        }
+      }
+      const { state } = await replayVerifiedQueueLog({ ...options, coreApi: undefined }, parent, contents, false);
+      const previous = { transactions: state.transactions, state };
       if (previous.transactions[0]?.id === root.id) {
         if (canonical(previous.transactions[0]) !== canonical(root)) throw invalid();
+        lines = previous.transactions.map(transaction => canonical(transaction) + "\n");
+        validatedPrefix = lines.join("");
+        prefixes = queueGitScope(githubClient) ? canonicalGitPrefixes(lines, head.length) : undefined;
         current = parent;
         continue;
       }
@@ -413,6 +457,7 @@ async function verifyCheckpointGitHistory(options, head, root) {
         throw invalid();
       if (previous.state.tip !== checkpoint.prior_tip || reconstructCheckpoint(previous.transactions, parent, root.actor, root.at, checkpoint.state_sha256)[0].operations[0].state_sha256 !== checkpoint.state_sha256) throw invalid();
       head = parent;
+      transactions = previous.transactions;
       root = previous.transactions[0];
       break;
     }
@@ -427,6 +472,25 @@ async function verifyCheckpointGitHistory(options, head, root) {
     }
   }
   verifiedCheckpointHistory.set(githubClient, { scope, proofs: verified });
+}
+
+function canonicalGitPrefixes(lines, oidLength) {
+  if (lines.length > 256 || ![40, 64].includes(oidLength)) return undefined;
+  const contents = lines.join("");
+  const bytes = Buffer.from(contents, "utf8");
+  const prefixes = new Map();
+  let offset = 0;
+  let end = 0;
+  for (const line of lines) {
+    offset += Buffer.byteLength(line, "utf8");
+    end += line.length;
+    const oid = createHash(oidLength === 40 ? "sha1" : "sha256")
+      .update(`blob ${offset}\0`, "utf8")
+      .update(bytes.subarray(0, offset))
+      .digest("hex");
+    prefixes.set(oid, contents.slice(0, end));
+  }
+  return prefixes;
 }
 
 function stableRequestResult(current, request, actor) {
@@ -488,7 +552,11 @@ async function validateCompactionExtension(previous, current, { githubClient, ow
 }
 
 /** Checkpoint validated history against the current Git HEAD and publish by fast-forward CAS. */
-async function compactWorkQueue({ githubClient, owner, repo, context, branch = WORK_QUEUE_BRANCH, maxRetries = DEFAULT_MAX_RETRIES, now = Date.now }) {
+async function compactWorkQueue(options) {
+  return observeQueueOperation("compact", options, () => compactWorkQueueImpl(options));
+}
+
+async function compactWorkQueueImpl({ githubClient, owner, repo, context, branch = WORK_QUEUE_BRANCH, maxRetries = DEFAULT_COMPACTION_MAX_RETRIES, now = Date.now }) {
   const actor = actorFromContext(context);
   validateTrustedContext(context, actor);
   if (actor.role !== "administrator" || actor.repository.toLowerCase() !== `${owner}/${repo}`.toLowerCase()) throw queueError("actor_unauthorized", "checkpoint requires an authenticated queue administrator");
@@ -496,6 +564,7 @@ async function compactWorkQueue({ githubClient, owner, repo, context, branch = W
   let lastCandidate;
   let lastBaseSHA;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    publicationAttempt();
     const current = await readWorkQueueLog({ githubClient, owner, repo, branch });
     if (!current.sha) throw queueError("queue_missing", "checkpoint requires an existing queue");
     await validateCompactionExtension(observedPrefix, current.transactions, { githubClient, owner, repo, sha: current.sha, branch }, "queue history was rewritten during checkpoint publication");
@@ -512,6 +581,7 @@ async function compactWorkQueue({ githubClient, owner, repo, context, branch = W
       return { ...current, sha, transactions, state: replayTransactionLog(transactions.map(commit => canonical(commit)).join("\n") + "\n"), publishedNow: true };
     } catch (error) {
       if (!refConflict(error) && !ambiguousWrite(error)) throw error;
+      publicationRecovery(refConflict(error) ? "conflict" : "ambiguous");
       if (attempt === maxRetries) {
         const refreshed = await readWorkQueueLog({ githubClient, owner, repo, branch });
         await validateCompactionExtension(observedPrefix, refreshed.transactions, { githubClient, owner, repo, sha: refreshed.sha, branch }, "queue history was rewritten during checkpoint publication");
@@ -603,7 +673,12 @@ async function prepareEmptyRepository(githubClient, owner, repo, branch) {
  * commitId?: typeof proposedCommitId, sleepFn?: (delay: number) => Promise<void>
  * }} options
  */
-async function publishWorkQueueRequest({
+async function publishWorkQueueRequest(options) {
+  return observeQueueOperation("publish", options, () => publishWorkQueueRequestImpl(options));
+}
+
+/** @param {Parameters<typeof publishWorkQueueRequest>[0]} options */
+async function publishWorkQueueRequestImpl({
   githubClient,
   owner,
   repo,
@@ -625,7 +700,7 @@ async function publishWorkQueueRequest({
 }) {
   log.debug("request.publish.start", { max_retries: maxRetries, initialize_only: initializeOnly });
   validateBranch(branch);
-  integer(maxRetries, 0, 10, "publication retries");
+  integer(maxRetries, 0, 128, "publication retries");
   validateTrustedContext(context, actor);
   if (actor.repository.toLowerCase() !== `${owner}/${repo}`.toLowerCase()) throw queueError("actor_unauthorized", "authenticated context belongs to another repository");
   validateRequest(request, actor);
@@ -639,6 +714,7 @@ async function publishWorkQueueRequest({
   let observedPrefix = [];
   let lastConflict;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    publicationAttempt();
     log.debug("request.publish.attempt", { attempt: attempt + 1 });
     let current = await readWorkQueueLog({ githubClient, owner, repo, branch, core: coreApi });
     validateExtendingPrefix(observedPrefix, current.transactions, "refreshed queue history does not extend the previously validated prefix");
@@ -720,6 +796,7 @@ async function publishWorkQueueRequest({
       log.failure("request.publish.write_failed", error);
       log.debug("request.publish.recovery", { conflict: refConflict(error), ambiguous: ambiguousWrite(error), retry_available: attempt < maxRetries });
       if (!refConflict(error) && !ambiguousWrite(error)) throw new Error("Failed to publish checked work queue request", { cause: error });
+      publicationRecovery(refConflict(error) ? "conflict" : "ambiguous");
       lastConflict = error;
       // A lost response is not permission to choose another request. Refresh
       // before another candidate, and at exhaustion before reporting uncertainty.

@@ -9,6 +9,8 @@ Control network access for AI engines using the top-level `network` field to spe
 
 If no `network:` permission is specified, it defaults to `network: defaults`, which allows only certificate validation, JSON schema, and stock Ubuntu archive/keyserver hosts. The [complete baseline](#defaults-baseline) lists every allowed host.
 
+For custom CA trust when AWF's API proxy verifies upstream TLS, see [Custom CA certificate for the API proxy](/gh-aw/reference/sandbox/#custom-ca-certificate-for-the-api-proxy).
+
 > [!TIP]
 > New to network configuration? See the [Network Configuration Guide](/gh-aw/guides/network-configuration/) for practical examples and troubleshooting tips.
 
@@ -105,15 +107,16 @@ Mix ecosystem identifiers with specific domains for fine-grained control:
 | `terraform` | HashiCorp registry, apt/yum releases |
 | `bazel` | Bazel build system (`releases.bazel.build`, `bcr.bazel.build`) |
 | `clojure` | Clojure packages (`clojars.org`) |
-| `copilot-vendor` | Plan-specific Copilot API hosts (`api.business.githubcopilot.com`, `api.enterprise.githubcopilot.com`, `api.individual.githubcopilot.com`) and Copilot telemetry (`telemetry.enterprise.githubcopilot.com`) — not enabled by default, since agents route inference through the firewall gateway |
-| `codex-vendor` | Optional Codex authentication and telemetry (`auth.openai.com`, `ab.chatgpt.com`) — explicit opt-in |
-| `copilot` | Copilot engine transport (`api.githubcopilot.com`, GitHub API/web, `host.docker.internal`, `raw.githubusercontent.com`) |
-| `claude` | Claude engine gateway/GitHub transport (`api.github.com`, GitHub web, `host.docker.internal`, `raw.githubusercontent.com`); direct Anthropic API is added only when the effective target is Anthropic |
-| `codex` | Codex engine transport (`172.30.0.1`, `api.openai.com`, GitHub API/web, `host.docker.internal`) |
-| `gemini` | Gemini engine transport (`generativelanguage.googleapis.com`, GitHub web, `host.docker.internal`, `raw.githubusercontent.com`) |
-| `pi` | Pi engine transport (`api.githubcopilot.com`, GitHub web, `host.docker.internal`, `raw.githubusercontent.com`) |
-| `pi-base` | Pi provider-independent baseline (`github.com`, `host.docker.internal`, `raw.githubusercontent.com`) |
-| `threat-detection` | Compatibility alias for Copilot threat-detection network access (`api.githubcopilot.com`, Copilot plan APIs, `api.github.com`, `github.com`, `host.docker.internal`, `registry.npmjs.org`) |
+| `copilot-vendor` | Direct Copilot API hosts (`api.githubcopilot.com`, plan-specific hosts) and Copilot telemetry — explicit opt-in |
+| `codex-vendor` | Direct OpenAI API and optional authentication/telemetry — explicit opt-in |
+| `gemini-vendor` | Direct Gemini API (`generativelanguage.googleapis.com`) — explicit opt-in |
+| `copilot` | Copilot gateway/GitHub transport (`api.github.com`, GitHub web, `host.docker.internal`, `raw.githubusercontent.com`) |
+| `claude` | Claude gateway/GitHub transport (`api.github.com`, GitHub web, `host.docker.internal`, `raw.githubusercontent.com`); direct Anthropic API requires an explicit domain |
+| `codex` | Codex gateway/GitHub transport (`172.30.0.1`, GitHub API/web, `host.docker.internal`) |
+| `gemini` | Gemini gateway/GitHub transport (GitHub web, `host.docker.internal`, `raw.githubusercontent.com`) |
+| `pi` | Pi gateway/GitHub transport (GitHub web, `host.docker.internal`, `raw.githubusercontent.com`) |
+| `pi-base` | Pi provider-independent gateway baseline (`github.com`, `host.docker.internal`, `raw.githubusercontent.com`) |
+| `threat-detection` | Compatibility alias for Copilot threat-detection network access (`api.githubcopilot.com`, Copilot plan APIs, `api.github.com`, `github.com`, `host.docker.internal`) |
 | `dart` | Dart/Flutter packages (`pub.dev`, `storage.googleapis.com`) |
 | `deno` | Deno runtime (`deno.land`, `jsr.io`, `googleapis.deno.dev`) |
 | `dotnet` | NuGet packages and .NET SDK |
@@ -164,22 +167,30 @@ network:
 
 ## Engine Domain Sets
 
-Engine domain sets are named allowlist bundles for engine CLI authentication and direct provider transport. They are **not** added automatically. Add the matching identifier to `network.allowed` only when the agent needs direct egress to that engine's domains; agent inference normally runs through the AWF API proxy.
+Engine domain sets are named allowlist bundles for gateway/GitHub transport. They are **not** added automatically. Agent inference normally runs through the AWF API proxy, so direct provider API hosts are granted separately. Workflows that previously relied on an engine set for direct API egress must add the corresponding vendor set or literal domain to `network.allowed`.
 
 | Engine set | Included domains |
 |---|---|
-| `copilot` | `api.github.com`, `api.githubcopilot.com`, `github.com`, `host.docker.internal`, `raw.githubusercontent.com` |
-| `claude` | `api.github.com`, `github.com`, `host.docker.internal`, `raw.githubusercontent.com`; `api.anthropic.com` is added only for the default Anthropic target |
-| `codex` | `172.30.0.1`, `api.github.com`, `api.openai.com`, `github.com`, `host.docker.internal` |
-| `codex-vendor` | Optional authentication/telemetry: `auth.openai.com`, `ab.chatgpt.com` |
-| `gemini` | `generativelanguage.googleapis.com`, `github.com`, `host.docker.internal`, `raw.githubusercontent.com` |
-| `pi` | `api.githubcopilot.com`, `github.com`, `host.docker.internal`, `raw.githubusercontent.com`; provider-scoped models replace the API host with the selected provider endpoint |
-| `pi-base` | `github.com`, `host.docker.internal`, `raw.githubusercontent.com`; applied as the provider-independent baseline before a provider prefix is resolved |
-| `threat-detection` | Applied automatically only to Copilot threat-detection runs and available as a compatibility alias: Copilot API hosts, `api.github.com`, `github.com`, `host.docker.internal`, and `registry.npmjs.org` for read-only lockfile validation. Telemetry requires an explicit `copilot-vendor` opt-in. |
+| `copilot` | `api.github.com`, `github.com`, `host.docker.internal`, `raw.githubusercontent.com` |
+| `copilot-vendor` | Direct Copilot API hosts and optional telemetry, including `api.githubcopilot.com` |
+| `claude` | `api.github.com`, `github.com`, `host.docker.internal`, `raw.githubusercontent.com` |
+| `codex` | `172.30.0.1`, `api.github.com`, `github.com`, `host.docker.internal` |
+| `codex-vendor` | Direct OpenAI API and optional authentication/telemetry: `api.openai.com`, `auth.openai.com`, `ab.chatgpt.com` |
+| `gemini` | `github.com`, `host.docker.internal`, `raw.githubusercontent.com` |
+| `gemini-vendor` | Direct Gemini API: `generativelanguage.googleapis.com` |
+| `pi` | `github.com`, `host.docker.internal`, `raw.githubusercontent.com`; provider endpoint metadata remains model-aware, but the selectable bundle does not grant the provider API host |
+| `pi-base` | `github.com`, `host.docker.internal`, `raw.githubusercontent.com`; applied before a provider prefix selects a gateway route |
+| `threat-detection` | Applied automatically only to inline Copilot threat-detection runs and available as a compatibility alias: Copilot API hosts, `api.github.com`, `github.com`, and `host.docker.internal`. Telemetry requires an explicit `copilot-vendor` opt-in. |
 
-The `claude` set excludes telemetry, certificate/OCSP hosts, package mirrors, container registries, and Playwright downloads. Those require explicit domains or ecosystem opt-ins such as `defaults`, `containers`, or `playwright`; configuring the Playwright tool also enables its download domains. The direct Anthropic API is included when Claude uses its default Anthropic target. `engine.api-target` configures the Copilot target and does not replace Claude's Anthropic endpoint. Use `ANTHROPIC_BASE_URL` to configure a custom Anthropic target; that does not automatically allow direct access to `api.anthropic.com`. Add `api.anthropic.com` explicitly if a workflow intentionally needs direct Anthropic access alongside a custom target. The broader `anthropic.com` suffix is never included because it would also permit `statsig.anthropic.com`. CLI installation runs outside the agent firewall and does not require adding download hosts to this set.
+Inline Copilot detection no longer automatically allows `registry.npmjs.org`, including through the `threat-detection` compatibility alias. To retain its npm lockfile metadata validation, set `features.gh-aw-detection: false`, add `node` or `registry.npmjs.org` to `network.allowed`, and recompile the workflow. Inline detection inherits only the registry host from the `node` set, not its other hosts; runtime configuration alone does not opt it in. This grants the sandbox direct access to the host, not a read-only capability. Explicit `network.blocked` rules still take precedence. Without access, registry verification is unavailable. The default external detector uses its own prompt and does not provide this metadata verification.
 
-The `codex` set excludes the broad `openai.com` and `chatgpt.com` suffixes. Optional vendor authentication/telemetry requires `network.allowed: [codex-vendor]`. External Codex detection retains its concrete API transport, uses the API proxy for authentication, and preserves that explicit vendor opt-in; GitHub-hosted detection uses Copilot transport without adding `api.openai.com`. The `gemini` set excludes `*.googleapis.com`; package downloads such as `storage.googleapis.com` require their own ecosystem opt-in.
+Gemini's default upstream remains available to the AWF API proxy without granting the agent direct access to `generativelanguage.googleapis.com`. Add `gemini-vendor` or that hostname to `network.allowed` for direct access. An explicitly configured `GEMINI_API_BASE_URL` retains custom-target egress; it does not automatically allow the default hostname.
+
+The `claude` set excludes telemetry, certificate/OCSP hosts, package mirrors, container registries, and Playwright downloads. Those require explicit domains or ecosystem opt-ins such as `defaults`, `containers`, or `playwright`; configuring the Playwright tool also enables its download domains. The default Anthropic target is reached through the AWF API proxy and does not grant agent-side access to `api.anthropic.com`; add that literal domain to `network.allowed` for intentional direct access. `engine.api-target` configures the Copilot target and does not replace Claude's Anthropic endpoint. Use `ANTHROPIC_BASE_URL` to configure a custom Anthropic target; its configured host handling is independent of the direct Anthropic API grant. The broader `anthropic.com` suffix is never included because it would also permit `statsig.anthropic.com`. CLI installation runs outside the agent firewall and does not require adding download hosts to this set.
+
+The `codex` set excludes direct OpenAI API egress and the broad `openai.com` and `chatgpt.com` suffixes. Add `codex-vendor` for direct access to `api.openai.com` or optional agent-side authentication/telemetry. [OpenAI WIF](/gh-aw/reference/auth/#codex-openai-workload-identity-federation) is different: the API proxy exchanges tokens with `auth.openai.com` through its dedicated egress path, so neither that host nor `codex-vendor` is required in the agent or detection allowlist. External Codex detection retains its concrete API transport, uses the API proxy for authentication, and preserves any explicit vendor opt-in; GitHub-hosted detection uses Copilot transport without adding `api.openai.com`.
+
+The `gemini` set excludes `*.googleapis.com`; package downloads such as `storage.googleapis.com` require their own ecosystem opt-in.
 
 `github.com` is retained for direct repository access in the GitHub and engine bundles. AWF has no exact-host-only domain spelling: this suffix also permits GitHub Packages (`npm.pkg.github.com`, `nuget.pkg.github.com`, `maven.pkg.github.com`, and `rubygems.pkg.github.com`) without a language ecosystem opt-in. To exclude that capability while preserving repository access, set `network.blocked: [pkg.github.com]`; blocked domains take precedence over allowed domains.
 

@@ -195,6 +195,19 @@ describe("collect_ndjson_output.cjs", () => {
       delete process.env.GH_AW_VALIDATION_CONFIG_PATH;
       delete process.env.GH_AW_SAFE_OUTPUTS_CONFIG_PATH;
     }),
+    it.each([true, false])("publishes comment data using handler collapse_data=%s", async collapseData => {
+      const outputFile = "/tmp/gh-aw/test-ndjson-output.txt";
+      const data = { state: "a".repeat(64) };
+      process.env.GH_AW_SAFE_OUTPUTS = outputFile;
+      fs.writeFileSync(outputFile, JSON.stringify({ type: "add_comment", body: "Copilot is working through the prep list.", data }));
+      fs.writeFileSync(process.env.GH_AW_SAFE_OUTPUTS_CONFIG_PATH, JSON.stringify({ add_comment: { max: 1, data_enabled: true, collapse_data: collapseData } }));
+      await eval(`(async () => { ${collectScript}; await main(); })()`);
+      const output = JSON.parse(mockCore.setOutput.mock.calls.find(call => call[0] === "output")[1]);
+      expect(output.errors).toEqual([]);
+      expect(output.items[0].data).toEqual(data);
+      expect(output.items[0].body.includes("<details>")).toBe(collapseData);
+      expect(output.items[0].body.includes("Structured data:")).toBe(!collapseData);
+    }),
     it("should handle missing GH_AW_SAFE_OUTPUTS environment variable", async () => {
       (delete process.env.GH_AW_SAFE_OUTPUTS,
         await eval(`(async () => { ${collectScript}; await main(); })()`),
@@ -266,15 +279,19 @@ describe("collect_ndjson_output.cjs", () => {
         expect(mockCore.setOutput).toHaveBeenCalledWith("output", incompleteOutput),
         expect(mockCore.info).toHaveBeenCalledWith("Output file is empty"));
     }),
-    it("adds a terminal incompletion signal when the agent emitted only diagnostics", async () => {
+    it.each([undefined, 0])("adds one terminal incompletion signal for diagnostic-only output after driver exit %s", async driverExitCode => {
       const testFile = "/tmp/gh-aw/test-ndjson-output.txt";
       fs.writeFileSync(testFile, '{"type":"report_missing_tool","tool":"read","reason":"Unavailable","alternatives":"Check permissions"}');
+      if (driverExitCode !== undefined) fs.writeFileSync(path.join(diagnosticRoot, "agent_execution_exit_code.txt"), String(driverExitCode));
       process.env.GH_AW_SAFE_OUTPUTS = testFile;
       fs.writeFileSync(process.env.GH_AW_SAFE_OUTPUTS_CONFIG_PATH, JSON.stringify({ report_missing_tool: {}, report_incomplete: {} }));
       await eval(`(async () => { ${collectScript}; await main(); })()`);
       const output = JSON.parse(mockCore.setOutput.mock.calls.find(call => call[0] === "output")[1]);
       expect(output.items.map(item => item.type)).toEqual(["report_missing_tool", "report_incomplete"]);
       expect(output.items[1].reason).toBe("missing_terminal_safe_output");
+      expect(output.collectorFailureCause).toBe("missing_terminal_safe_output");
+      expect(output.collectorDriverExitCode).toBe(driverExitCode);
+      expect(output.errors).toEqual([]);
     }),
     it.each(["missing_tool", "missing_data"])("normalizes legacy %s records and shares their canonical output budget", async legacy => {
       const canonical = `report_${legacy}`;
@@ -493,6 +510,38 @@ describe("collect_ndjson_output.cjs", () => {
         expect(parsedOutput.items[0].workflow_name).toBe("test-copilot-call-worker"),
         expect(parsedOutput.items[0].inputs).toEqual({ sentinel: "hello-sentinel" }),
         expect(parsedOutput.errors).toHaveLength(0));
+    }),
+    it.each(["depends-on", "depends_on"])("preserves %s metadata for inline custom outputs", async key => {
+      const outputId = "so_AAAAAAAAAAAA";
+      const prerequisite = "so_BBBBBBBBBBBB";
+      const testFile = "/tmp/gh-aw/test-ndjson-output.txt";
+      fs.writeFileSync(testFile, JSON.stringify({ type: "publish_report", text: "Report", output_id: outputId, [key]: prerequisite }));
+      process.env.GH_AW_SAFE_OUTPUTS = testFile;
+      fs.writeFileSync("/tmp/gh-aw/safeoutputs/config.json", JSON.stringify({ publish_report: { inputs: { text: { type: "string" } } } }));
+      await eval(`(async () => { ${collectScript}; await main(); })()`);
+      const output = JSON.parse(fs.readFileSync("/tmp/gh-aw/agent_output.json", "utf8"));
+      expect(output.errors).toHaveLength(0);
+      expect(output.items).toEqual([{ type: "publish_report", text: "Report", output_id: outputId, "depends-on": prerequisite }]);
+    }),
+    it.each([null, "aw_issue1", "so_BBBBBBBBBBBB"])("rejects malformed or unsupported custom job dependencies: %j", async dependency => {
+      const testFile = "/tmp/gh-aw/test-ndjson-output.txt";
+      fs.writeFileSync(testFile, JSON.stringify({ type: "deploy", "depends-on": dependency }));
+      process.env.GH_AW_SAFE_OUTPUTS = testFile;
+      fs.writeFileSync("/tmp/gh-aw/safeoutputs/config.json", JSON.stringify({ deploy: { supports_dependencies: false } }));
+      await eval(`(async () => { ${collectScript}; await main(); })()`);
+      const output = JSON.parse(fs.readFileSync("/tmp/gh-aw/agent_output.json", "utf8"));
+      expect(output.items.some(item => item.type === "deploy")).toBe(false);
+      expect(output.errors.join("\n")).toContain("depends-on");
+    }),
+    it.each(["report_incomplete", "report_missing_tool", "report_missing_data"])("rejects dependencies for out-of-band %s during ingestion", async type => {
+      const testFile = "/tmp/gh-aw/test-ndjson-output.txt";
+      fs.writeFileSync(testFile, JSON.stringify({ type, "depends-on": "so_BBBBBBBBBBBB" }));
+      process.env.GH_AW_SAFE_OUTPUTS = testFile;
+      fs.writeFileSync("/tmp/gh-aw/safeoutputs/config.json", JSON.stringify({ [type]: { max: 1 } }));
+      await eval(`(async () => { ${collectScript}; await main(); })()`);
+      const output = JSON.parse(fs.readFileSync("/tmp/gh-aw/agent_output.json", "utf8"));
+      expect(output.items.some(item => item["depends-on"] === "so_BBBBBBBBBBBB")).toBe(false);
+      expect(output.errors.join("\n")).toContain("depends-on is not supported");
     }),
     it("should preserve Slack mrkdwn links in custom safe-job string inputs", async () => {
       const testFile = "/tmp/gh-aw/test-ndjson-output.txt";

@@ -53,7 +53,7 @@ func (c *Compiler) buildCustomActionStep(data *WorkflowData, config GitHubScript
 	steps = append(steps, "        env:\n")
 	steps = append(steps, "          GH_AW_AGENT_OUTPUT: ${{ steps.setup-agent-output-env.outputs.GH_AW_AGENT_OUTPUT }}\n")
 	steps = append(steps, config.CustomEnvVars...)
-	c.addCustomSafeOutputEnvVars(&steps, data)
+	c.addSafeOutputEnvVars(&steps, data, false)
 
 	// With section for inputs (replaces github-token in actions/github-script)
 	steps = append(steps, "        with:\n")
@@ -121,6 +121,9 @@ type GitHubScriptStepConfig struct {
 
 	// CustomToken configuration (passed to addSafeOutputGitHubTokenForConfig or addSafeOutputCopilotGitHubTokenForConfig)
 	CustomToken string
+
+	// FallbackToGitHubToken keeps failure reporting available when App token minting fails.
+	FallbackToGitHubToken bool
 
 	// UseCopilotRequestsToken indicates whether to use the Copilot token preference chain
 	// custom token > COPILOT_GITHUB_TOKEN
@@ -190,11 +193,14 @@ func (c *Compiler) buildGitHubScriptStepCommon(data *WorkflowData, config GitHub
 	steps = append(steps, config.CustomEnvVars...)
 
 	// Add custom environment variables from safe-outputs.env
-	c.addCustomSafeOutputEnvVars(&steps, data)
+	c.addSafeOutputEnvVars(&steps, data, false)
 
 	// With section for github-token
 	steps = append(steps, "        with:\n")
-	if config.UseCopilotCodingAgentToken {
+	if config.FallbackToGitHubToken && data.SafeOutputs != nil && data.SafeOutputs.GitHubApp != nil {
+		token := resolveSafeOutputGitHubTokenForConfig(data, config.CustomToken, resolveSafeOutputGitHubToken, true)
+		steps = append(steps, fmt.Sprintf("          github-token: %s\n", combineTokenExpressions(token, "${{ github.token }}")))
+	} else if config.UseCopilotCodingAgentToken {
 		c.addSafeOutputAgentGitHubTokenForConfig(&steps, data, config.CustomToken)
 	} else if config.UseCopilotRequestsToken {
 		c.addSafeOutputCopilotGitHubTokenForConfig(&steps, data, config.CustomToken)
@@ -235,6 +241,15 @@ func buildAgentOutputDownloadSteps(prefix string, pinAction func(string) string)
 		EnvVarName:       "GH_AW_AGENT_OUTPUT",
 		StepName:         "Download agent output artifact",
 		StepID:           "download-agent-output",
+	}, pinAction)
+}
+
+func buildWorkflowInfoDownloadSteps(prefix string, pinAction func(string) string) []string {
+	return buildArtifactDownloadSteps(ArtifactDownloadConfig{
+		ArtifactName: prefix + constants.InfoArtifactName.String(),
+		DownloadPath: constants.TmpGhAwDirSlash,
+		StepName:     "Download workflow metadata",
+		IfCondition:  "always()",
 	}, pinAction)
 }
 

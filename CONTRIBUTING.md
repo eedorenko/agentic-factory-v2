@@ -22,6 +22,12 @@ The Dev Container installs all required dependencies and runs `make deps` automa
 
 If you encounter errors about Node.js or Go versions when running `make deps` or other build commands, this is a sign that you are not using the Dev Container. Please switch to a Dev Container or Codespace environment.
 
+### Keep local agent settings private
+
+Claude Code can persist plaintext credentials from approved commands in `.claude/settings.local.json`. Repository ignore rules exclude this file at every project depth. Builds and the **Agent local settings security** PR check reject indexed copies, including files added with `git add -f`. Run `make test-agent-local-settings` to check the repository and exercise the guard.
+
+If the check fails, use `git rm --cached -- <path>` to untrack each reported file without deleting the local copy. Rotate any credentials already published: untracking does not erase Git history or forks. Shared `.claude/settings.json` files and skills remain allowed, but must not contain credentials. This guard checks the current Git index; it is not a general secret scanner or a history audit.
+
 ## 🤖 How Development Works
 
 GitHub Agentic Workflows is developed by a core team using agentic development — primarily GitHub Copilot coding agent and local coding agents. This means:
@@ -102,7 +108,7 @@ Please implement the following changes:
 5. **Follow Guidelines**:
    - Use console formatting from `pkg/console` for CLI output
    - Follow error message style guide
-   - Run `make agent-finish` before completing
+   - Run `make agent-report-progress` once before the final push
 ```
 
 ### Step 3: Discuss and Refine with the Team
@@ -120,7 +126,7 @@ A core team member will:
 - Take your agentic plan and use a coding agent (Copilot or local) to implement it
 - Read relevant documentation and specifications
 - Make code changes following established patterns
-- Run `make agent-finish` to validate changes
+- Run `make agent-report-progress` once to validate changes before the final push
 - Create a PR and handle review feedback and adjustments
 
 **You don't create or own the PR** — the core team member does, using agents as their implementation tool.
@@ -150,7 +156,7 @@ When a core team member implements your plan, the coding agent they use will:
 - **Implement validation** following the architecture in [scratchpad/validation-architecture.md](scratchpad/validation-architecture.md)
 - **Use console formatting** from `pkg/console` for CLI output
 - **Write error messages** following the [Error Message Style Guide](.github/skills/error-messages/SKILL.md) and [docs guide](docs/src/content/docs/troubleshooting/error-messages.md)
-- **Run all quality checks**: `make agent-finish` (build, test, recompile, format, lint)
+- **Run the final quality gate**: `make agent-report-progress` (build, impacted tests, workflow drift, formatting, lint)
 - **Update documentation** for new features
 - **Create tests** for new functionality
 
@@ -343,7 +349,7 @@ All community-sourced pull requests are created and managed by core team members
    - They run the plan through a coding agent (Copilot or local)
    - The agent reads specifications and guidelines
    - The agent makes changes following established patterns
-   - The agent runs `make agent-finish` automatically
+   - The agent runs `make agent-report-progress` once before the final push
 
 4. **Automated quality checks:**
    - CI runs on all PRs
@@ -391,8 +397,16 @@ Every agent-created PR automatically runs:
 - `make test` - Runs all unit and integration tests
 - `make lint` - Checks code quality and style
 - `make recompile` - Recompiles all workflows to ensure compatibility. If you edit `.github/workflows/*.md`, run this before committing so the paired `.lock.yml` files stay in sync with CI.
-- `make fmt` - Formats Go code
+- `make fmt` - Formats changed Go, JavaScript, TypeScript, and JSON files; use `make fmt-all` for full-repository formatting
 - `make lint-errors` - Validates error message quality
+
+For local iteration, run `make fmt` and one focused test command. Before an
+intermediate agent save, `make agent-report-progress-no-test` formats changes
+and compiles/vets affected Go packages without running test bodies, package-wide
+Go linters, or full workflow recompilation. Run `make agent-report-progress`
+once before the final push to retain the build, lint, impacted-test, and workflow
+drift checks. Cold Go compilation and final validation can take longer than the
+warm inner loop.
 
 ## 🏗️ Project Structure
 
@@ -535,9 +549,97 @@ Dependabot prioritizes security patches:
 For comprehensive testing guidelines including assert vs require usage, table-driven test patterns, and best practices, see **[scratchpad/testing.md](scratchpad/testing.md)**.
 
 Quick reference:
-- `make test-unit` - Fast unit tests (~25s)
-- `make test` - Full test suite (~30s)
-- `make agent-finish` - Complete validation before committing
+- `make test-unit` - Impacted Go tests (30-second selected-runtime budget; compilation is additional)
+- `make test-unit-all` - Full Go unit test suite
+- `make agent-report-progress` - Final branch-scoped validation before pushing
+- `make agent-finish` - Explicit repository-wide maintenance sweep; not an inner-loop command
+
+### CI Front Door
+
+CGO selects optional PR suites through `scripts/ci-front-door.cjs`. All other
+checks retain their existing conditions, including mandatory security,
+vulnerability, taint-analysis, and safe-output tests. Main-branch pushes,
+manual runs, and the weekly scheduled control run all applicable suites without
+calling the Decision API. CJS and Windows CI are unchanged.
+
+The selector uses GitHub Decisions at
+`https://api.githubcopilot.com/v1/decisions` with model `gpt-6-luna-decisions`.
+Only the dedicated `front-door-decision` job has `copilot-requests: write`;
+`checkout-cache`, tests, cache restores, and conformance checks do not receive
+this permission. The selection step passes the built-in workflow token through
+`CI_DECISION_TOKEN`. It runs the selector, shared client, catalog, prompt, and
+deterministic policy from a separate checkout pinned to the PR's trusted base
+SHA. A second checkout of the PR merge commit supplies only local git diff
+evidence through `CI_DIFF_WORKSPACE`; no PR-controlled code runs in this job.
+Both checkouts disable credential persistence. During initial rollout, a missing
+trusted selector is skipped and older trusted versions fall back to all suites;
+the PR implementation is never used to bootstrap credential-bearing execution.
+No endpoint variable or PAT is needed, and credentials are never sent to another
+host. Missing tokens or denied inference permissions, including restricted fork
+PRs, run all suites.
+A configured token makes exactly one POST containing the diff summary and five
+named predicates, including on invalid local input; there are no retries,
+redirects, or other selector API requests. Checkout, existing CI cache/artifact
+actions, and timing collection are outside this selector boundary.
+
+The request includes `diff_summary`, `suite_catalog`, and the versioned prompt.
+The summary uses only the local merge commit's first-parent diff and excludes
+`.lock.yml` files before reading patches. It separates `.js`/`.cjs`, `.go`, and
+other files into `javascript`, `go`, and `other` groups. Each group retains its
+filenames and up to 8,000 UTF-8 patch bytes; `patch_truncated` explicitly marks
+partial snippets. Large patches do not discard the file inventory or consume
+another group's patch budget. Decisions must treat missing hunks conservatively.
+Incomplete inventories (more than 2,000 files or a 128 KiB summary), unavailable
+history, and selector-policy changes still force all suites. No fetch or API
+mining repairs a missing diff.
+
+GitHub returns a named safe-to-omit predicate for each optional suite.
+Probabilities at least 0.9 permit omission; probabilities at most 0.1 retain the
+suite. Any intermediate probability, refusal, missing/duplicate/unknown answer,
+malformed JSON, non-200 status, 10-second deadline, or more than 16 KiB of response
+data forces all suites. The adapter preserves normalized replay responses such
+as `{"suite_ids":["build-wasm"],"confidence":0.95}`. Mandatory IDs are always
+added locally. Invalid outputs are rejected before reaching downstream job
+conditions. A skipped or failed decision job, step failure, or missing outputs
+also runs all optional suites. Selection runs independently of the checkout
+cache; only optional suites depend on it. Mandatory checks never wait for the
+decision, and Windows remains in the cross-platform matrix even when macOS is
+omitted. Pushes and other non-PR events skip the decision job without suppressing
+any suite.
+
+Model-proposed omissions are intersected with a trusted deterministic path
+allowlist, including during recorded-response replay. Root `README.md` and
+`CONTRIBUTING.md`, documentation content, and the standalone workflow timing
+test can permit optional-suite omissions. Explicitly enumerated WASM entrypoint
+files and the WASM golden runner permit omissions only for other optional
+suites; `build-wasm` remains enabled. All other paths, including generic Go test
+files, dependency/build configuration, security files, unknown paths, and
+malformed or incomplete inventories, cannot authorize omissions. Model
+confidence and injected diff instructions cannot expand this allowlist.
+
+`.github/ci/suite-catalog.json` has schema version 1 and entries with a stable
+`id`, short `description`, `mandatory` flag, and
+`historical_duration_seconds` (nonnegative seconds, or `null` for unknown).
+Adding a suite requires updating both the catalog and the runtime's fixed ID
+list, plus job wiring and tests. Never invent historical durations.
+
+Run `node --test scripts/ci-front-door.test.cjs scripts/ci-front-door-workflow.test.cjs`
+for selector and workflow trust-boundary conformance checks.
+Offline evaluation uses
+`node scripts/ci-front-door-evaluate.cjs .github/ci/suite-catalog.json RECORDS.json`.
+The input is an object containing `records`. Each record has a unique `id`,
+`diff_summary`, cached `response`, optional per-suite `durations_seconds`,
+`api_requests: {decision, github}`, and, for full-run controls, `full_run: true`
+with `failed_suite_ids` (an empty array means observed success). Replay never
+calls an API. It reports selected suite count, estimated minutes saved, observed
+misses, API counts, and missing evidence separately. Missing outcomes are not
+zero regressions, and recorded-response replay alone cannot validate a new
+model prompt. Savings are estimates, not measured billing reductions.
+
+The manually invoked `ci-front-door-researcher` consumes restored PR/run evidence, reports
+cache gaps without downloading replacements, and proposes evidence-backed draft
+PRs for catalog or policy changes. Require historical replay and independent
+full-run controls before accepting a more selective policy.
 
 ### Compiling against a different actions repository
 

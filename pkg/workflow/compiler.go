@@ -105,9 +105,6 @@ func (c *Compiler) validateWorkflowData(workflowData *WorkflowData, markdownPath
 	if err := c.validateWebhookWorkflow(workflowData); err != nil {
 		return formatCompilerError(markdownPath, "error", err.Error(), err)
 	}
-	if err := prepareOperationalValueGrader(workflowData, markdownPath); err != nil {
-		return formatCompilerError(markdownPath, "error", err.Error(), err)
-	}
 	if err := validateRuntimeCheckoutConfigs(workflowData.CheckoutConfigs); err != nil {
 		return formatCompilerError(markdownPath, "error", err.Error(), err)
 	}
@@ -257,13 +254,20 @@ func (c *Compiler) generateAndValidateYAML(workflowData *WorkflowData, markdownP
 	// rather than re-scanning the full YAML string.  When parsedWorkflow is nil (schema
 	// validation disabled), the validator uses targeted text scans to avoid an unnecessary
 	// yaml.Unmarshal when all run-block expressions are in the compiler-owned allowed list.
-	if err := c.validateTemplateInjection(yamlContent, lockFile, markdownPath, parsedWorkflow); err != nil {
+	templateErr := validateAuthoredShellCodeEvaluation(workflowData)
+	if templateErr != nil {
+		diagnosticErr := &threatDetectionDiagnosticError{Rule: "CTR-006", Err: templateErr}
+		templateErr = formatCompilerError(markdownPath, "error", diagnosticErr.Error(), diagnosticErr)
+	} else {
+		templateErr = c.validateTemplateInjection(yamlContent, lockFile, markdownPath, parsedWorkflow)
+	}
+	if templateErr != nil {
 		var suppressions []ThreatDetectionSuppression
 		if workflowData.ParsedFrontmatter != nil {
 			suppressions = workflowData.ParsedFrontmatter.ThreatDetectionSuppressions
 		}
-		if !isThreatDetectionDiagnosticSuppressed(err, suppressions, time.Now()) {
-			return "", nil, nil, err
+		if !isThreatDetectionDiagnosticSuppressed(templateErr, suppressions, time.Now()) {
+			return "", nil, nil, templateErr
 		}
 		templateInjectionValidationLog.Print("Skipping CTR-006 diagnostic due to active threat-detection-suppress entry")
 	}
@@ -287,7 +291,7 @@ func (c *Compiler) generateAndValidateYAML(workflowData *WorkflowData, markdownP
 			// the source frontmatter so the error is IDE-navigable.
 			fieldLine := 1
 			if fieldName := extractSchemaErrorField(schemaErr); fieldName != "" {
-				frontmatterLines := strings.Split(workflowData.FrontmatterYAML, "\n")
+				frontmatterLines := strings.Split(strings.ReplaceAll(workflowData.FrontmatterYAML, "\r\n", "\n"), "\n") //nolint:splitlinesonnewline // Normalize CRLF while preserving source line coordinates.
 				if line := findFrontmatterFieldLine(frontmatterLines, 2, fieldName); line > 0 {
 					fieldLine = line
 				}
@@ -422,9 +426,9 @@ func (c *Compiler) validateTemplateInjection(yamlContent, lockFile, markdownPath
 		// Walking the pre-parsed tree (run: block values only) is faster than
 		// scanning the full YAML string.
 		workflowLog.Print("Validating for template injection vulnerabilities")
-		templateErr = validateNoTemplateInjectionFromParsed(parsedWorkflow)
+		templateErr = validateRunScriptTemplateInjection(parsedWorkflow, false)
 		if templateErr == nil {
-			templateErr = validateNoGitHubExpressionsInRunScriptsFromParsed(parsedWorkflow)
+			templateErr = validateRunScriptExpressions(parsedWorkflow, false)
 		}
 	} else {
 		// Path B: schema validation is disabled (parsedWorkflow is nil).
@@ -434,10 +438,10 @@ func (c *Compiler) validateTemplateInjection(yamlContent, lockFile, markdownPath
 		// references (e.g. ${{ runner.temp }}, ${{ env.FOO }}).
 		//
 		// needsUnsafeCheck:    true when user-controlled contexts appear in run: blocks
-		//                      → triggers validateNoTemplateInjectionFromParsed
+		//                      → triggers validateRunScriptTemplateInjection
 		// needsDisallowedCheck: true when any expression outside the compiler allow-list
 		//                      appears in run: blocks
-		//                      → triggers validateNoGitHubExpressionsInRunScriptsFromParsed
+		//                      → triggers validateRunScriptExpressions
 		scan := scanRunContentExpressions(yamlContent)
 		needsUnsafeCheck := scan.hasUnsafe
 		needsDisallowedCheck := scan.hasDisallowed
@@ -451,13 +455,13 @@ func (c *Compiler) validateTemplateInjection(yamlContent, lockFile, markdownPath
 				reparsed = nil
 			}
 			if reparsed != nil {
-				// validateNoTemplateInjectionFromParsed only catches user-controlled contexts,
+				// validateRunScriptTemplateInjection(…, false) only catches user-controlled contexts,
 				// so it is intentionally skipped when the UnsafeContextPattern scan found none.
 				if needsUnsafeCheck {
-					templateErr = validateNoTemplateInjectionFromParsed(reparsed)
+					templateErr = validateRunScriptTemplateInjection(reparsed, false)
 				}
 				if templateErr == nil && needsDisallowedCheck {
-					templateErr = validateNoGitHubExpressionsInRunScriptsFromParsed(reparsed)
+					templateErr = validateRunScriptExpressions(reparsed, false)
 				}
 			}
 		}
@@ -654,6 +658,7 @@ func (c *Compiler) CompileWorkflowData(workflowData *WorkflowData, markdownPath 
 		}
 		return formatCompilerError(markdownPath, "error", "YAML generation: "+err.Error(), err)
 	}
+	c.reportDefaultModelRouting(workflowData, markdownPath)
 
 	// Enforce safe update mode: emit a warning prompt (not a hard error) when unapproved
 	// secrets or action changes are detected.  body* vars contain data collected from the

@@ -7,7 +7,7 @@ import { newState, newRequest, generateRequestOperations, replayTransactions } f
 import { validatePolicy } from "./work_queue_policy.cjs";
 import { frozenResourceScope } from "./work_queue_resource_scope.cjs";
 import { validateDeliveryContract } from "./work_queue_delivery.cjs";
-import { parseDocument } from "./work_queue_yaml.cjs";
+import { readDocumentMetadata } from "../../../scripts/markdown_metadata_test_adapter.cjs";
 
 const repository = "owner/repo";
 const settings = JSON.parse(fs.readFileSync(new URL("../../../.github/workflows/aw.json", import.meta.url), "utf8")).work_queue;
@@ -85,6 +85,19 @@ describe("bounded daily and weekly discussion-report portfolio", () => {
     expect(() => buildDailyReportPlan({ ...planOptions, repository: "not-a-repository" })).toThrow();
     expect(() => buildDailyReportPlan({ ...planOptions, repositoryId: "0" })).toThrow();
     expect(() => buildDailyReportPlan({ ...planOptions, repositoryId: "007" })).toThrow();
+  });
+
+  it("matches each report worker's compiled upload-asset limit", () => {
+    const assetLimits = { "daily-firewall-report": 3, "daily-repo-chronicle": 3, "daily-issues-report": 5 };
+    const coveredProfiles = new Set();
+    for (let day = 1; day <= 14; day++) {
+      const date = `2026-11-${String(day).padStart(2, "0")}`;
+      for (const node of buildDailyReportPlan({ ...planOptions, date }).nodes) {
+        coveredProfiles.add(node.worker_profile);
+        expect(node.payload.effect_contract.outputs.find(output => output.type === "upload_asset")?.max).toBe(assetLimits[node.worker_profile]);
+      }
+    }
+    expect(coveredProfiles).toEqual(new Set(REPORT_PROFILES));
   });
 
   it("uses shared scheduling and all thirteen immutable AW routes without enrollment", () => {
@@ -174,9 +187,8 @@ describe("bounded daily and weekly discussion-report portfolio", () => {
     expect(dispatcher).not.toMatch(/^\s+workflow_dispatch:/m);
     expect(dispatcher).toContain("    max: 3");
     const lock = fs.readFileSync(new URL("../../../.github/workflows/daily-report-dispatcher.lock.yml", import.meta.url), "utf8");
-    const document = parseDocument(lock, { version: "1.2", uniqueKeys: true });
-    expect(document.errors).toEqual([]);
-    const activation = document.toJS().jobs.activation;
+    const document = readDocumentMetadata(lock, { version: "1.2", uniqueKeys: true });
+    const activation = document.value.jobs.activation;
     expect(activation.if).toContain("github.run_attempt == 1");
     expect(activation.if).toContain("needs.admission.result == 'success' || needs.admission.result == 'skipped'");
     expect(activation.needs).toBe("admission");
@@ -209,7 +221,6 @@ describe("bounded daily and weekly discussion-report portfolio", () => {
       "daily-news",
       "daily-arxiv-researcher",
       "daily-cache-strategy-analyzer",
-      "daily-hippo-learn",
       "org-health-report",
       "portfolio-analyst",
       "archivx-agentic-workflows-analyzer",
@@ -224,8 +235,21 @@ describe("bounded daily and weekly discussion-report portfolio", () => {
       expect(REPORT_PROFILES).not.toContain(profile);
       expect(source(profile).split("\n---")[0]).toMatch(/^\s+schedule:/m);
     }
+    const hippoFrontmatter = source("daily-hippo-learn").split("\n---")[0];
+    expect(hippoFrontmatter).toMatch(/^\s+workflow_dispatch:/m);
+    expect(hippoFrontmatter).not.toMatch(/^\s+schedule:/m);
     expect(REPORT_PROFILES).not.toContain("agent-performance-analyzer");
     expect(source("agent-performance-analyzer")).toContain("on: daily");
+  });
+
+  it("keeps the manual-only hippo workflow outside the report portfolio", () => {
+    expect(REPORT_PROFILES).not.toContain("daily-hippo-learn");
+    const frontmatter = source("daily-hippo-learn").split("\n---")[0];
+    expect(frontmatter).toMatch(/^\s+workflow_dispatch:/m);
+    expect(frontmatter).not.toMatch(/^\s+schedule:/m);
+    const compiled = readDocumentMetadata(fs.readFileSync(new URL("../../../.github/workflows/daily-hippo-learn.lock.yml", import.meta.url), "utf8"), { version: "1.2", uniqueKeys: true });
+    expect(compiled.value.on).toHaveProperty("workflow_dispatch");
+    expect(compiled.value.on).not.toHaveProperty("schedule");
   });
 
   it("preserves DeepReport's bounded follow-ups without authorizing unscoped repository-memory writes", () => {

@@ -37,7 +37,9 @@
 "use strict";
 
 const { getErrorMessage } = require("./error_helpers.cjs");
+const { isGitHubProviderCybersecurityPolicyRejection } = require("./github_provider_policy_rejection.cjs");
 const fs = require("fs");
+const { openDurableSession, observeDurableSession } = require("./durable_native_session.cjs");
 const { runProcess, formatDuration, resolvePostResultWatchdogIdleTimeoutMs } = require("./process_runner.cjs");
 const { applyClaudeRuntimeTimeouts } = require("./tool_timeouts.cjs");
 const {
@@ -61,6 +63,8 @@ const {
   stripExecutionEvidenceEnv,
 } = require("./harness_retry_runner.cjs");
 const { resolveRetryConfig: resolveSharedRetryConfig } = require("./harness_retry_config.cjs");
+const { stopForPermissionDenied } = require("./harness_failure_handling.cjs");
+const { resolveHarnessPromptFileArgs } = require("./harness_prompt_input.cjs");
 const {
   AWF_API_PROXY_REFLECT_URL,
   AWF_REFLECT_TIMEOUT_MS,
@@ -76,11 +80,19 @@ const {
 } = require("./awf_reflect.cjs");
 const { emitMissingToolPermissionIssue, emitInfrastructureIncomplete, hasExpectedSafeOutputs, hasNoopInSafeOutputs, hasTerminalSafeOutput } = require("./safeoutputs_cli.cjs");
 const { countPermissionDeniedIssues, hasNumerousPermissionDeniedIssues, extractDeniedCommands, buildMissingToolPermissionIssuePayload } = require("./permission_denied_helpers.cjs");
-const { detectNonRetryableHarnessGuard, buildSoftTimeoutGuard, emitSoftTimeoutSignal, isAuthenticationFailedError, parseAICreditsExceededProxyRejection } = require("./harness_retry_guard.cjs");
+const {
+  createOutputPatternMatcher,
+  detectNonRetryableHarnessGuard,
+  detectExhaustedAWFInvocationBudget,
+  buildSoftTimeoutGuard,
+  emitSoftTimeoutSignal,
+  isAuthenticationFailedError,
+  parseAICreditsExceededProxyRejection,
+} = require("./harness_retry_guard.cjs");
 const { isCrashSignalExitCode, crashSignalNameForExitCode } = require("./harness_crash_signals.cjs");
 const { MODEL_NOT_SUPPORTED_PATTERN: INVALID_MODEL_ERROR_PATTERN } = require("./detect_agent_errors.cjs");
 const { applyModelFallback, normalizeClaudeModel } = require("./model_fallback.cjs");
-const { resolveEngineModel } = require("./resolve_model_alias.cjs");
+const { buildCatalogFromReflect, resolveEngineModel, splitModelIdentifier } = require("./resolve_model_alias.cjs");
 const { applyClaudeSubagentModels, isDetectionPhase } = require("./engine_subagent_models.cjs");
 const { parseMaxAICreditsExceededFromAuditLog } = require("./ai_credits_context.cjs");
 const { resolveAWFModelRoutingSelection, mapAWFRoutingEffort, recordAWFModelRoutingOutcome, getAWFModelRoutingPolicy, getAWFModelRoutingFailureCode, resolveAWFRoutingProvider } = require("./awf_model_routing.cjs");
@@ -188,9 +200,7 @@ function isOverloadedError(output) {
  * @param {string} output - Collected stdout+stderr from the process
  * @returns {boolean}
  */
-function isRateLimitError(output) {
-  return RATE_LIMIT_ERROR_PATTERN.test(output);
-}
+const isRateLimitError = createOutputPatternMatcher(RATE_LIMIT_ERROR_PATTERN);
 
 /**
  * Remove stream-JSON user events, which contain tool results, from output used
@@ -234,9 +244,7 @@ function isInvalidJsonBodyError(output) {
  * @param {string} output - Collected stdout+stderr from the process
  * @returns {boolean}
  */
-function isConnectionRefusedError(output) {
-  return CONNECTION_REFUSED_ERROR_PATTERN.test(output);
-}
+const isConnectionRefusedError = createOutputPatternMatcher(CONNECTION_REFUSED_ERROR_PATTERN);
 
 /**
  * Determines whether Claude produced an assistant response before failing.
@@ -262,9 +270,7 @@ function isNoDeferredMarkerError(output) {
  * @param {string} output - Collected stdout+stderr from the process
  * @returns {boolean}
  */
-function isInvalidModelError(output) {
-  return INVALID_MODEL_ERROR_PATTERN.test(output);
-}
+const isInvalidModelError = createOutputPatternMatcher(INVALID_MODEL_ERROR_PATTERN);
 
 /**
  * Determines whether the exit code corresponds to signal-style termination
@@ -310,37 +316,7 @@ function shouldRetryWithContinue({ attempt, maxRetries, exitCode, hasOutput, isN
  * @returns {{args: string[], prompt: string | null}}
  */
 function resolveClaudePromptFileArgs(args) {
-  /** @type {string[]} */
-  const filteredArgs = [];
-  /** @type {string|null} */
-  let promptContent = null;
-
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] !== "--prompt-file") {
-      filteredArgs.push(args[i]);
-      continue;
-    }
-
-    if (i + 1 >= args.length) {
-      throw new Error("--prompt-file requires a readable file path");
-    }
-
-    const promptFile = args[i + 1];
-    try {
-      const stat = fs.statSync(promptFile);
-      log(`resolved --prompt-file: path=${promptFile} size=${stat.size}B`);
-      promptContent = fs.readFileSync(promptFile, "utf8");
-    } catch (error) {
-      const err = /** @type {Error} */ error;
-      // An unreadable prompt file means no task instructions can be delivered to Claude.
-      // Propagate as a fatal error rather than forwarding the harness-only flag to the
-      // claude subprocess (which would fail with an "unknown option" error).
-      throw new Error(`--prompt-file '${promptFile}' is not readable: ${err.message}`, { cause: err });
-    }
-    i++; // Skip the prompt-file path argument
-  }
-
-  return { args: filteredArgs, prompt: promptContent };
+  return resolveHarnessPromptFileArgs(args, { logger: log });
 }
 
 /**
@@ -501,18 +477,27 @@ function removeClaudeRoutingOverrides(args) {
 }
 
 /**
- * Append --settings from GH_AW_CLAUDE_SETTINGS when the caller passed no --settings.
- * The external threat-detect binary builds its own Claude Code arguments, so the
- * compiler hands the Copilot modelOverrides map to Claude Code through this variable.
+ * Preserve user settings, otherwise supply Copilot Claude ID mappings from the live
+ * inventory and resolved models. This also covers the external detector's CLI args.
  * @param {string[]} args
  * @param {NodeJS.ProcessEnv} [env]
+ * @param {any} [reflectData]
+ * @param {string[]} [resolvedModels]
  * @returns {string[]}
  */
-function applyClaudeSettingsEnv(args, env = process.env) {
-  const settings = (env.GH_AW_CLAUDE_SETTINGS || "").trim();
-  if (!settings) return args;
+function applyClaudeSettingsEnv(args, env = process.env, reflectData, resolvedModels = []) {
   if (args.some(arg => arg === "--settings" || arg.startsWith("--settings="))) return args;
-  return [...args, "--settings", settings];
+  const settings = (env.GH_AW_CLAUDE_SETTINGS || "").trim();
+  if (settings) return [...args, "--settings", settings];
+  if (!REFLECT_PROVIDER_ALIASES.github.has(normalizeReflectProviderName(env.GH_AW_LLM_PROVIDER, "anthropic"))) return args;
+  const endpoints = reflectData?.endpoints?.filter(endpoint => endpoint?.configured === true && REFLECT_PROVIDER_ALIASES.github.has(normalizeReflectProviderName(endpoint.provider))) || [];
+  /** @type {Record<string, string>} */
+  const modelOverrides = {};
+  for (const value of [...buildCatalogFromReflect({ endpoints }), env.ANTHROPIC_MODEL || "", ...resolvedModels]) {
+    const id = splitModelIdentifier(value).base.replace(/^(?:copilot|github-copilot|github)\//, "");
+    if (id.startsWith("claude-") && id.includes(".")) modelOverrides[id.replaceAll(".", "-")] = id;
+  }
+  return Object.keys(modelOverrides).length ? [...args, "--settings", JSON.stringify({ modelOverrides })] : args;
 }
 
 /**
@@ -542,7 +527,7 @@ async function main() {
     const resolved = resolveClaudePromptFileArgs(args);
     prompt = resolved.prompt;
     const capabilities = claudeBareCapabilities(claudeRepositoryEditPolicy(stripContinueArgs(resolved.args), process.env));
-    initialArgs = applyClaudeSettingsEnv(capabilities.args, process.env);
+    initialArgs = capabilities.args;
     pluginDir = capabilities.pluginDir;
   } catch (err) {
     const e = /** @type {Error} */ err;
@@ -583,13 +568,6 @@ async function main() {
     throw error;
   }
 
-  const freshRetryArgs = stripContinueArgs(initialArgs);
-  // Args without --prompt-file, used as the base for --continue retries.
-  const continueBaseArgs = freshRetryArgs;
-
-  const safeInitialArgs = initialArgs;
-  const safeFreshRetryArgs = freshRetryArgs;
-
   // Pre-flight: skip the agent entirely when a noop has already been written by a prior step.
   // A noop indicates the work is complete or there is nothing to do — starting the agent
   // would be wasteful and potentially harmful.
@@ -602,6 +580,7 @@ async function main() {
   // Sub-agent models are resolved on routed runs too, but a pre-existing noop must not
   // make startup depend on sub-agent model availability. Threat detection uses no
   // sub-agents, so it neither reads, resolves, records nor writes agent files.
+  const resolvedSubagentModels = [];
   if (!isDetectionPhase(process.env.GH_AW_PHASE)) {
     let subagents;
     try {
@@ -621,7 +600,14 @@ async function main() {
       removeClaudePlugin(pluginDir);
       process.exit(1);
     }
+    resolvedSubagentModels.push(...subagents.resolutions.map(resolution => resolution.model));
   }
+
+  initialArgs = applyClaudeSettingsEnv(initialArgs, childEnv, reflection.reflectData, resolvedSubagentModels);
+  const freshRetryArgs = stripContinueArgs(initialArgs);
+  const continueBaseArgs = freshRetryArgs;
+  const safeInitialArgs = initialArgs;
+  const safeFreshRetryArgs = freshRetryArgs;
 
   let lastExitCode = 1;
   let useContinueOnRetry = false;
@@ -633,7 +619,8 @@ async function main() {
   // emits anything) even though earlier attempts in the same session already made progress.
   // Reset only when a genuinely fresh run begins (see below), never on a --continue attempt.
   let sessionHasProgress = false;
-  let sessionId;
+  const durableSession = openDurableSession("claude");
+  let sessionId = durableSession?.id || undefined;
   const driverStartTime = Date.now();
   // The same deadline guards both the retry loop and each active child process.
   const softTimeoutGuard = buildSoftTimeoutGuard(driverStartTime);
@@ -650,13 +637,17 @@ async function main() {
     softTimeoutGuard,
     getRetryMode: () => (useContinueOnRetry ? `--resume ${sessionId}` : "fresh run"),
     runAttempt: async (attempt, observeStrategy) => {
+      let nativeTerminalRateLimitError = false;
+      /** @type {number | null} */
+      let retryAfterMs = null;
       // Resume only the captured session; never select the latest unrelated conversation.
       // Claude Code resumes the session from on-disk state; re-sending the original
       // instructions would re-execute the full task from scratch.
       let currentArgs;
-      if (attempt > 0 && useContinueOnRetry) {
+      if ((attempt === 0 && durableSession?.id) || (attempt > 0 && useContinueOnRetry)) {
         currentArgs = [...continueBaseArgs, "--resume", sessionId];
       } else {
+        if (durableSession?.id && attempt > 0) throw new Error("Durable Claude continuation cannot restart a recorded session as a fresh conversation");
         currentArgs = attempt === 0 ? initialArgs : freshRetryArgs;
         // This attempt starts a brand-new session (either attempt 0, or a fresh
         // retry that discards prior on-disk state) — no assistant progress can carry
@@ -677,6 +668,18 @@ async function main() {
         log,
         logArgs,
         env: childEnv,
+        onStdoutLine: line => {
+          observeDurableSession(durableSession, "claude", line);
+          if (isRateLimitError(classifiableOutput(line))) nativeTerminalRateLimitError = true;
+          const { isGitHubRetryAfterProvider, parseTerminalRetryAfterMs } = require("./copilot_retry_after.cjs");
+          if (isGitHubRetryAfterProvider(process.env.GH_AW_LLM_PROVIDER)) {
+            const delay = parseTerminalRetryAfterMs(line, "claude");
+            if (delay != null) retryAfterMs = Math.max(retryAfterMs ?? 0, delay);
+          }
+        },
+        onStderrLine: line => {
+          if (isRateLimitError(line)) nativeTerminalRateLimitError = true;
+        },
         stdin: attempt > 0 && useContinueOnRetry ? CLAUDE_RESUME_PROMPT : (prompt ?? undefined),
         postResultWatchdog: safeOutputsPath
           ? {
@@ -691,9 +694,16 @@ async function main() {
           : undefined,
       });
       sessionId = claudeSessionId(result.output) || sessionId;
-      return { ...result, exitCode: result.runtimeGuardFired && result.exitCode === 0 ? 1 : result.exitCode, safeOutputsByteOffset, strategy };
+      return {
+        ...result,
+        exitCode: result.runtimeGuardFired && result.exitCode === 0 ? 1 : result.exitCode,
+        safeOutputsByteOffset,
+        strategy,
+        nativeTerminalRateLimitError,
+        retryAfterMs,
+      };
     },
-    handleFailure: ({ attempt, result }) => {
+    handleFailure: async ({ attempt, result }) => {
       if (result.runtimeGuardFired && softTimeoutGuard) {
         emitSoftTimeoutSignal(softTimeoutGuard, "during execution", "Claude harness", log);
         return { action: "stop" };
@@ -703,6 +713,7 @@ async function main() {
         return { action: "stop", exitCode: 0 };
       }
       const classifierOutput = claudeFailureEvidence(result.output);
+      const isCybersecurityPolicyRejection = isGitHubProviderCybersecurityPolicyRejection(result.output, process.env.GH_AW_LLM_PROVIDER, "claude");
       const isOverloaded = isOverloadedError(classifierOutput);
       const isRateLimit = isRateLimitError(classifierOutput);
       const isAuthenticationFailed = isAuthenticationFailedError(classifierOutput);
@@ -720,6 +731,7 @@ async function main() {
       const hasNumerousPermissionDenied = permissionDeniedCount >= 3;
       const crashSignalName = crashSignalNameForExitCode(result.exitCode);
       result.failureClasses = Object.entries({
+        content_filter: isCybersecurityPolicyRejection,
         overloaded_error: isOverloaded,
         rate_limit_error: isRateLimit,
         authentication_failed: isAuthenticationFailed,
@@ -746,6 +758,7 @@ async function main() {
           ` isInvalidModelError=${isInvalidModel}` +
           ` isInvalidJsonBodyError=${isInvalidJsonBody}` +
           ` isConnectionRefusedError=${isConnectionRefused}` +
+          ` isCybersecurityPolicyRejection=${isCybersecurityPolicyRejection}` +
           ` sessionHasProgress=${sessionHasProgress}` +
           ` permissionDeniedCount=${permissionDeniedCount}` +
           ` hasNumerousPermissionDenied=${hasNumerousPermissionDenied}` +
@@ -753,11 +766,24 @@ async function main() {
           ` retriesRemaining=${maxRetries - attempt}`
       );
 
+      if (isCybersecurityPolicyRejection) {
+        log(`attempt ${attempt + 1}: GitHub provider blocked the request for cybersecurity policy — not retrying; task completion could not be confirmed`);
+        return { action: "stop" };
+      }
+
       if (shouldStopForNoopSafeOutputs({ attempt, safeOutputsPath, hasNoopInSafeOutputs, log })) {
         return { action: "stop", exitCode: 0 };
       }
 
       const nonRetryableGuard = detectNonRetryableHarnessGuard(classifierOutput);
+      if (!nonRetryableGuard.maxRunsExceeded) {
+        const budget = await detectExhaustedAWFInvocationBudget({ nativeTerminalRateLimitError: result.nativeTerminalRateLimitError === true, logger: log });
+        if (budget) {
+          nonRetryableGuard.maxRunsExceeded = true;
+          result.failureClasses.push("invocation_cap_exceeded");
+          log(`attempt ${attempt + 1}: AWF shared invocation budget exhausted (${budget.invocationCount}/${budget.maxRuns}) — confirmed by fresh reflection`);
+        }
+      }
       if (nonRetryableGuard.apiProxyGuardRejection) {
         const reason = `AWF API proxy guardrail rejected the request: ${nonRetryableGuard.apiProxyGuardRejection.guard}`;
         log(`${reason} — not retrying`);
@@ -822,14 +848,7 @@ async function main() {
       }
 
       if (hasNumerousPermissionDenied) {
-        if (safeOutputsPath && hasExpectedSafeOutputs(safeOutputsPath, { logger: log })) {
-          log(`attempt ${attempt + 1}: detected numerous permission-denied issues but safe-outputs already contain expected output — suppressing terminal verdict (false-red: core work succeeded)`);
-          return { action: "stop", exitCode: 0 };
-        }
-        const deniedCommands = denials.commands;
-        emitMissingToolPermissionIssue({ deniedCommands, logger: log });
-        log(`attempt ${attempt + 1}: detected numerous permission-denied issues — not retrying (classified as missing tool/permission issue)`);
-        return { action: "stop" };
+        return stopForPermissionDenied({ attempt, output: result.output, safeOutputsPath, log, deniedCommands: denials.commands });
       }
 
       if (isMaxTurns) {

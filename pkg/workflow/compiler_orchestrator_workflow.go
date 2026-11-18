@@ -1,11 +1,12 @@
 package workflow
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
+	"github.com/github/gh-aw/pkg/jsonutil"
 	"github.com/github/gh-aw/pkg/logger"
 	"github.com/github/gh-aw/pkg/parser"
 	"github.com/github/gh-aw/pkg/setutil"
@@ -89,6 +90,13 @@ func newWorkflowBuildContext(parseResult *frontmatterParseResult) *workflowBuild
 
 // setupWorkflowBuildContext initializes engine/tools processing and builds base workflow data.
 func (c *Compiler) setupWorkflowBuildContext(ctx *workflowBuildContext) error {
+	connectorConfigs, err := c.resolveWorkflowConnectors(ctx.frontmatter.Frontmatter)
+	if err != nil {
+		return c.formatToolsProcessingError(ctx.cleanPath, err)
+	}
+	if err := c.expandWorkflowConnectors(ctx.frontmatter.Frontmatter, connectorConfigs); err != nil {
+		return c.formatToolsProcessingError(ctx.cleanPath, err)
+	}
 	engineSetup, err := c.setupEngineAndImports(ctx.frontmatter, ctx.cleanPath, ctx.content, ctx.markdownDir)
 	if err != nil {
 		return c.formatEngineSetupError(ctx, err)
@@ -104,16 +112,20 @@ func (c *Compiler) setupWorkflowBuildContext(ctx *workflowBuildContext) error {
 	if err != nil {
 		return c.formatToolsProcessingError(ctx.cleanPath, err)
 	}
-	if err := c.validateCopilotWebToolsSupport(engineSetup.agenticEngine, engineSetup.engineConfig, toolsResult.tools); err != nil {
-		return c.formatToolsProcessingError(ctx.cleanPath, err)
-	}
 	ctx.engineSetup = engineSetup
 	ctx.toolsResult = toolsResult
 	ctx.workflowData, err = c.buildInitialWorkflowData(ctx.frontmatter, toolsResult, engineSetup, engineSetup.importsResult)
 	if err != nil {
 		return c.formatToolsProcessingError(ctx.cleanPath, err)
 	}
+	if err := c.validateCopilotWebToolsSupport(engineSetup.agenticEngine, ctx.workflowData); err != nil {
+		return c.formatToolsProcessingError(ctx.cleanPath, err)
+	}
+	if err := c.validateResolvedEngineEnvSecrets(ctx); err != nil {
+		return c.formatEngineSetupError(ctx, err)
+	}
 	ctx.workflowData.WorkflowID = GetWorkflowIDFromPath(ctx.cleanPath)
+	ctx.workflowData.Connectors = connectorConfigs
 	ctx.workflowData.engineDefinition = c.engineCatalog.Get(engineSetup.engineSetting)
 	ctx.workflowData.SourceDocument = ctx.document
 	if config := ctx.workflowData.ParsedFrontmatter; config != nil && config.TokenBroker != nil {
@@ -164,13 +176,6 @@ func (c *Compiler) validateWorkflowBuildContext(ctx *workflowBuildContext) error
 	if err := c.validateWorkflowEngineSettings(ctx.cleanPath, ctx.workflowData); err != nil {
 		return err
 	}
-	if cfg := ctx.workflowData.EngineConfig; cfg != nil && len(cfg.FallbackModels) > 0 {
-		if err := c.withEffectiveStrictMode(ctx.frontmatter.Frontmatter, func() error {
-			return c.validateEnvSecretsWithModels(ctx.frontmatter.Frontmatter, ctx.workflowData.ModelMappings)
-		}); err != nil {
-			return err
-		}
-	}
 	return c.validateWorkflowToolConfigurations(ctx)
 }
 
@@ -205,6 +210,7 @@ func (c *Compiler) validateWorkflowEngineSettings(cleanPath string, workflowData
 	checks := []func(*WorkflowData) error{
 		c.validateRunInstallScripts,
 		c.validateEngineVersion,
+		c.validateEngineDurable,
 		c.validatePlaywrightMode,
 		c.validateLSPSupport,
 		c.validateEngineHarnessScript,
@@ -284,6 +290,9 @@ func (c *Compiler) populateWorkflowBuildContext(ctx *workflowBuildContext) error
 	if err := c.extractAdditionalConfigurations(ctx.frontmatter.Frontmatter, ctx.toolsResult.tools, ctx.markdownDir, ctx.workflowData, ctx.engineSetup.importsResult, ctx.toolsResult.rawMainMarkdown, ctx.toolsResult.safeOutputs); err != nil {
 		return err
 	}
+	if err := validateSkipIfDecisionEngine(ctx.engineSetup.agenticEngine, ctx.workflowData); err != nil {
+		return formatCompilerError(ctx.cleanPath, "error", err.Error(), err)
+	}
 	if err := c.mergeImportedOnFields(ctx.frontmatter.Frontmatter, ctx.workflowData, ctx.engineSetup.importsResult); err != nil {
 		return err
 	}
@@ -292,7 +301,21 @@ func (c *Compiler) populateWorkflowBuildContext(ctx *workflowBuildContext) error
 		return formatCompilerError(ctx.cleanPath, "error", err.Error(), err)
 	}
 	ctx.workflowData.AmbientFolders = ambientFolders
-	return c.processOnSectionAndFilters(ctx.frontmatter.Frontmatter, ctx.workflowData, ctx.cleanPath)
+	if err := c.processOnSectionAndFilters(ctx.frontmatter.Frontmatter, ctx.workflowData, ctx.cleanPath); err != nil {
+		return err
+	}
+	if err := validateRouterModelValuePlacement(ctx.workflowData); err != nil {
+		return formatCompilerError(ctx.cleanPath, "error", err.Error(), err)
+	}
+	// runs-on is resolved only now, so explicit routing's host check runs here.
+	if err := validateModelRoutingRuntimeCompatibility(ctx.workflowData); err != nil {
+		return c.formatEngineSetupError(ctx, err)
+	}
+	// Shared by every parse entry point so file, string, document, and Wasm
+	// compilation resolve the implicit model-routing default identically.
+	c.applyDefaultModelRouting(ctx)
+	c.applyDynamicModelRouting(ctx)
+	return nil
 }
 
 func (c *Compiler) attachSharedActionResolver(workflowData *WorkflowData) {
@@ -329,7 +352,7 @@ func hasExplicitConcurrencyGroup(frontmatter map[string]any) bool {
 func (c *Compiler) mergeImportedWorkflowConfiguration(ctx *workflowBuildContext) error {
 	if ctx.engineSetup.importsResult.MergedConcurrency != "" && !hasExplicitConcurrencyGroup(ctx.frontmatter.Frontmatter) {
 		var importedConcurrency any
-		if err := json.Unmarshal([]byte(ctx.engineSetup.importsResult.MergedConcurrency), &importedConcurrency); err == nil {
+		if err := jsonutil.UnmarshalString(ctx.engineSetup.importsResult.MergedConcurrency, &importedConcurrency); err == nil {
 			ctx.workflowData.Concurrency = c.extractTopLevelYAMLSection(map[string]any{"concurrency": importedConcurrency}, "concurrency")
 		} else {
 			orchestratorWorkflowLog.Printf("Skipping imported concurrency merge: invalid JSON: %v", err)
@@ -363,7 +386,7 @@ func (c *Compiler) mergeImportedObservability(workflowData *WorkflowData, merged
 		return
 	}
 	var importedObs map[string]any
-	if err := json.Unmarshal([]byte(mergedObservability), &importedObs); err != nil {
+	if err := jsonutil.UnmarshalString(mergedObservability, &importedObs); err != nil {
 		orchestratorWorkflowLog.Printf("Skipping imported observability merge: invalid JSON: %v", err)
 		return
 	}
@@ -473,6 +496,13 @@ func (c *Compiler) mergeWorkflowEnv(frontmatter map[string]any, workflowData *Wo
 	}
 	if err := validateTopLevelEnvExpressions(mergedEnvMap); err != nil {
 		return err
+	}
+	if frontmatterDeclaresImports(frontmatter) {
+		if err := c.withEffectiveStrictMode(frontmatter, func() error {
+			return c.validateEnvSecretsSection(map[string]any{"env": mergedEnvMap}, "env", nil)
+		}); err != nil {
+			return err
+		}
 	}
 	if len(mergedEnvMap) == 0 {
 		return nil
@@ -592,6 +622,22 @@ func (c *Compiler) extractAdditionalConfigurations( //nolint:largefunc // Existi
 
 	// comment-memory belongs under tools: next to cache-memory and repo-memory.
 	workflowData.CommentMemoryConfig = c.extractCommentMemoryConfig(toolsConfig)
+	if workflowData.LedgerConfig.hasCommentStorage() {
+		if workflowData.CommentMemoryConfig == nil {
+			return errors.New("tools.ledger storage: comment-memory requires tools.comment-memory")
+		}
+		target := workflowData.CommentMemoryConfig.Target
+		if target != "" && target != "triggering" && target != "*" {
+			number, err := strconv.Atoi(target)
+			if err != nil || number <= 0 {
+				return fmt.Errorf("tools.comment-memory.target value %q is not supported for comment-backed ledgers. Expected triggering, '*', or a literal positive issue/PR number. Example:\ntools:\n  comment-memory:\n    target: 42", target)
+			}
+			workflowData.CommentMemoryConfig.Target = strconv.Itoa(number)
+		}
+		if strings.Contains(workflowData.CommentMemoryConfig.TargetRepoSlug, "${{") {
+			return fmt.Errorf("tools.comment-memory.target-repo value %q uses an expression. Expected a literal owner/repo for comment-backed ledgers. Example:\ntools:\n  comment-memory:\n    target-repo: github/gh-aw", workflowData.CommentMemoryConfig.TargetRepoSlug)
+		}
+	}
 
 	// Extract mcp-scripts configuration
 	workflowData.MCPScripts = c.extractMCPScriptsConfig(frontmatter)
@@ -659,6 +705,9 @@ func (c *Compiler) extractAdditionalConfigurations( //nolint:largefunc // Existi
 		return fmt.Errorf("failed to merge safe-outputs from imports: %w", err)
 	}
 	workflowData.SafeOutputs = mergedSafeOutputs
+	if err := c.attachConnectorInputSchemas(workflowData); err != nil {
+		return err
+	}
 	if workflowData.SafeOutputs == nil && workflowData.LedgerConfig != nil && workflowData.LedgerConfig.Enabled() {
 		workflowData.SafeOutputs = &SafeOutputsConfig{}
 	}
@@ -715,6 +764,13 @@ func (c *Compiler) extractAdditionalConfigurations( //nolint:largefunc // Existi
 		return fmt.Errorf("invalid evals configuration: %w", err)
 	}
 	workflowData.Evals = evalsConfig
+	workflowData.SkipIfDecision, err = parseSkipIfDecision(frontmatter)
+	if err != nil {
+		return err
+	}
+	if len(workflowData.SkipIfDecision) > 0 && !isFirewallEnabled(workflowData) {
+		return errors.New("skip-if-decision requires the AWF agent sandbox: enable sandbox.agent or remove skip-if-decision")
+	}
 
 	// Extract deterministic graders configuration, including graders contributed by imports.
 	gradersFrontmatter, err := mergeImportedGradersFrontmatter(frontmatter, importsResult.MergedGraders)
@@ -726,20 +782,6 @@ func (c *Compiler) extractAdditionalConfigurations( //nolint:largefunc // Existi
 		return fmt.Errorf("invalid graders configuration: %w", err)
 	}
 	workflowData.Graders = gradersConfig
-	for id, source := range importsResult.GraderRunSources {
-		grader := gradersConfig.Graders[id]
-		if grader == nil || grader.Run == "" {
-			continue
-		}
-		if authored, ok := frontmatter["graders"].(map[string]any); ok {
-			if definition, ok := authored[id].(map[string]any); ok {
-				if _, overridesRun := definition["run"]; overridesRun {
-					continue
-				}
-			}
-		}
-		grader.RunSourcePath = source
-	}
 	if err := validateExperimentMetricReferences(workflowData.ExperimentConfigs, workflowData.Evals, workflowData.Graders); err != nil {
 		return fmt.Errorf("invalid experiments configuration: %w", err)
 	}
@@ -761,7 +803,7 @@ func (c *Compiler) mergeImportedOnFields(frontmatter map[string]any, workflowDat
 
 	if _, exists := onMap["skip-if-match"]; !exists && importsResult.MergedSkipIfMatch != "" {
 		var value any
-		if err := json.Unmarshal([]byte(importsResult.MergedSkipIfMatch), &value); err != nil {
+		if err := jsonutil.UnmarshalString(importsResult.MergedSkipIfMatch, &value); err != nil {
 			return fmt.Errorf("failed to parse imported on.skip-if-match value: %w", err)
 		}
 		onMap["skip-if-match"] = value
@@ -775,7 +817,7 @@ func (c *Compiler) mergeImportedOnFields(frontmatter map[string]any, workflowDat
 
 	if _, exists := onMap["skip-if-no-match"]; !exists && importsResult.MergedSkipIfNoMatch != "" {
 		var value any
-		if err := json.Unmarshal([]byte(importsResult.MergedSkipIfNoMatch), &value); err != nil {
+		if err := jsonutil.UnmarshalString(importsResult.MergedSkipIfNoMatch, &value); err != nil {
 			return fmt.Errorf("failed to parse imported on.skip-if-no-match value: %w", err)
 		}
 		onMap["skip-if-no-match"] = value

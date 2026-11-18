@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
 if: github.run_attempt == 1
 imports:
+  - shared/reporting.md
   - shared/work-queue-staged-plan.md
 permissions:
   contents: read
@@ -32,6 +33,7 @@ safe-outputs:
       - engine-conformance-gemini
       - engine-conformance-goose
       - engine-conformance-kiro
+      - engine-conformance-mini-swe-agent
       - engine-conformance-opencode
       - engine-conformance-pi
       - engine-conformance-pydantic-ai

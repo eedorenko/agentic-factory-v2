@@ -4,7 +4,8 @@ import * as fs from "fs";
 import * as path from "path";
 
 const require = createRequire(import.meta.url);
-const { runWithCopilotSDK, parsePermissionConfigFromServerArgs } = require("./copilot_sdk_driver.cjs");
+const { runWithCopilotSDK, parsePermissionConfigFromServerArgs } = require("../../../scripts/markdown_metadata_test_adapter.cjs").withCompilerFixtures(require("./copilot_sdk_driver.cjs"));
+const { WORKFLOW_TOOL_PERMISSION_DENIED_EXIT_CODE } = require("./permission_denied_helpers.cjs");
 const { normalizeCopilotSession } = require("./copilot_session.cjs");
 
 describe("copilot_sdk_driver.cjs", () => {
@@ -1671,7 +1672,7 @@ describe("copilot_sdk_driver.cjs", () => {
           },
         });
 
-        expect(result.exitCode).toBe(1);
+        expect(result.exitCode).toBe(WORKFLOW_TOOL_PERMISSION_DENIED_EXIT_CODE);
         expect(result.output).toContain("max tool denials threshold reached");
         expect(disconnect).toHaveBeenCalled();
         const parsedEvents = stderrWriteSpy.mock.calls
@@ -1802,7 +1803,7 @@ describe("copilot_sdk_driver.cjs", () => {
           },
         });
 
-        expect(result.exitCode).toBe(1);
+        expect(result.exitCode).toBe(WORKFLOW_TOOL_PERMISSION_DENIED_EXIT_CODE);
         expect(result.output).toContain("max tool denials threshold reached");
       } finally {
         if (oldMaxToolDenials === undefined) {
@@ -1863,7 +1864,7 @@ describe("copilot_sdk_driver.cjs", () => {
         });
         const elapsedMs = Date.now() - startedAt;
 
-        expect(result.exitCode).toBe(1);
+        expect(result.exitCode).toBe(WORKFLOW_TOOL_PERMISSION_DENIED_EXIT_CODE);
         expect(result.output).toContain("max tool denials threshold reached");
         // Bounded by the denial-guard force-exit timeout plus the cleanup timeout,
         // not by the (unreached) 10-minute sendAndWait default or a hosted job timeout.
@@ -2033,6 +2034,34 @@ describe("copilot_sdk_driver.cjs", () => {
       });
       return capturedHandler;
     }
+
+    it("allows Daily Cracktro's browser launcher without direct Python or directory grants", async () => {
+      const source = fs.readFileSync(new URL("../../../.github/workflows/daily-cracktro-maintainer.md", import.meta.url), "utf8");
+      const frontmatter = source.split("\n---\n", 2)[0];
+      const launcherGrants = [...frontmatter.matchAll(/^    - "(node) \*"/gm)].map(match => `shell(${match[1]})`);
+      const handler = await makePermissionHandlerViaSDK([...launcherGrants, "shell(curl:*)", "shell(kill)", "shell(playwright-cli:*)"]);
+      for (const fullCommandText of [
+        "node .github/scripts/cracktro_preview.cjs",
+        "curl --fail --silent --show-error --connect-timeout 2 --max-time 5 --retry 10 --retry-connrefused --retry-all-errors --retry-max-time 30 http://127.0.0.1:4329/cracktro/",
+        "playwright-cli open --browser=chromium http://127.0.0.1:4329/cracktro/",
+        "playwright-cli close",
+        "kill 12345",
+      ]) {
+        expect(handler({ kind: "shell", commands: [], fullCommandText })).toEqual({ kind: "approve-once" });
+      }
+      for (const fullCommandText of [
+        "python3 -m http.server 4329 --bind 127.0.0.1 --directory docs/public",
+        'mkdir -p "$RUNNER_TEMP/gh-aw/safeoutputs/upload-artifacts/cracktro-review"',
+        "python3 -c 'print(1)'",
+        "python3 -m http.server 4329 --bind 0.0.0.0 --directory docs/public",
+        "python3 -m http.server 4329 --bind 127.0.0.1 --directory /",
+        "mkdir -p /tmp/unrelated",
+        'mkdir -p "$RUNNER_TEMP/gh-aw/safeoutputs/upload-artifacts/cracktro-review" /tmp/unrelated',
+        "curl http://127.0.0.1:4329/cracktro/ && sleep 1",
+      ]) {
+        expect(handler({ kind: "shell", commands: [], fullCommandText }).kind).toBe("reject");
+      }
+    });
 
     it("allows a piped command when SDK provides no identifiers but all commands are allowed", async () => {
       const handler = await makePermissionHandlerViaSDK(["shell(ls)", "shell(cat)", "shell(echo)"]);

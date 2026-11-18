@@ -1,19 +1,20 @@
 // @ts-check
 import { describe, expect, it, vi } from "vitest";
-import { canonical } from "./work_queue_codec.cjs";
-import { synchronizeDeployments } from "./work_queue_deployment_control.cjs";
-import { executionProfile, futurePolicy } from "./work_queue_deployment.cjs";
+import { canonical, utf8Compare } from "./work_queue_codec.cjs";
+import { synchronizeDeployments, reconcileObsoleteWork } from "./work_queue_deployment_control.cjs";
+import { executionProfile, obsoleteWork, futurePolicy } from "./work_queue_deployment.cjs";
 import { normalizeSubmitParameters } from "./work_queue_intents.cjs";
-import { queueFixture, REF, WORKFLOW, REPOSITORY } from "./work_queue_lifecycle.test_helpers.cjs";
+import { nodeId } from "./work_queue_graph.cjs";
+import { queueFixture, REF, WORKFLOW, REPOSITORY, DISPATCHER } from "./work_queue_lifecycle.test_helpers.cjs";
 
 const DEFAULT_REF = "b".repeat(40);
 const BRANCH_REF = "e".repeat(40);
 const CONTRACT = "a".repeat(64);
 const NEXT_CONTRACT = "b".repeat(64);
-const SOURCE = "---\ntools:\n  work-queue:\n    worker: true\n---\nExecute approved instructions.\n";
-const lock = (contract = CONTRACT) => `on:\n  workflow_dispatch:\n    inputs:\n      work_queue_assignment:\n        type: string\nenv:\n  GH_AW_WORK_QUEUE_CONTRACT: "${contract}"\n`;
+const lock = (contract = CONTRACT) =>
+  `# gh-aw-manifest: ${JSON.stringify({ work_queue: { worker: true, logical_contract: contract } })}\non:\n  workflow_dispatch:\n    inputs:\n      work_queue_assignment:\n        type: string\nenv:\n  GH_AW_WORK_QUEUE_CONTRACT: "${contract}"\n`;
 
-function fixture({ otherPool = false } = {}) {
+function fixture({ otherPool = false, operationLimit = 256 } = {}) {
   const f = queueFixture({
     count: 3,
     batch: 1,
@@ -21,6 +22,7 @@ function fixture({ otherPool = false } = {}) {
     configurePolicy: policy => {
       policy.authorization = "aw";
       policy.producers = {};
+      policy.limits.operations = operationLimit;
       const profile = policy.pools.default.profiles.default;
       delete profile.principal;
       profile.logical_contract = CONTRACT;
@@ -32,11 +34,12 @@ function fixture({ otherPool = false } = {}) {
       if (index === 2) work.worker_profile = "other";
     },
   });
-  f.githubClient.rest.repos.get = vi.fn(async () => ({ data: { full_name: REPOSITORY, default_branch: "release/main" } }));
+  f.githubClient.rest.repos.get = vi.fn(async () => ({ status: 200, data: { full_name: REPOSITORY, id: 7, default_branch: "release/main" } }));
   f.githubClient.rest.git = { getRef: vi.fn(async () => ({ data: { ref: "refs/heads/release/main", object: { sha: DEFAULT_REF } } })) };
   f.githubClient.rest.repos.getContent = vi.fn(async ({ path, ref }) => {
     expect([DEFAULT_REF, REF]).toContain(ref);
-    return { data: { type: "file", path, encoding: "base64", content: Buffer.from(path.endsWith(".md") ? SOURCE : lock()).toString("base64") } };
+    expect(path.endsWith(".lock.yml")).toBe(true);
+    return { data: { type: "file", path, encoding: "base64", content: Buffer.from(lock()).toString("base64") } };
   });
   f.githubClient.rest.actions.getWorkflow = vi.fn(async ({ workflow_id }) => ({ data: { path: `.github/workflows/${workflow_id}`, state: "active" } }));
   const options = {
@@ -70,6 +73,173 @@ describe("verified default worker deployment authority", () => {
     expect(canonical(f.transactions)).toBe(before);
   });
 
+  describe("obsolete approved worker backlog recovery", () => {
+    async function outdated() {
+      const { f, options, trusted } = fixture();
+      options.context = f.dispatcherContext;
+      options.workflowRef = `${REPOSITORY}/${DISPATCHER}@${REF}`;
+      f.githubClient.rest.repos.getContent = vi.fn(async ({ path, ref }) => ({
+        data: { type: "file", path, encoding: "base64", content: Buffer.from(lock(ref === DEFAULT_REF ? NEXT_CONTRACT : CONTRACT)).toString("base64") },
+      }));
+      await synchronizeDeployments(options, trusted);
+      return { f, options };
+    }
+
+    it("terminally cancels obsolete unpinned Work once, retaining pins, compatible Work, policy, debt and history", async () => {
+      const { f, options } = await outdated();
+      const before = f.state;
+      const [old, pinned, other] = [...before.works.values()];
+      expect(await reconcileObsoleteWork(options)).toEqual({ cancelled: 1 });
+      const after = f.state;
+      expect(after.works.get(old.work_id)).toMatchObject({ state: "cancelled", cancellation_reason: "worker_contract_obsolete" });
+      expect(after.works.get(pinned.work_id)).toEqual(pinned);
+      expect(after.works.get(other.work_id)).toEqual(other);
+      for (const key of ["policy", "policy_epoch", "claims", "dispatches", "clocks", "terminalBarriers"]) expect(after[key]).toEqual(before[key]);
+      expect(f.transactions.slice(0, before.transactions.length)).toEqual(before.transactions);
+      expect(f.transactions.at(-1).actor.role).toBe("reconciler");
+      const history = canonical(f.transactions);
+      expect(await reconcileObsoleteWork(options)).toEqual({ cancelled: 0 });
+      expect(canonical(f.transactions)).toBe(history);
+    });
+
+    it.each(["pending", "failed", "verified"])("preserves %s delivery and all owned or pinned Work", async barrier => {
+      const { f } = await outdated();
+      const state = f.state;
+      const work = [...state.works.values()][0];
+      expect(obsoleteWork(state, work)).toBe(true);
+      for (const changes of [{ barrier }, { state: "claimed" }, { claim_id: "owned" }, { execution_ref: REF }, { state: "completed" }]) {
+        expect(obsoleteWork(state, { ...work, ...changes })).toBe(false);
+      }
+    });
+
+    it("does not mistake unavailable deployments for obsolete Work or run in staged mode", async () => {
+      const { f, options } = await outdated();
+      expect(await reconcileObsoleteWork({ ...options, staged: true })).toEqual({ cancelled: 0 });
+      const worker = f.state.deployments.get("default").get("default");
+      f.append("deployment", {
+        operations: [
+          {
+            kind: "Deployment",
+            pool: "default",
+            worker_profile: "default",
+            expected_ref: worker.current_ref,
+            expected_contract: worker.current_contract,
+            profile: worker.revisions[worker.current_ref].profile,
+            available: false,
+            reason: "worker_unavailable",
+          },
+        ],
+      });
+      expect(await reconcileObsoleteWork(options)).toEqual({ cancelled: 0 });
+    });
+
+    it("rejects an entire stale cancellation batch after a concurrent compatible route update", async () => {
+      const { f, options } = await outdated();
+      options.publishWorkQueueRequest = async args => {
+        const worker = f.state.deployments.get("default").get("default");
+        f.append("deployment", {
+          operations: [
+            {
+              kind: "Deployment",
+              pool: "default",
+              worker_profile: "default",
+              expected_ref: worker.current_ref,
+              expected_contract: worker.current_contract,
+              profile: worker.revisions[REF].profile,
+              available: true,
+              reason: "compiler_deployment",
+            },
+          ],
+        });
+        return f.publishWorkQueueRequest(args);
+      };
+      await expect(reconcileObsoleteWork(options)).rejects.toMatchObject({ code: "deployment_conflict" });
+      expect([...f.state.works.values()].every(work => work.state === "available")).toBe(true);
+    });
+
+    it("fails closed on authentication or publication errors", async () => {
+      const { f, options } = await outdated();
+      const failure = new Error("denied");
+      options.publishWorkQueueRequest = vi.fn().mockRejectedValue(failure);
+      await expect(reconcileObsoleteWork(options)).rejects.toBe(failure);
+      expect([...f.state.works.values()].every(work => work.state === "available")).toBe(true);
+      options.publishWorkQueueRequest = vi.fn();
+      f.githubClient.rest.actions.getWorkflowRun = vi.fn().mockRejectedValue(failure);
+      await expect(reconcileObsoleteWork(options)).rejects.toBe(failure);
+      expect(options.publishWorkQueueRequest).not.toHaveBeenCalled();
+    });
+
+    it("retires a bounded deterministic prefix and leaves the rest for the next maintenance run", async () => {
+      const { f, options, trusted } = fixture({ operationLimit: 3 });
+      const original = f.transactions[1].operations[0];
+      f.append(
+        "submit",
+        {
+          nodes: Array.from({ length: 3 }, (_, index) => ({ ...original, graph_id: "g2", node_key: `n${index}`, work_id: nodeId("g2", `n${index}`) })),
+        },
+        { role: "producer", principal: "11", repository: REPOSITORY }
+      );
+      options.context = f.dispatcherContext;
+      options.workflowRef = `${REPOSITORY}/${DISPATCHER}@${REF}`;
+      f.githubClient.rest.repos.getContent = vi.fn(async ({ path, ref }) => ({
+        data: { type: "file", path, encoding: "base64", content: Buffer.from(lock(ref === DEFAULT_REF ? NEXT_CONTRACT : CONTRACT)).toString("base64") },
+      }));
+      await synchronizeDeployments(options, trusted);
+      const eligible = [...f.state.works.values()]
+        .filter(work => obsoleteWork(f.state, work))
+        .map(work => work.work_id)
+        .sort(utf8Compare);
+      expect(eligible).toHaveLength(4);
+      expect(await reconcileObsoleteWork(options)).toEqual({ cancelled: 3 });
+      expect(f.transactions.at(-1).operations.map(operation => operation.work_id)).toEqual(eligible.slice(0, 3));
+      expect(await reconcileObsoleteWork(options)).toEqual({ cancelled: 1 });
+      expect(await reconcileObsoleteWork(options)).toEqual({ cancelled: 0 });
+    });
+
+    it("orders a controlled read projection independently of locale before selecting a bounded prefix", async () => {
+      const { f, options } = await outdated();
+      const projection = structuredClone(f.state);
+      const work = [...projection.works.values()].find(candidate => obsoleteWork(projection, candidate));
+      projection.policy.limits.operations = 3;
+      // Synthetic IDs distinguish collation order without entering the replayed ledger.
+      projection.works = new Map(["work_a", "work-a", "Work-B", "work-B"].map(work_id => [work_id, { ...work, work_id }]));
+      options.readWorkQueueLog = async () => ({ ...(await f.readWorkQueueLog()), state: projection });
+      const failure = new Error("stop before ledger publication");
+      options.publishWorkQueueRequest = vi.fn().mockRejectedValue(failure);
+      const history = canonical(f.transactions);
+      await expect(reconcileObsoleteWork(options)).rejects.toBe(failure);
+      expect(options.publishWorkQueueRequest).toHaveBeenCalledOnce();
+      expect(options.publishWorkQueueRequest.mock.calls[0][0].request.parameters.operations.map(operation => operation.work_id)).toEqual(["Work-B", "work-B", "work-a"]);
+      expect(canonical(f.transactions)).toBe(history);
+    });
+
+    it.each(["wall clock", "explicit time"])("excludes elapsed deadlines using %s without mutating the read projection or ledger", async clock => {
+      const { f, options } = await outdated();
+      const projection = structuredClone(f.state);
+      const work = [...projection.works.values()].find(candidate => obsoleteWork(projection, candidate));
+      const now = f.at + 100;
+      projection.works = new Map(
+        [{ work_id: "work_a", expires_at: now - 1 }, { work_id: "work_b", expires_at: now }, { work_id: "work_c", expires_at: now + 1 }, { work_id: "work_d" }].map(deadline => [deadline.work_id, { ...work, ...deadline }])
+      );
+      options.readWorkQueueLog = async () => ({ ...(await f.readWorkQueueLog()), state: projection });
+      if (clock === "explicit time") options.now = now;
+      const failure = new Error("stop before ledger publication");
+      options.publishWorkQueueRequest = vi.fn().mockRejectedValue(failure);
+      const before = structuredClone(projection);
+      const history = canonical(f.transactions);
+      const time = vi.spyOn(Date, "now").mockReturnValue(clock === "explicit time" ? now + 100 : now);
+      try {
+        await expect(reconcileObsoleteWork(options)).rejects.toBe(failure);
+        expect(options.publishWorkQueueRequest).toHaveBeenCalledOnce();
+        expect(options.publishWorkQueueRequest.mock.calls[0][0].request.parameters.operations.map(operation => operation.work_id)).toEqual(["work_c", "work_d"]);
+        expect(projection).toEqual(before);
+        expect(canonical(f.transactions)).toBe(history);
+      } finally {
+        time.mockRestore();
+      }
+    });
+  });
+
   it.each([
     ["identical branch contract", {}],
     ["altered branch authority", { workflow: ".github/workflows/branch-worker.lock.yml", max_claims: 16, logical_contract: NEXT_CONTRACT }],
@@ -100,16 +270,30 @@ describe("verified default worker deployment authority", () => {
     f.githubClient.rest.git.getRef = vi.fn(async () => ({ data: { ref: "refs/heads/release/main", object: { sha: revision } } }));
     f.githubClient.rest.repos.getContent = vi.fn(async ({ path, ref }) => {
       expect([revision, REF]).toContain(ref);
-      return { data: { type: "file", path, encoding: "base64", content: Buffer.from(path.endsWith(".md") ? SOURCE : lock()).toString("base64") } };
+      return { data: { type: "file", path, encoding: "base64", content: Buffer.from(lock()).toString("base64") } };
     });
     await synchronizeDeployments(options, trusted);
     expect(f.state.deployments.get("default").get("default").current_ref).toBe(revision);
   });
 
+  it("uses the compiler manifest without requiring Markdown source or an environment stamp", async () => {
+    const { f, options, trusted } = fixture();
+    f.githubClient.rest.repos.getContent = vi.fn(async ({ path }) => {
+      expect(path.endsWith(".lock.yml")).toBe(true);
+      const content = lock().replace(`env:\n  GH_AW_WORK_QUEUE_CONTRACT: "${CONTRACT}"\n`, "");
+      return { data: { type: "file", path, encoding: "base64", content: Buffer.from(content).toString("base64") } };
+    });
+    await synchronizeDeployments(options, trusted);
+    const worker = f.state.deployments.get("default").get("default");
+    expect(worker.current_ref).toBe(DEFAULT_REF);
+    expect(worker.current_contract).toBe(CONTRACT);
+    expect(worker.revisions[DEFAULT_REF].available).toBe(true);
+  });
+
   it.each([CONTRACT, NEXT_CONTRACT])("automatically upgrades verified default revisions with contract %s while preserving old obligations", async contract => {
     const { f, options, trusted } = fixture();
     f.githubClient.rest.repos.getContent = vi.fn(async ({ path, ref }) => ({
-      data: { type: "file", path, encoding: "base64", content: Buffer.from(path.endsWith(".md") ? SOURCE : lock(ref === DEFAULT_REF ? contract : CONTRACT)).toString("base64") },
+      data: { type: "file", path, encoding: "base64", content: Buffer.from(lock(ref === DEFAULT_REF ? contract : CONTRACT)).toString("base64") },
     }));
     f.append("dispatch_next", { pool: "default", max_claims: 1, max_dispatches: 1, max_bytes: 48000 }, f.dispatcher);
     const before = f.state;
@@ -132,7 +316,7 @@ describe("verified default worker deployment authority", () => {
   it("pauses incompatible pending unpinned Work without charging service or affecting an exact old pin", async () => {
     const { f, options, trusted } = fixture();
     f.githubClient.rest.repos.getContent = vi.fn(async ({ path, ref }) => ({
-      data: { type: "file", path, encoding: "base64", content: Buffer.from(path.endsWith(".md") ? SOURCE : lock(ref === DEFAULT_REF ? NEXT_CONTRACT : CONTRACT)).toString("base64") },
+      data: { type: "file", path, encoding: "base64", content: Buffer.from(lock(ref === DEFAULT_REF ? NEXT_CONTRACT : CONTRACT)).toString("base64") },
     }));
     await synchronizeDeployments(options, trusted);
     const work = [...f.state.works.values()];
@@ -202,7 +386,7 @@ describe("verified default worker deployment authority", () => {
     expect(canonical(f.transactions)).toBe(before);
   });
 
-  it.each(["repository", "reference", "source", "lock", "registration"])("propagates permission/rate/transport errors at %s without publishing unavailability", async endpoint => {
+  it.each(["repository", "reference", "lock", "registration"])("propagates permission/rate/transport errors at %s without publishing unavailability", async endpoint => {
     for (const status of [401, 403, 422, 429, 500, undefined, ...(["repository", "reference"].includes(endpoint) ? [404] : [])]) {
       const { f, options, trusted } = fixture();
       const failure = Object.assign(new Error("verified metadata denied"), status === undefined ? {} : { status });
@@ -215,7 +399,7 @@ describe("verified default worker deployment authority", () => {
       else {
         const read = f.githubClient.rest.repos.getContent;
         f.githubClient.rest.repos.getContent = vi.fn(async args => {
-          if (args.path.endsWith(endpoint === "source" ? ".md" : ".lock.yml")) return reject();
+          if (args.path.endsWith(".lock.yml")) return reject();
           return read(args);
         });
       }
@@ -245,22 +429,20 @@ describe("verified default worker deployment authority", () => {
   });
 
   it.each([
-    ["missing source", "source", undefined],
-    ["unapproved source", "source", "---\ntools: {work-queue: {worker: false}}\n---\n"],
-    ["string approval", "source", '---\ntools: {work-queue: {worker: "true"}}\n---\n'],
-    ["malformed source", "source", "---\ntools: [\n---\n"],
-    ["missing lock", "lock", undefined],
-    ["missing stamp", "lock", lock().replace(`env:\n  GH_AW_WORK_QUEUE_CONTRACT: "${CONTRACT}"\n`, "")],
-    ["mutable stamp", "lock", lock("${{ github.sha }}")],
-    ["non-environment stamp", "lock", lock().replace("env:", "example:\n  env:").replace("  GH_AW", "    GH_AW")],
-    ["malformed lock", "lock", lock() + "broken: [\n"],
-    ["missing assignment", "lock", lock().replace("work_queue_assignment:", "foreign:")],
-  ])("handles %s locally without installing unknown code or pausing unrelated workers", async (_, endpoint, content) => {
+    ["missing lock", undefined],
+    ["missing manifest", lock().replace(/^# gh-aw-manifest:.*\n/, "")],
+    ["unapproved worker", lock().replace('"worker":true', '"worker":false')],
+    ["string approval", lock().replace('"worker":true', '"worker":"true"')],
+    ["malformed manifest", lock().replace(/^# gh-aw-manifest:.*\n/, "# gh-aw-manifest: {\n")],
+    ["mutable contract", lock("${{ github.sha }}")],
+    ["non-object manifest", lock().replace(/^# gh-aw-manifest:.*\n/, "# gh-aw-manifest: []\n")],
+    ["missing worker approval", lock().replace('"worker":true,', "")],
+  ])("handles %s locally without installing unknown code or pausing unrelated workers", async (_, content) => {
     const { f, options, trusted } = fixture();
     options.config = { work_queue_workflows: ["worker", "other"], aw_context_workflows: ["worker", "other"] };
     const read = f.githubClient.rest.repos.getContent;
     f.githubClient.rest.repos.getContent = vi.fn(async args => {
-      if (args.ref === DEFAULT_REF && args.path === WORKFLOW.replace(/\.lock\.yml$/, endpoint === "source" ? ".md" : ".lock.yml")) {
+      if (args.ref === DEFAULT_REF && args.path === WORKFLOW) {
         if (content === undefined) throw Object.assign(new Error("missing approved artifact"), { status: 404 });
         return { data: { type: "file", path: args.path, encoding: "base64", content: Buffer.from(content).toString("base64") } };
       }
@@ -273,6 +455,20 @@ describe("verified default worker deployment authority", () => {
     expect(worker.revisions[DEFAULT_REF]).toBeUndefined();
     expect(f.state.deployments.get("default").get("other").revisions[DEFAULT_REF].available).toBe(true);
     expect(f.state.stats.claims).toBe(0);
+  });
+
+  it.each([
+    ["malformed YAML", lock() + "broken: [\n"],
+    ["missing YAML assignment", lock().replace("work_queue_assignment:", "foreign:")],
+  ])("uses compiler worker approval without parsing %s", async (_, content) => {
+    const { f, options, trusted } = fixture();
+    f.githubClient.rest.repos.getContent = vi.fn(async ({ path }) => ({
+      data: { type: "file", path, encoding: "base64", content: Buffer.from(content).toString("base64") },
+    }));
+    await synchronizeDeployments(options, trusted);
+    const worker = f.state.deployments.get("default").get("default");
+    expect(worker.current_ref).toBe(DEFAULT_REF);
+    expect(worker.revisions[DEFAULT_REF]).toMatchObject({ available: true, profile: { logical_contract: CONTRACT } });
   });
 
   it("does not promote or reinterpret historical pins when their exact source or contract becomes unavailable", async () => {

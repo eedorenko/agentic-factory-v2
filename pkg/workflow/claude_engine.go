@@ -3,7 +3,6 @@ package workflow
 import (
 	"fmt"
 	"maps"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -201,7 +200,7 @@ func (e *ClaudeEngine) GetExecutionSteps(workflowData *WorkflowData, logFile str
 	// This avoids embedding the value directly in the shell command (which fails template injection
 	// validation for GitHub Actions expressions like ${{ inputs.model }}).
 	// Fallback for unconfigured model uses GH_AW_MODEL_AGENT_CLAUDE with shell expansion.
-	modelConfigured := workflowData.Model != "" && !isModelRoutingEnabled(workflowData)
+	modelConfigured := workflowData.Model != "" && !isModelRoutingUnconditional(workflowData)
 
 	claudeArgs, mcpConfigArg, allowedTools := e.buildClaudeCliArgs(workflowData, toolsWithMountedCLIs, logFile)
 
@@ -220,10 +219,11 @@ func (e *ClaudeEngine) GetExecutionSteps(workflowData *WorkflowData, logFile str
 
 	// Add allowed tools comment before the run section.
 	// Reuse the already-computed allowedTools string (computed earlier for --allowed-tools flag)
-	// to avoid redundant allocations from calling computeAllowedClaudeToolsString twice.
+	// to avoid redundant allocations from calling computeAllowedClaudeToolsStringWithDynamicWorkflows twice.
 	if allowedToolsComment := e.generateAllowedToolsComment(allowedTools, "        "); allowedToolsComment != "" {
-		commentLines := strings.Split(strings.TrimSuffix(allowedToolsComment, "\n"), "\n")
-		stepLines = append(stepLines, commentLines...)
+		for line := range strings.SplitSeq(strings.TrimSuffix(allowedToolsComment, "\n"), "\n") {
+			stepLines = append(stepLines, strings.TrimSuffix(line, "\r"))
+		}
 	}
 
 	// Add timeout at step level (GitHub Actions standard)
@@ -285,13 +285,6 @@ func (e *ClaudeEngine) buildClaudeCliArgs(workflowData *WorkflowData, toolsWithM
 	}
 
 	claudeArgs = appendClaudePluginArgs(claudeArgs, workflowData)
-
-	// Copilot writes Claude model versions with a dot (claude-haiku-4.5); map them to
-	// Anthropic ids so Claude Code applies the right model defaults (effort, context).
-	if shouldApplyClaudeCopilotModelOverrides(workflowData) {
-		claudeLog.Print("Adding Copilot Claude modelOverrides settings")
-		claudeArgs = append(claudeArgs, "--settings", claudeCopilotModelOverridesSettings())
-	}
 
 	claudeArgs = appendClaudeCustomEngineArgs(claudeArgs, permissionModeValueIndex, workflowData)
 
@@ -382,7 +375,7 @@ func (e *ClaudeEngine) buildClaudeCommandString(workflowData *WorkflowData, clau
 	// via shell expansion so users can set a default via GitHub Actions variables.
 	// When model IS configured, ANTHROPIC_MODEL is set in the env block and the Claude CLI
 	// reads it natively — no --model flag in the shell command needed.
-	if !modelConfigured && !isModelRoutingEnabled(workflowData) {
+	if !modelConfigured && !isModelRoutingUnconditional(workflowData) {
 		isDetectionJob := isDetectionRun(workflowData)
 		var modelEnvVar string
 		if workflowRunPhase(workflowData) == runPhaseEvals {
@@ -395,7 +388,7 @@ func (e *ClaudeEngine) buildClaudeCommandString(workflowData *WorkflowData, clau
 		claudeCommand = fmt.Sprintf(`%s${%s:+ --model "$%s"}`, claudeCommand, modelEnvVar, modelEnvVar)
 	}
 
-	return claudeCommand
+	return wrapCustomHarnessDecisionCommand(workflowData, e.GetID(), e.GetHarnessScriptName(), claudeCommand)
 }
 
 // buildClaudeFullCommand wraps the claude command with the AWF firewall wrapper (when enabled)
@@ -456,12 +449,8 @@ func (e *ClaudeEngine) claudeAllowedDomains(data *WorkflowData) string {
 	if !data.CachedAllowedDomainsComputed {
 		domains = GetAllowedDomainsForEngine(constants.ClaudeEngine, data.NetworkPermissions, data.Tools, data.Runtimes)
 	}
-	if data.NetworkPermissions != nil &&
-		slices.Contains(data.NetworkPermissions.Allowed, "claude") &&
-		e.ResolveLLMProvider(data) == LLMProviderAnthropic &&
-		!engineEnvHasNonEmptyValue(data, "ANTHROPIC_BASE_URL") {
-		domains = mergeAllowedDomainList(domains, "api.anthropic.com")
-	}
+	// The default Anthropic target is reached through the AWF proxy; only an
+	// explicitly configured target is added by mergeAPITargetDomains below.
 	if data.EngineConfig != nil && data.EngineConfig.APITarget != "" {
 		domains = mergeAPITargetDomains(domains, data.EngineConfig.APITarget)
 	}
@@ -518,8 +507,9 @@ func (e *ClaudeEngine) buildClaudeCommandEnv(workflowData *WorkflowData) map[str
 	applyOptionalEngineToolTimeouts(env, workflowData)
 	applyEngineMaxTurnsEnv(env, workflowData)
 	applyEngineHarnessRetryEnv(env, workflowData)
-	if !isModelRoutingEnabled(workflowData) {
+	if !isModelRoutingUnconditional(workflowData) {
 		applyClaudeModelEnvVars(env, workflowData)
+		guardImplicitRoutingModelEnv(env, workflowData, constants.EnvVarModelAgentClaude, constants.ClaudeCLIModelEnvVar)
 	}
 	applyEngineCwdEnv(env, workflowData)
 	applyEngineAndAgentEnv(env, workflowData, claudeLog)
@@ -528,6 +518,7 @@ func (e *ClaudeEngine) buildClaudeCommandEnv(workflowData *WorkflowData) map[str
 	}
 	applyModelRoutingEnv(env, workflowData)
 	applyModelAliasesEnv(env, workflowData)
+	applyDurableExecutionEnv(env, workflowData)
 	return env
 }
 

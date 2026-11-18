@@ -75,7 +75,7 @@ func isThreatDetectionExplicitlyDisabledInConfigs(configs []string) bool {
 }
 
 func getThreatDetectionAdditionalAllowedDomains(data *WorkflowData, engineID string) []string {
-	if data == nil || data.NetworkPermissions == nil {
+	if data == nil {
 		return []string{}
 	}
 
@@ -91,8 +91,11 @@ func getThreatDetectionAdditionalAllowedDomains(data *WorkflowData, engineID str
 		effectiveEnv["ANTHROPIC_BASE_URL"] != "" ||
 		effectiveEnv[constants.CopilotProviderBaseURL] != ""
 
-	additional := make([]string, 0, len(data.NetworkPermissions.Allowed))
+	additional := make([]string, 0)
 	seen := make(map[string]struct{})
+	if data.NetworkPermissions == nil {
+		return additional
+	}
 	for _, entry := range data.NetworkPermissions.Allowed {
 		if entry == "" || strings.Contains(entry, "${{") {
 			continue
@@ -173,6 +176,11 @@ func buildExternalDetectorWorkflowData(data *WorkflowData, engineID string) *Wor
 		"bash": []any{"*"},
 	}
 	d.EngineConfig = resolveExternalDetectorEngineConfig(data, engineID)
+	if d.EngineConfig.Auth == nil && data.EngineConfig != nil &&
+		ResolveEngineID(data) == engineID && data.EngineConfig.Auth != nil {
+		auth := *data.EngineConfig.Auth
+		d.EngineConfig.Auth = &auth
+	}
 	// threat-detect currently resolves the selected engine by its standard
 	// executable name and has no custom-command option. Keep the standard
 	// Copilot CLI installed for external detection rather than propagating a
@@ -185,6 +193,9 @@ func buildExternalDetectorWorkflowData(data *WorkflowData, engineID string) *Wor
 		d.EngineConfig.LLMProvider = LLMProviderOpenAI
 	}
 	d.EngineConfig.Env = mergeThreatDetectionEngineEnv(data, engineID, d.EngineConfig.Env)
+	if d.EngineConfig.Auth == nil && isOpenAIWIFWithAWF(d) {
+		d.EngineConfig.Auth = resolveOpenAIWIFAuth(d.EngineConfig)
+	}
 	if d.EngineConfig.APITarget == "" && data.EngineConfig != nil &&
 		ResolveEngineID(data) == engineID {
 		d.EngineConfig.APITarget = data.EngineConfig.APITarget
@@ -259,6 +270,8 @@ func cloneThreatDetectionEngineConfig(engineID string, source *EngineConfig) *En
 	cloned := *source
 	cloned.ID = engineID
 	cloned.ModelRouting = nil
+	cloned.Durable = nil
+	cloned.durableError = nil
 	if source.ID != "" && source.ID != engineID {
 		threatLog.Printf("Resetting runtime settings when normalizing %q to detection engine %q", source.ID, engineID)
 		cloned.Version = ""
@@ -315,17 +328,24 @@ func engineCoreSecretVarNames(engineID string) []string {
 // otherwise the enterprise override or runtime-aware engine detection default.
 func resolveThreatDetectionModel(data *WorkflowData, engineID string, engine CodingAgentEngine) string {
 	model := inheritedDetectionModel(data, engineID)
-	if data != nil && data.SafeOutputs != nil && data.SafeOutputs.ThreatDetection != nil && data.SafeOutputs.ThreatDetection.Model != "" {
+	explicit := data != nil && data.SafeOutputs != nil && data.SafeOutputs.ThreatDetection != nil && data.SafeOutputs.ThreatDetection.Model != ""
+	if explicit {
 		model = data.SafeOutputs.ThreatDetection.Model
 	}
-	if model == "" {
+	defaultModel := func() string {
 		if engine != nil {
-			model = defaultDetectionModel(engine)
-		} else if defaultModel := compilerenv.ResolveDefaultDetectionModel(""); defaultModel != "" {
-			model = defaultModel
-		} else {
-			model = "detection"
+			return defaultDetectionModel(engine)
 		}
+		if defaultModel := compilerenv.ResolveDefaultDetectionModel(""); defaultModel != "" {
+			return defaultModel
+		}
+		return "detection"
+	}
+	if model == "" {
+		return defaultModel()
+	}
+	if !explicit && isModelRoutingDynamic(data) {
+		return guardDynamicRoutingDetectionModel(model, defaultModel())
 	}
 	return model
 }

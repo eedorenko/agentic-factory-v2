@@ -14,7 +14,42 @@ import (
 
 type workOperatorTarget struct{ WorkID, ClaimID string }
 
-func workCancelCommand() *cobra.Command      { return workOperatorCommand("cancel-work", false, false) }
+func workCancelCommand() *cobra.Command {
+	cmd := workOperatorCommand("cancel-work", false, false)
+	cmd.Long = "Terminally cancel exact Work IDs with --work-id and --reason, or use\n" +
+		"--obsolete to retire one bounded batch using the JavaScript maintenance semantics.\n\n" +
+		"--obsolete selects available, unclaimed, unpinned Work without delivery barriers\n" +
+		"whose admission contract differs from an available approved active deployment.\n" +
+		"Elapsed Work and missing/unavailable deployments are excluded. IDs are sorted\n" +
+		"in UTF-8 byte order, then bounded by --limit and the installed operation limit.\n" +
+		"The fixed reason is worker_contract_obsolete with operation version 1.\n\n" +
+		"--dry-run is a read-only obsolete selection preview; it neither authenticates\n" +
+		"operator authority nor reserves the request ID. Publication requires the same\n" +
+		"repository administrator permission as cancel-work and rechecks the current\n" +
+		"ledger at committed time; any stale target rejects the entire batch.\n" +
+		"Use a stable --request-id: retries recover only the original accepted targets,\n" +
+		"never newly obsolete Work. No eligible Work is a no-op without a receipt.\n" +
+		"Claims, Results, barriers, native reservations, policy, debt and history are\n" +
+		"retained; native runs are not stopped and worker routes are not changed."
+	cmd.Flags().Bool("obsolete", false, "Select one checked batch of obsolete worker-contract Work; excludes --work-id and --reason")
+	cmd.Flags().Int("limit", 256, "Maximum obsolete Work per batch (1..256, further bounded by Policy)")
+	cmd.Flags().Bool("dry-run", false, "Preview --obsolete selection without publishing or synchronizing Issues")
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		obsolete, _ := cmd.Flags().GetBool("obsolete")
+		if obsolete {
+			if cmd.Flags().Changed("work-id") || cmd.Flags().Changed("reason") {
+				return errors.New("obsolete_selector_invalid: --obsolete cannot be combined with --work-id or --reason")
+			}
+			return workRunObsoleteCancellation(cmd)
+		}
+		if cmd.Flags().Changed("limit") || cmd.Flags().Changed("dry-run") {
+			return errors.New("obsolete_selector_invalid: --limit and --dry-run require --obsolete")
+		}
+		return workRunOperator(cmd, "work-id", false, false)
+	}
+	return cmd
+}
+
 func workCancelClaimCommand() *cobra.Command { return workOperatorCommand("cancel-claim", true, false) }
 func workPriorityCommand() *cobra.Command    { return workOperatorCommand("reprioritize", false, true) }
 
@@ -143,6 +178,9 @@ func workOperatorIntent(state workqueue.Projection, targets []workOperatorTarget
 		}
 		previous = target.WorkID
 		fields := map[string]any{"kind": "WorkCancellation", "work_id": target.WorkID, "reason": reason}
+		if reason == "worker_contract_obsolete" && priority == 0 {
+			fields["version"] = 1
+		}
 		if target.ClaimID != "" {
 			fields["claim_id"] = target.ClaimID
 		}
@@ -167,7 +205,19 @@ func recoverWorkOperatorIntent(state workqueue.Projection, wanted workqueue.Oper
 		return wanted, nil
 	}
 	var old workqueue.OperationsParameters
-	if err := json.Unmarshal(accepted.Request.Parameters, &old); err != nil {
+	var err error
+	if kind == "cancel_work" && len(wanted.Operations) > 0 {
+		var desired struct {
+			Reason string `json:"reason"`
+		}
+		if err := json.Unmarshal(wanted.Operations[0], &desired); err != nil {
+			return wanted, err
+		}
+		old, err = workRecoverClearIntent(accepted, desired.Reason)
+	} else {
+		err = json.Unmarshal(accepted.Request.Parameters, &old)
+	}
+	if err != nil {
 		return wanted, err
 	}
 	if accepted.Request.Kind != kind || len(old.Operations) != len(wanted.Operations) {
@@ -181,7 +231,7 @@ func recoverWorkOperatorIntent(state workqueue.Projection, wanted workqueue.Oper
 		if err != nil {
 			return wanted, err
 		}
-		right, err := workOperatorComparison(wanted.Operations[index])
+		right, err := workOperatorRetryComparison(operation, wanted.Operations[index])
 		if err != nil {
 			return wanted, err
 		}
@@ -199,4 +249,22 @@ func workOperatorComparison(operation workqueue.Operation) ([]byte, error) {
 	}
 	delete(fields, "expected_priority")
 	return json.Marshal(fields)
+}
+
+func workOperatorRetryComparison(original, wanted workqueue.Operation) ([]byte, error) {
+	var old, next map[string]json.RawMessage
+	if err := json.Unmarshal(original, &old); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(wanted, &next); err != nil {
+		return nil, err
+	}
+	// Acknowledging an accepted legacy request must recover its original bytes,
+	// not turn its reason-only cancellation into a new checked publication.
+	if old["version"] == nil && string(old["kind"]) == `"WorkCancellation"` &&
+		string(old["reason"]) == `"worker_contract_obsolete"` && string(next["version"]) == "1" {
+		delete(next, "version")
+	}
+	delete(next, "expected_priority")
+	return json.Marshal(next)
 }

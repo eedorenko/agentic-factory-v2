@@ -49,9 +49,14 @@ Shows health metrics for workflows including:
 - Warnings when success rate drops below threshold
 - Work-queue diagnostics when a selected published workflow uses work-queue
 
-Inventories failure signals from run-list payloads, verifies one representative
-per branch/event, then samples successful and pending runs. Reuses local Git
-objects when the checkout matches the target, with GitHub API fallback.
+Scans non-PR runs on the repository's default branch before reviewing PR and other
+branch runs, even when a PR's source branch has the default branch's name.
+Their failures may reflect unmerged code rather than a default-branch regression.
+Within each pass, inventories failure signals from run-list payloads, verifies one
+representative per branch/event, then samples successful and pending runs.
+The later pass reuses default-branch evidence for stopping, but still samples known
+other-branch failure scopes independently. Reuses local Git objects when the
+checkout matches the target, with GitHub API fallback.
 When called without a workflow name, displays summary for all workflows.
 When called with a specific workflow name, displays detailed metrics for that workflow.
 
@@ -131,7 +136,7 @@ func NewHealthCommand() *cobra.Command {
 }
 
 func addHealthFlags(cmd *cobra.Command) {
-	cmd.Flags().Int("days", 7, "Maximum evidence horizon in days (7, 30, or 90)")
+	cmd.Flags().Int("days", 7, "Maximum evidence horizon in days (allowed values: 7, 30, or 90)")
 	cmd.Flags().String("start-date", "", "Include runs created at or after this UTC date, RFC3339 timestamp, or relative time (e.g. -24h)")
 	cmd.Flags().String("end-date", "", "Include runs created at or before this UTC date, RFC3339 timestamp, or relative time (default: now)")
 	cmd.MarkFlagsMutuallyExclusive("days", "start-date")
@@ -140,11 +145,6 @@ func addHealthFlags(cmd *cobra.Command) {
 	cmd.Flags().Duration("timeout", 2*time.Minute, "Maximum collection duration (e.g., 30s or 5m; 0 disables the deadline). Returns explicitly partial results when exhausted")
 	addRepoFlag(cmd)
 	addJSONFlag(cmd)
-}
-
-// RunHealth executes the health command with the given configuration
-func RunHealth(config HealthConfig) error {
-	return runHealth(context.Background(), config)
 }
 
 func runHealth(ctx context.Context, config HealthConfig) error {
@@ -214,7 +214,7 @@ func newHealthCollection(ctx context.Context, config HealthConfig, start, end ti
 		ProducerVersion:     GetVersion(),
 		ReportSchemaVersion: 1,
 		ObservedAt:          time.Now().UTC(),
-		Capabilities:        []string{"failure_inventory", "source_revisions", "typed_job_steps", "cache_diagnostics", "cross_version_raw_jobs", "pr_lifecycle_filtering", "approval_expiry_filtering", "work_queue", "time_budget"},
+		Capabilities:        []string{"default_branch_first", "failure_inventory", "source_revisions", "typed_job_steps", "cache_diagnostics", "cross_version_raw_jobs", "pr_lifecycle_filtering", "approval_expiry_filtering", "work_queue", "time_budget"},
 		TimeoutSeconds:      config.Timeout.Seconds(),
 		ctx:                 ctx,
 		Host:                normalizedGitHubAPIHost(logsRateLimitHost(config.RepoOverride)),
@@ -286,6 +286,7 @@ func displayDetailedHealth(runs []WorkflowRun, config HealthConfig) error {
 		{"Failed", strconv.Itoa(health.FailureCount)},
 		{"Sub-agent Failures", strconv.Itoa(health.SubagentFailureCount)},
 		{"Runs with Failed Sub-agents", strconv.Itoa(health.SubagentFailureRuns)},
+		{"Runs with Detection Failures", strconv.Itoa(health.DetectionFailureRuns)},
 		{"Success Rate", health.DisplayRate},
 		{"Trend", health.Trend},
 		{"Avg Duration", health.DisplayDur},
@@ -303,16 +304,23 @@ func displayDetailedHealth(runs []WorkflowRun, config HealthConfig) error {
 	if err := renderHealthRevisions(os.Stderr, health.Revisions); err != nil {
 		return err
 	}
-	if err := renderHealthSubagentFailures(os.Stderr, health); err != nil {
+	if err := renderHealthSessionEvidence(os.Stderr, health); err != nil {
 		return err
 	}
 	return renderFailureReportToWriter(os.Stderr, health.FailureClusters, health.FailureInvestigation, "", config.Verbose)
 }
 
 func displayDetailedHealthStatus(health WorkflowHealth, threshold float64) {
+	if health.DetectionFailureRuns > 0 {
+		fmt.Fprintln(os.Stderr, console.FormatWarningMessage(fmt.Sprintf("%d run(s) have threat-detection failures or threats; Actions success rate does not establish successful threat detection", health.DetectionFailureRuns)))
+	}
 	if health.SubagentFailureCount > 0 {
 		fmt.Fprintln(os.Stderr, console.FormatWarningMessage(fmt.Sprintf("%d sub-agent invocation(s) failed across %d run(s); Actions success rate does not establish healthy delegation", health.SubagentFailureCount, health.SubagentFailureRuns)))
-	} else if health.Status == "no_current_revision_runs" {
+	}
+	if health.DetectionFailureRuns > 0 || health.SubagentFailureCount > 0 {
+		return
+	}
+	if health.Status == "no_current_revision_runs" {
 		fmt.Fprintln(os.Stderr, console.FormatWarningMessage("Current workflow revision has no matching runs; awaiting new evidence instead of investigating superseded failures"))
 	} else if health.BelowThresh {
 		fmt.Fprintln(os.Stderr, console.FormatWarningMessage(fmt.Sprintf("Success rate (%.1f%%) is below threshold (%.1f%%)", health.SuccessRate, threshold)))
@@ -343,13 +351,16 @@ func outputHealthTable(summary HealthSummary, threshold float64) error {
 	fmt.Fprintln(os.Stderr, "")
 
 	// Display summary message
-	fmt.Fprintf(os.Stderr, "[health_population] workflows=%d healthy=%d observed_failure_workflows=%d subagent_degraded_workflows=%d statuses=%v\n",
+	fmt.Fprintf(os.Stderr, "[health_population] workflows=%d healthy=%d observed_failure_workflows=%d degraded_workflows=%d statuses=%v\n",
 		summary.TotalWorkflows, summary.HealthyWorkflows, summary.ObservedFailureWorkflows, summary.DegradedWorkflows, summary.StatusCounts)
 	if summary.ObservedFailureWorkflows > 0 {
 		fmt.Fprintln(os.Stderr, console.FormatWarningMessage(fmt.Sprintf("%d workflow(s) have sampled current-revision Actions failures", summary.ObservedFailureWorkflows)))
 	}
-	if summary.DegradedWorkflows > 0 {
-		fmt.Fprintln(os.Stderr, console.FormatWarningMessage(fmt.Sprintf("%d workflow(s) have failed sub-agent invocations across %d run(s)", summary.DegradedWorkflows, summary.SubagentFailureRuns)))
+	if summary.SubagentFailureCount > 0 {
+		fmt.Fprintln(os.Stderr, console.FormatWarningMessage(fmt.Sprintf("%d failed sub-agent invocations across %d run(s)", summary.SubagentFailureCount, summary.SubagentFailureRuns)))
+	}
+	if summary.DetectionFailureRuns > 0 {
+		fmt.Fprintln(os.Stderr, console.FormatWarningMessage(fmt.Sprintf("%d run(s) have threat-detection failures or threats; Actions success rate does not establish successful threat detection", summary.DetectionFailureRuns)))
 	}
 	if summary.BelowThreshold > 0 {
 		fmt.Fprintln(os.Stderr, console.FormatWarningMessage(fmt.Sprintf("%d workflow(s) below %.0f%% success threshold", summary.BelowThreshold, threshold)))
@@ -369,7 +380,7 @@ func outputHealthTable(summary HealthSummary, threshold float64) error {
 		if err := renderHealthRevisions(os.Stderr, health.Revisions); err != nil {
 			return err
 		}
-		if err := renderHealthSubagentFailures(os.Stderr, health); err != nil {
+		if err := renderHealthSessionEvidence(os.Stderr, health); err != nil {
 			return err
 		}
 	}

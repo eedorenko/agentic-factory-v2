@@ -8,6 +8,7 @@ const require = createRequire(import.meta.url);
 const piProvider = require("./pi_provider.cjs");
 const { runPiSubagent } = require("./pi_subagent_extension.cjs");
 const { runWithCopilotSDK } = require("./copilot_sdk_session.cjs");
+const { prepareMarkdownFixtures } = require("../../../scripts/markdown_metadata_test_adapter.cjs");
 const { resolveMultiProviderFromReflect } = require("./awf_reflect.cjs");
 const { normalizeRuntimeEvent } = require("./unified_session.cjs");
 const { normalizeUnifiedSessionEvent } = require("./unified_session_payload.cjs");
@@ -189,7 +190,7 @@ describe("AWF x-awf-caller attribution", () => {
 
     // Child Pi process: launched by the sub-agent extension with its own
     // environment; a real process loads pi_provider.cjs and fires the hook.
-    const executable = path.join(dir, "fake-pi");
+    const executable = path.join(dir, "pi");
     fs.writeFileSync(
       executable,
       `#!/usr/bin/env node
@@ -206,7 +207,8 @@ process.stdin.on("end", () => {
 `,
       { mode: 0o700 }
     );
-    vi.stubEnv("GH_AW_PI_COMMAND", executable);
+    vi.stubEnv("PATH", `${dir}${path.delimiter}${process.env.PATH || ""}`);
+    vi.stubEnv("GH_AW_PI_COMMAND", "");
     vi.stubEnv("RUNNER_TEMP", "");
     vi.stubEnv("PI_CODING_AGENT_DIR", dir);
     const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
@@ -234,7 +236,9 @@ process.stdin.on("end", () => {
     // so any header would also label child traffic. The SDK sends none and
     // relies on native per-agent metrics instead.
     fs.mkdirSync(path.join(dir, ".github/agents"), { recursive: true });
-    fs.writeFileSync(path.join(dir, ".github/agents/haiku-whoami.agent.md"), "---\nmodel: claude-haiku-4.5\n---\nSay which model you are.");
+    const agent = "---\nmodel: claude-haiku-4.5\n---\nSay which model you are.";
+    fs.writeFileSync(path.join(dir, ".github/agents/haiku-whoami.agent.md"), agent);
+    prepareMarkdownFixtures(agent);
     vi.stubEnv("GH_AW_SESSION_STATE_BASE_DIR", dir);
     vi.stubEnv("GH_AW_ENGINE_CWD", dir);
     vi.stubEnv("COPILOT_MODEL", "");

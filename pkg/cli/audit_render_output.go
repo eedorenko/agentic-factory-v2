@@ -53,6 +53,8 @@ func renderAuditReport(ctx context.Context, processedRun ProcessedRun, metrics L
 	if auditData.Ledger == nil {
 		auditData.Ledger = processedRun.Ledger
 	}
+	// Reparse raw session evidence even when an older audit cache omitted it.
+	auditData.DurableSession = readDurableSessionReport(runOutputDir, processedRun.Run, hasDurableRestoreStep(processedRun.JobDetails))
 	// NoBaseline runs avoid writing audit-cache changes, including queue backfills.
 	if mergeWorkQueueReport(&auditData.WorkQueue, processedRun.WorkQueue) && !opts.NoBaseline {
 		if err := ctx.Err(); err != nil {
@@ -62,6 +64,17 @@ func renderAuditReport(ctx context.Context, processedRun ProcessedRun, metrics L
 			return err
 		}
 	}
+	if opts.Delivery || opts.Adoption {
+		processedRun.Run.LogsPath = runOutputDir
+		report, err := collectRunLifecycle(ctx, processedRun, nil, opts.Verbose, opts.Adoption)
+		if err != nil {
+			return err
+		}
+		auditData.Delivery = report.Delivery
+		if opts.Adoption {
+			auditData.Outcomes, auditData.OutcomeSummary = report.Items, &report.Summary
+		}
+	}
 	return renderPreparedAuditReport(ctx, auditData, opts)
 }
 
@@ -69,7 +82,7 @@ func renderPreparedAuditReport(ctx context.Context, auditData AuditData, opts Au
 	runID := auditData.Overview.RunID
 	runOutputDir := opts.OutputDir
 	if opts.Group {
-		parseAuditLogsIfRequested(runID, runOutputDir, opts)
+		parseAuditLogsIfRequested(ctx, runID, runOutputDir, opts)
 		return nil
 	}
 	// Query-specific evidence never enters the shared deterministic audit cache.
@@ -93,7 +106,7 @@ func renderPreparedAuditReport(ctx context.Context, auditData AuditData, opts Au
 	}
 	renderAuditGatewayMetrics(runOutputDir, opts.Verbose)
 	renderAuditUnifiedTimeline(runOutputDir, opts.Verbose)
-	parseAuditLogsIfRequested(runID, runOutputDir, opts)
+	parseAuditLogsIfRequested(ctx, runID, runOutputDir, opts)
 	renderAuditCompletion(runOutputDir, opts.JSONOutput)
 	return nil
 }
@@ -148,6 +161,18 @@ func renderAuditOutput(auditData AuditData, runOutputDir string, jsonOutput, ver
 		return nil
 	}
 	renderConsole(auditData, runOutputDir)
+	if auditData.Delivery != nil {
+		data := LogsData{Delivery: []DeliveryData{*auditData.Delivery}}
+		if auditData.OutcomeSummary != nil {
+			data.Outcomes = []OutcomesData{{
+				RunID: auditData.Overview.RunID, Workflow: auditData.Overview.WorkflowName,
+				Items: auditData.Outcomes, Summary: *auditData.OutcomeSummary,
+			}}
+		}
+		if err := renderLogsOutcomes(os.Stdout, data); err != nil {
+			return err
+		}
+	}
 	if verbose {
 		auditLog.Printf("Rendered console audit report for %s", runOutputDir)
 	}
@@ -178,17 +203,17 @@ func renderAuditUnifiedTimeline(runOutputDir string, verbose bool) {
 	}
 }
 
-func parseAuditLogsIfRequested(runID int64, runOutputDir string, opts AuditOptions) {
+func parseAuditLogsIfRequested(ctx context.Context, runID int64, runOutputDir string, opts AuditOptions) {
 	if !opts.Parse {
 		return
 	}
 	auditLog.Printf("Parsing agent and firewall logs for run %d", runID)
-	parseAgentLogIfRequested(runID, runOutputDir, opts.Verbose)
+	parseAgentLogIfRequested(ctx, runID, runOutputDir, opts.Verbose)
 	parseFirewallLogsIfRequested(runID, runOutputDir, opts.Verbose)
 }
 
-func parseAgentLogIfRequested(runID int64, runOutputDir string, verbose bool) {
-	rendered, err := parsePersistedAgentLog(runOutputDir)
+func parseAgentLogIfRequested(ctx context.Context, runID int64, runOutputDir string, verbose bool) {
+	rendered, err := parsePersistedAgentLog(ctx, runOutputDir)
 	if !rendered && err == nil {
 		awInfoPath := filepath.Join(runOutputDir, "aw_info.json")
 		engine := extractEngineFromAwInfo(awInfoPath, verbose)
@@ -198,7 +223,7 @@ func parseAgentLogIfRequested(runID int64, runOutputDir string, verbose bool) {
 			}
 			return
 		}
-		err = parseAgentLog(runOutputDir, engine, verbose)
+		err = parseAgentLog(ctx, runOutputDir, engine, verbose)
 	}
 	reportParseOutcome(runID, runOutputDir, "agent log", "log", "log.md", verbose, err)
 }

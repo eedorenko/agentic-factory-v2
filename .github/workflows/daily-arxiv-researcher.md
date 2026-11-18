@@ -10,8 +10,14 @@ permissions:
   contents: read
   copilot-requests: write
 
-engine: codex
-model: openai/gpt-5.6-sol
+engine:
+  id: codex
+  model-provider: github
+  model-routing:
+    goal: cost
+    mode: economy
+  durable:
+    retention-days: 7
 
 timeout-minutes: 20
 max-ai-credits: 300
@@ -62,13 +68,10 @@ network:
     - defaults
     - arxiv.org
     - export.arxiv.org
-  hosted-web:
-    allowed:
-      - arxiv.org
-      - export.arxiv.org
 
 imports:
   - shared/mcp/kreuzberg.md
+  - shared/reporting.md
 
 safe-outputs:
   allowed-domains: ["arxiv.org", "export.arxiv.org"]

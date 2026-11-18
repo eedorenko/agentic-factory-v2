@@ -42,6 +42,44 @@ func readConformanceFrontmatter(t *testing.T, path string, target any) {
 	require.NoError(t, yaml.Unmarshal(frontmatter, target))
 }
 
+func TestConformanceTransportsWithoutGitHubMCP(t *testing.T) {
+	var source struct {
+		Tools map[string]any `yaml:"tools"`
+	}
+	readConformanceFrontmatter(t, "../../.github/workflows/shared/engine-conformance.md", &source)
+	require.Equal(t, false, source.Tools["github"])
+	source.Tools["work-queue"] = map[string]any{"worker": true, "require-assignment": true}
+	source.Tools["cli-proxy"] = true
+	data := &WorkflowData{
+		Tools:       source.Tools,
+		ParsedTools: NewTools(source.Tools),
+		SafeOutputs: &SafeOutputsConfig{NoOp: &NoOpConfig{}},
+		MCPScripts: &MCPScriptsConfig{Tools: map[string]*MCPScriptToolConfig{
+			"conformance-challenge": {Script: "return 'nonce';"},
+		}},
+	}
+	require.ElementsMatch(t, []string{"mcpscripts", "safeoutputs", "work-queue"}, getMCPCLIServerNames(data))
+	require.False(t, primaryGitHubMCPEnabled(data))
+}
+
+func TestMiniSweAgentConformanceProxyContract(t *testing.T) {
+	var worker struct {
+		Tools map[string]any `yaml:"tools"`
+	}
+	readConformanceFrontmatter(t, "../../.github/workflows/engine-conformance-mini-swe-agent.md", &worker)
+	var source struct {
+		Engine EngineDefinition `yaml:"engine"`
+	}
+	readConformanceFrontmatter(t, "../../.github/workflows/shared/mini-swe-agent.md", &source)
+	engine, err := NewBehaviorDefinedEngine(&source.Engine)
+	require.NoError(t, err)
+	tools, err := enforceMCPProxyTools(engine, worker.Tools)
+	require.NoError(t, err, "non-MCP workers must explicitly retain the required gh-proxy transport")
+	github := tools["github"].(map[string]any)
+	require.Equal(t, "gh-proxy", github["mode"])
+	require.Equal(t, []any{"repos"}, github["toolsets"])
+}
+
 func conformanceNodeScript(t *testing.T, run string) string {
 	t.Helper()
 	_, script, ok := strings.Cut(run, "node <<'JS'\n")
@@ -207,7 +245,8 @@ async function execute(file_nonce) {
   };
   if (assignment) withClaimExecution({ assignment, claim_handle: assignment.claims[0].handle }, emit);
   else emit();
-  const noop = JSON.parse(fs.readFileSync(process.env.CONFORMANCE_SAFE_OUTPUTS, "utf8"));
+  const { output_id: outputId, ...noop } = JSON.parse(fs.readFileSync(process.env.CONFORMANCE_SAFE_OUTPUTS, "utf8"));
+  require("node:assert/strict").match(outputId, /^so_[A-Za-z0-9_-]{12}$/);
   require("node:assert/strict").deepEqual(noop, {
     type: "noop", message: "Conformance probes completed",
     ...(assignment && { claim_handle: assignment.claims[0].handle }),
@@ -570,7 +609,7 @@ func TestEngineConformanceCatalogCoverage(t *testing.T) {
 			compiled := string(lock)
 			require.Contains(t, compiled, fmt.Sprintf(`GH_AW_MAX_AI_CREDITS: "%d"`, budget), "the firewall must receive the authored credit limit")
 			if id == "codex" {
-				require.Contains(t, compiled, `"providers":{"openai":{"models":{"gpt-6.1-sol":{"cost":`, "the firewall must receive model-specific Codex pricing")
+				require.NotContains(t, compiled, "GH_AW_INFO_MODEL_COSTS:", "the compiler must not inject catalog pricing into reporting metadata")
 				require.NotContains(t, compiled, `"defaultAiCreditsPricing"`, "conformance must not guess pricing for unknown models")
 			}
 			require.Contains(t, compiled, "work_queue_assignment:")

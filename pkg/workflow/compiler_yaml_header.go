@@ -3,6 +3,7 @@ package workflow
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/github/gh-aw/pkg/parser"
@@ -88,6 +89,18 @@ func (c *Compiler) generateManifestHeader(yaml *strings.Builder, data *WorkflowD
 	// The manifest records safe-update inventory and normalized webhook declarations
 	// for CAO discovery without interpreting generated workflow steps.
 	manifest := NewGHAWManifest(secrets, actions, data.ActionResolutionFailures, data.DockerImagePins, data.Redirect, data.Skills, data.Plugins, data.RawFrontmatter["on"])
+	metadata := data.compiledMarkdownMetadata
+	if metadata == nil {
+		metadata = c.collectMarkdownMetadata(data)
+	}
+	// Manifest deduplication must not mutate the self-contained activation catalog.
+	manifest.MarkdownMetadata = &GHAWMarkdownMetadata{Version: metadata.Version, Records: slices.Clone(metadata.Records)}
+	if isWorkQueueWorker(data) {
+		manifest.WorkQueue = &GHAWManifestWorkQueue{Worker: true}
+		if data.WorkQueuePolicy != nil {
+			manifest.WorkQueue.LogicalContract = data.WorkQueuePolicy.WorkerContract
+		}
+	}
 	if data.ParsedFrontmatter != nil {
 		manifest.ThreatDetectionSuppressions = data.ParsedFrontmatter.ThreatDetectionSuppressions
 	} else {
@@ -102,10 +115,16 @@ func (c *Compiler) generateManifestHeader(yaml *strings.Builder, data *WorkflowD
 	manifest.ThreatDetection = collectDetectionPolicyForManifest(data)
 	manifest.Admission = data.AdmissionEnabled
 	manifest.WebhookSubscriptions = data.WebhookSubscriptions
+	if err := deduplicateMarkdownMetadata(yaml.String(), manifest); err != nil {
+		return fmt.Errorf("cannot generate gh-aw-manifest header: cannot deduplicate Markdown metadata: %w", err)
+	}
 	manifestJSON, err := manifest.ToJSON()
 	if err != nil {
 		return fmt.Errorf("cannot generate gh-aw-manifest header: %w", err)
 	}
+	// Header JSON is data, not an Actions expression-bearing YAML value. Escape
+	// the dollar in authored templates without changing the decoded manifest.
+	manifestJSON = strings.ReplaceAll(manifestJSON, "${{", `\u0024{{`)
 	fmt.Fprintf(yaml, "# gh-aw-manifest: %s\n", manifestJSON) //nolint:fprintferrorunchecked // strings.Builder writes cannot fail.
 	return nil
 }

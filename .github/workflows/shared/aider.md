@@ -3,7 +3,7 @@ runtimes:
   python:
     version: "3.12"
 pre-agent-steps:
-  - name: Preinstall Aider CLI
+  - name: Pre-install Aider CLI
     run: |
       # fastuuid only ships manylinux wheels for CPython; installing it explicitly first
       # ensures pip resolves the prebuilt wheel instead of falling back to a source build
@@ -192,6 +192,10 @@ engine:
                   reasoning = field(message, "reasoning_content")
                   if reasoning is None:
                       reasoning = field(message, "reasoning")
+                  if reasoning is None:
+                      provider_reasoning = field(field(message, "provider_specific_fields"), "reasoning_text")
+                      if isinstance(provider_reasoning, str):
+                          reasoning = provider_reasoning
                   content = field(message, "content")
                   partial = {"partial": True} if finish_reason == "length" else {}
                   if reasoning is not None:
@@ -458,7 +462,8 @@ engine:
           "skill.inventory", "skill.conflict", "skill.invoked", "skill.context_delivered_ref",
           "assistant.usage", "assistant.turn_end", "model.call_failure", "model.inventory",
           "tool.execution_start", "tool.execution_update", "tool.execution_complete",
-          "session.result", "session.error", "agent.execution", "harness.retry",
+          "session.result", "session.error", "agent.execution", "harness.decision",
+          "harness.retry", "durable.restore", "durable.session",
           "harness.attempt", "engine.retry",
           "detection.result", "session.format",
           "session.collection", "session.collection_warning",
@@ -468,7 +473,7 @@ engine:
           "firewall.http_access", "firewall.token_usage", "firewall.model_routing",
           "firewall.upstream_error", "firewall.steering", "firewall.event", "model_routing.outcome",
           "model_endpoint.mismatch", "model.resolution", "model.config", "model.baseline_estimate",
-          "safe_output.request", "safe_output.result", "safe_output.outcome", "safe_output.error",
+          "safe_output.request", "safe_output.result", "safe_output.execution", "safe_output.error",
           "experiment.state", "experiment.assignment", "grader.manifest", "grader.result",
           "eval.result", "github_api.rate_limit", "usage.report", "execution.result",
           "guardrail.admission", "guardrail.daily_aic", "guard.tool_denials_exceeded", "workflow.info", "workflow.job_result", "memory.push",
@@ -608,7 +613,11 @@ terminal safe output remains an incomplete task. Only the safe-output gateway,
 not shell text or the entrypoint, establishes that a terminal output was recorded.
 The entrypoint emits canonical session events for exact provider reply text,
 separate reasoning and structured refusals, shell commands and their results,
-errors, and session boundaries. Provider token counts and observed Aider cost
+errors, and session boundaries. Plaintext reasoning falls back from
+`reasoning_content` and `reasoning` to LiteLLM's
+`provider_specific_fields.reasoning_text`; explicitly empty strings are retained.
+Opaque provider reasoning is never promoted to plaintext reasoning events.
+Provider token counts and observed Aider cost
 are captured before display rounding; missing accounting remains absent, and
 session totals are emitted once. Length-limited replies retain `partial: true`.
 Repository configuration that enables streaming instead of this profile's

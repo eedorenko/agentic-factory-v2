@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -11,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/github/gh-aw/pkg/constants"
+	"github.com/github/gh-aw/pkg/jsonutil"
 	"github.com/github/gh-aw/pkg/logger"
 	"github.com/github/gh-aw/pkg/setutil"
 	"github.com/goccy/go-yaml"
@@ -43,6 +43,9 @@ func NewBehaviorDefinedEngine(def *EngineDefinition) (*BehaviorDefinedEngine, er
 	}
 	if def.Behaviors == nil {
 		return nil, fmt.Errorf("engine definition %q is missing behaviors", def.ID)
+	}
+	if err := validateBehaviorOutputFiles(def.Behaviors.OutputFiles); err != nil {
+		return nil, fmt.Errorf("engine definition %q behaviors.output-files: %w", def.ID, err)
 	}
 	if def.Behaviors.Execution != nil && def.Behaviors.Execution.ProtectedSessionCapture && def.Behaviors.LogParser == "" {
 		return nil, fmt.Errorf("engine definition %q enables protected-session-capture without a log-parser", def.ID)
@@ -210,9 +213,10 @@ func (e *BehaviorDefinedEngine) GetInstallationSteps(workflowData *WorkflowData)
 	if behavior == nil {
 		return nil
 	}
+	requiresNode := behavior.HarnessScript != "" || isSkipIfDecisionEnabled(workflowData)
 	if workflowData != nil && workflowData.EngineConfig != nil && workflowData.EngineConfig.Command != "" {
 		var steps []GitHubActionStep
-		if behavior.HarnessScript != "" {
+		if requiresNode {
 			steps = append(steps, generateNodeJsSetupStep(workflowData))
 		}
 		return buildNpmEngineInstallStepsWithAWF(steps, workflowData, false)
@@ -223,7 +227,7 @@ func (e *BehaviorDefinedEngine) GetInstallationSteps(workflowData *WorkflowData)
 	// binary) must always be installed even when no package-manager based installation
 	// is declared for the engine's CLI itself.
 	if behavior.Installation == nil {
-		if behavior.HarnessScript == "" {
+		if !requiresNode {
 			// Engines that install their CLI through `pre-agent-steps`
 			// declare no installation block at all, but the agent still runs inside the
 			// firewall sandbox, so the AWF binary must be installed.
@@ -236,7 +240,11 @@ func (e *BehaviorDefinedEngine) GetInstallationSteps(workflowData *WorkflowData)
 	if install.PackageManager != "npm" {
 		// Non-npm installations are performed by the engine's own steps, but the AWF
 		// binary is still required to run the agent inside the firewall sandbox.
-		return BuildNpmEngineInstallStepsWithAWF(nil, workflowData)
+		var steps []GitHubActionStep
+		if isSkipIfDecisionEnabled(workflowData) {
+			steps = append(steps, generateNodeJsSetupStep(workflowData))
+		}
+		return BuildNpmEngineInstallStepsWithAWF(steps, workflowData)
 	}
 	version := install.Version
 	if workflowData != nil && workflowData.EngineConfig != nil && workflowData.EngineConfig.Version != "" {
@@ -552,6 +560,9 @@ func (e *BehaviorDefinedEngine) GetExecutionSteps(workflowData *WorkflowData, lo
 	}
 	firewallEnabled := e.behaviorDefinedFirewallEnabled(workflowData)
 	engineCommand := e.buildBehaviorDefinedEngineCommand(exec, workflowData)
+	if isSkipIfDecisionEnabled(workflowData) {
+		engineCommand = buildShellHarnessCommand(e.GetID(), engineCommand)
+	}
 	command := e.buildBehaviorDefinedExecutionCommand(exec, workflowData, logFile, engineCommand, firewallEnabled, backend)
 	env := e.buildBehaviorDefinedExecutionEnv(exec, workflowData, firewallEnabled, backend)
 	steps := e.buildBehaviorDefinedSetupSteps()
@@ -666,6 +677,7 @@ func (e *BehaviorDefinedEngine) buildBehaviorDefinedExecutionEnv(exec *EngineExe
 		env["GH_AW_PROTECTED_SESSION_CAPTURE"] = "1"
 		env["GH_AW_PROTECTED_CAPTURE_ID"] = protectedSessionCaptureID
 	}
+	applyDurableExecutionEnv(env, workflowData)
 	return env
 }
 
@@ -777,13 +789,20 @@ func (e *BehaviorDefinedEngine) allowedDomains(workflowData *WorkflowData) strin
 	engineName := constants.EngineName(e.GetID())
 	behavior := e.behavior()
 	if behavior != nil && behavior.Network != nil {
-		model := ""
-		if workflowData != nil && workflowData.EngineConfig != nil {
-			model = workflowData.Model
-		}
-		defaults, err := resolveEngineNetworkDomains(behavior.Network, model)
-		if err != nil {
-			panic(fmt.Sprintf("BUG: invalid model %q reached domain computation (should have been caught by validation): %v", model, err))
+		var defaults []string
+		if e.usesUniversalLLMConsumer() || (behavior.Execution != nil && behavior.Execution.ProviderEnvMode == behaviorProviderEnvModeUniversalLLMConsumer) {
+			// AWF-proxied inference uses its gateway target, not direct agent egress.
+			defaults = behavior.Network.Defaults
+		} else {
+			model := ""
+			if workflowData != nil && workflowData.EngineConfig != nil {
+				model = workflowData.Model
+			}
+			var err error
+			defaults, err = resolveEngineNetworkDomains(behavior.Network, model)
+			if err != nil {
+				panic(fmt.Sprintf("BUG: invalid model %q reached domain computation (should have been caught by validation): %v", model, err))
+			}
 		}
 		return mergeDomainsWithNetworkToolsAndRuntimes(defaults, workflowData.NetworkPermissions, workflowData.Tools, workflowData.Runtimes)
 	}
@@ -888,7 +907,7 @@ func parseEngineDefinitionFromJSON(engineJSON string) (*EngineDefinition, error)
 		engineDefinitionCache.Delete(engineJSON)
 	}
 	var engineData any
-	if err := json.Unmarshal([]byte(engineJSON), &engineData); err != nil {
+	if err := jsonutil.UnmarshalString(engineJSON, &engineData); err != nil {
 		return nil, fmt.Errorf("engine JSON is not recognized, expected a valid JSON object describing the engine: %w", err)
 	}
 	dataMap, ok := engineData.(map[string]any)
@@ -1016,6 +1035,20 @@ func deepCopyEngineDefinition(src EngineDefinition) EngineDefinition {
 //nolint:largefunc // Deep copy initializes all fields explicitly.
 func deepCopyEngineBehaviorDefinition(src EngineBehaviorDefinition) EngineBehaviorDefinition {
 	dst := src // value copy covers all scalar fields
+	if src.Durable != nil {
+		durable := *src.Durable
+		durable.Installation = append([]EngineInstallationDefinition(nil), src.Durable.Installation...)
+		durable.Files = append([]string(nil), src.Durable.Files...)
+		for i := range durable.Installation {
+			if cooldown := durable.Installation[i].Cooldown; cooldown != nil {
+				copy := *cooldown
+				durable.Installation[i].Cooldown = &copy
+			}
+		}
+		copy := deepCopyEngineBehaviorDefinition(EngineBehaviorDefinition{Execution: src.Durable.Execution})
+		durable.Execution = copy.Execution
+		dst.Durable = &durable
+	}
 
 	// SupportedEnvVarKeys
 	if src.SupportedEnvVarKeys != nil {

@@ -1487,13 +1487,6 @@ async function main() {
         throw codedError(`Failed to copy file ${outputPath} to ${copilotConfigFile}: ${getErrorMessage(err)}`, ERR_SYSTEM, { cause: err });
       }
     }
-    let copilotConfigContent;
-    try {
-      copilotConfigContent = fs.readFileSync(copilotConfigFile, "utf8");
-    } catch (err) {
-      throw codedError(`Failed to read file ${copilotConfigFile}: ${getErrorMessage(err)}`, ERR_SYSTEM, { cause: err });
-    }
-    core.info(copilotConfigContent);
   }
   printTiming(configConvertStart, "Configuration conversion");
   core.info("");
@@ -1631,7 +1624,7 @@ if (require.main === module) {
  * @param {number | undefined} [uid]
  * @param {number | undefined} [gid]
  */
-function applyBuiltinMCPRunnerIdentity(config, uid = process.getuid?.(), gid = process.getgid?.()) {
+function applyBuiltinMCPRunnerIdentity(config, uid = process.geteuid?.(), gid = process.getegid?.()) {
   const servers = config.mcpServers;
   if (!servers || typeof servers !== "object") return;
   for (const [name, server] of Object.entries(servers)) {

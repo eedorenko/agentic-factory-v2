@@ -21,7 +21,7 @@ var notifyCommentLog = logger.New("workflow:notify_comment")
 // - Recording missing tools
 // This job runs when:
 // 1. always() - runs even if agent fails
-// 2. Agent job was not skipped
+// 2. Agent job was not skipped, activation failed, or a custom prerequisite failed
 // 3. NO add_comment output was produced, or detection produced no verdict
 // This job depends on all safe output jobs to ensure it runs last
 func (c *Compiler) buildConclusionJob(data *WorkflowData, mainJobName string, safeOutputJobNames []string) (*Job, error) {
@@ -61,13 +61,14 @@ func (c *Compiler) buildConclusionJob(data *WorkflowData, mainJobName string, sa
 		Steps:       steps,
 		Needs:       needs,
 		Outputs:     buildConclusionJobOutputs(data),
-		Env:         buildConclusionMemorySaveEnv(data),
+		Env:         c.addIssueLabelEnv(buildConclusionMemorySaveEnv(data)),
 	}, nil
 }
 
 // buildConclusionJobSteps assembles the ordered step list for the conclusion job: setup and
 // usage-artifact steps, noop/missing-tool/incomplete reporting, agent-failure and
-// failed-jobs reporting, the optional status-comment update, and the steering-issue step.
+// failed-jobs reporting, the optional status-comment update, steering-issue step, and
+// trigger-reaction cleanup.
 func (c *Compiler) buildConclusionJobSteps(data *WorkflowData, mainJobName string, safeOutputJobNames []string) ([]string, error) {
 	steps := c.buildConclusionSetupSteps(data)
 	steps = append(steps, c.buildWorkQueueTerminationStep(data)...)
@@ -146,6 +147,7 @@ func (c *Compiler) appendConclusionUsageSteps(steps []string, data *WorkflowData
 	if c.actionMode.IsScript() {
 		steps = append(steps, c.generateScriptModeCleanupStep())
 	}
+	steps = append(steps, c.buildReactionCleanupSteps(data)...)
 	return steps, nil
 }
 
@@ -166,6 +168,7 @@ func configuredUsageSafeJobNames(data *WorkflowData) []string {
 // session job-duration collection, and any issue-creating conclusion mechanism.
 func computeConclusionJobPermissions(data *WorkflowData) *Permissions {
 	conclusionPerms := ComputePermissionsForSafeOutputs(data.SafeOutputs)
+	addReactionCleanupJobPermissions(data, conclusionPerms)
 	// Session job-duration collection is always enabled, independently of failure
 	// reporting, and reads the current run attempt's Actions jobs.
 	if level, ok := conclusionPerms.Get(PermissionActions); !ok || level == PermissionNone {
@@ -182,9 +185,13 @@ func computeConclusionJobPermissions(data *WorkflowData) *Permissions {
 			conclusionPerms.Set(PermissionContents, PermissionWrite)
 			conclusionPerms.Set(PermissionIssues, PermissionWrite)
 		}
+		if conclusionDetectionMayCreateIssue(data) {
+			conclusionPerms.Set(PermissionIssues, PermissionWrite)
+		}
 		if hasOTLPGitHubOIDCAuth(data.ParsedFrontmatter, data.RawFrontmatter) {
 			conclusionPerms.Set(PermissionIdToken, PermissionWrite)
 		}
+		addReactionCleanupJobPermissions(data, conclusionPerms)
 		return conclusionPerms
 	}
 	if hasOTLPGitHubOIDCAuth(data.ParsedFrontmatter, data.RawFrontmatter) {
@@ -206,7 +213,7 @@ func computeConclusionJobPermissions(data *WorkflowData) *Permissions {
 	// Only request issues: write when at least one conclusion-job mechanism can actually
 	// create/update an issue and that path is not already covered by
 	// ComputePermissionsForSafeOutputs (report-failed-jobs, agent-failure reporting,
-	// noop reporting, or missing-tool issue reporting). This keeps the permission grant
+	// noop, detection, or missing-tool issue reporting). This keeps the permission grant
 	// derived from the resolved configuration instead of being emitted unconditionally.
 	if conclusionMayCreateIssue(data) {
 		if level, ok := conclusionPerms.Get(PermissionIssues); !ok || level != PermissionWrite {
@@ -252,9 +259,13 @@ func issueReportingCreateIssueEnabled(config *IssueReportingConfig) bool {
 	return config != nil && (config.CreateIssue == nil || !strings.EqualFold(strings.TrimSpace(*config.CreateIssue), "false"))
 }
 
+func conclusionDetectionMayCreateIssue(data *WorkflowData) bool {
+	return IsDetectionJobEnabled(data.SafeOutputs) && data.SafeOutputs.ThreatDetection.IsReportAsIssueEnabled()
+}
+
 // conclusionMayCreateIssue returns true if at least one conclusion-job mechanism can create or
 // update an issue: report-failed-jobs, agent-failure reporting (report-failure-as-issue), noop
-// reporting (noop.report-as-issue), or missing-tool issue reporting. This mirrors the resolved
+// reporting (noop.report-as-issue), detection runs, or missing-tool issue reporting. This mirrors the resolved
 // configuration so that disabling every issue-creating path removes issues: write from the
 // compiled conclusion job's permissions.
 func conclusionMayCreateIssue(data *WorkflowData) bool {
@@ -268,6 +279,9 @@ func conclusionMayCreateIssue(data *WorkflowData) bool {
 		return true
 	}
 	if conclusionMissingToolCreateIssueEnabled(data) {
+		return true
+	}
+	if conclusionDetectionMayCreateIssue(data) {
 		return true
 	}
 	return false
@@ -342,12 +356,11 @@ func buildUsageArtifactPublishSteps(prefix string, hasDetection, hasDailyAICGuar
 }
 
 func buildUsageArtifactUploadStep(prefix string, pinAction func(string) string) []string {
-	usageArtifactName := prefix + "usage"
 	var steps []string
 	usageArtifactUploadAction := pinAction("actions/upload-artifact")
 	usageArtifactUploadWithLines := []string{
 		"        with:\n",
-		fmt.Sprintf("          name: %s\n", usageArtifactName),
+		fmt.Sprintf("          name: %susage\n", prefix),
 		"          path: |\n",
 		"            /tmp/gh-aw/usage/aw_session.jsonl\n",
 		"            /tmp/gh-aw/usage/aw_info.json\n",
@@ -363,6 +376,7 @@ func buildUsageArtifactUploadStep(prefix string, pinAction func(string) string) 
 		"            /tmp/gh-aw/usage/agent/model-routing.jsonl\n",
 		"            /tmp/gh-aw/usage/agent/execution.json\n",
 		"            /tmp/gh-aw/usage/agent/harness_retry.json\n",
+		"            /tmp/gh-aw/usage/agent/durable-session.jsonl\n",
 		"            /tmp/gh-aw/usage/detection/token_usage.jsonl\n",
 		"            /tmp/gh-aw/usage/detection/execution.json\n",
 		"            /tmp/gh-aw/usage/detection/harness_retry.json\n",

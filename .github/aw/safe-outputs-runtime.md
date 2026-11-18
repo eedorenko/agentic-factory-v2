@@ -8,6 +8,15 @@ See [jobs.md](jobs.md) for the full compiler-generated job graph and which job e
 
 The `report-incomplete` safe-output is enabled by default and is distinct from `noop`. Use it when required tools or data are unavailable and the task cannot be meaningfully performed (e.g., MCP server crash, missing authentication, inaccessible repository). When an agent emits `report_incomplete`, gh-aw activates failure handling even when the agent process exits 0 — preventing empty outputs from being classified as successful, so every unrecoverable failure is tracked.
 
+When top-level `skip-if-decision` denies an otherwise eligible invocation, the
+AWF harness attempts to record `noop` only if no terminal safe output exists.
+Existing task outputs, no-ops, and incomplete diagnostics are preserved; the
+decision does not authorize their publication or override failure/detection
+policy. Decision evaluation errors abstain and do not independently emit
+`noop` or `report_incomplete`. Use `harness.decision` unified-session events and
+audit decision history to distinguish an avoided invocation from agent work.
+Decision-model usage remains part of normal proxy accounting.
+
 **Per-handler modifiers** — most handlers accept `max`, `github-token`, `github-app`, and `staged` to override the global equivalents for that one output type. Two extras:
 
 - `issue-intent:` (boolean) on `close-issue`, `set-issue-type`, `set-issue-field`, `assign-to-user`, and `assign-to-agent` — enables issue-intent metadata (rationale/confidence/suggest) fields and their schema requirements on that tool's payload.
@@ -126,6 +135,7 @@ The `report-incomplete` safe-output is enabled by default and is distinct from `
   - `true` - accept any object as the `data` field alongside `body`
   - Inline schema object - enforce shape; supports full JSON Schema keywords (`type`, `properties`, `required`, `items`, `enum`, etc.) or shorthand (`{ verdict: string, score: number }`)
   - `${{ ... }}` expression - resolves to one of the above at runtime
+  - `add-comment.collapse-data: true` renders comment data in a collapsed "Structured data" section; the default remains visible fenced JSON.
   - Example:
 
     ```yaml
@@ -315,7 +325,7 @@ Fields that influence permission computation (`add-comment.discussions`, `hide-c
     - `max-ai-credits:` - Per-run AIC budget for the detection engine (numeric only, no expressions; default `${{ vars.GH_AW_DEFAULT_DETECTION_MAX_AI_CREDITS || '400' }}`)
     - `runs-on:` - Runner override for the detection job (defaults to `agent.runs-on`)
     - `continue-on-error:` - When `true` (default), detection failures emit a warning and proceed with a `needs-review` label; when `false`, failures block safe outputs (boolean or expression)
-    - `report-as-issue:` - When `true` (default), detection warnings/failures create or update the `[aw] Detection Runs` tracking issue; set `false` to keep detection and its enforcement active while skipping the tracking issue (results stay visible in Actions run diagnostics) (boolean)
+    - `report-as-issue:` - When `true` (default), detection warnings/failures create or update the `[aw] Detection Runs` tracking issue; set `false` to keep detection and its enforcement active while skipping the tracking issue (results stay visible in Actions run diagnostics) (boolean). While enabled with runnable detection, the `conclusion` job requests `issues: write` (as does its token when `safe-outputs.github-app` is configured, so the App needs **Issues: write**); reusable-workflow callers must grant it through the caller chain. `false` drops only this detection-specific grant; other issue-writing outputs can still require it.
   - Example to disable AI-based detection (use custom steps only):
 
     ```yaml
@@ -341,4 +351,4 @@ The safe-outputs job emits named step outputs for the first successful result of
 
 ### Code-Push Failure Handling
 
-If `create-pull-request` or `push-to-pull-request-branch` fails, remaining safe outputs still run; later `add_comment` outputs get a failure note, and the conclusion job reports details. No setting cancels selected outputs on code-push failure. To gate dependent work, use a custom safe-output job with `needs: safe_outputs` and `if: needs.safe_outputs.outputs.code_push_failure_count == '0'`.
+If `create-pull-request` or `push-to-pull-request-branch` fails, remaining safe outputs still run; later `add_comment` outputs get a failure note, and the conclusion job reports details. No setting cancels selected outputs on code-push failure. To gate a later built-in output, have the agent pass the code-push call's `output_id` as `depends-on` (see [Shared Rules](safe-outputs.md#shared-rules)). Custom safe jobs reject `depends-on`; gate them with `needs: safe_outputs` and `if: needs.safe_outputs.outputs.code_push_failure_count == '0'`.

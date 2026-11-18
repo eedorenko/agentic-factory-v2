@@ -6,6 +6,7 @@ import (
 
 	"github.com/github/gh-aw/pkg/constants"
 	"github.com/github/gh-aw/pkg/logger"
+	"github.com/github/gh-aw/pkg/sliceutil"
 )
 
 var consolidatedSafeOutputsEnvvarsLog = logger.New("workflow:compiler_safe_outputs_envvars")
@@ -13,13 +14,18 @@ var consolidatedSafeOutputsEnvvarsLog = logger.New("workflow:compiler_safe_outpu
 // buildJobLevelSafeOutputEnvVars builds environment variables that should be set at the job level
 // for the consolidated safe_outputs job. These are variables that are common to all safe output steps.
 func (c *Compiler) buildJobLevelSafeOutputEnvVars(data *WorkflowData, workflowID string) map[string]string {
-	envVars := make(map[string]string)
+	envVars := c.addIssueLabelEnv(make(map[string]string))
 	addObjectPackLimitEnv(envVars)
 	addJobLevelWorkQueueEnvVars(envVars, data)
 	c.addJobLevelWorkflowMetadata(envVars, data, workflowID)
 	addJobLevelEngineMetadata(envVars, data)
 	addJobLevelCommandMetadata(envVars, data)
 	c.addJobLevelSafeOutputConfig(envVars, data)
+	for _, alias := range sliceutil.SortedKeys(data.Connectors) {
+		if plan := data.Connectors[alias].SafeOutputPlan; plan != "" {
+			envVars[connectorEnvPrefix(alias)+"PLAN"] = quoteYAMLEnvValue(plan)
+		}
+	}
 	return envVars
 }
 
@@ -164,6 +170,7 @@ func (c *Compiler) addJobLevelSafeOutputConfig(envVars map[string]string, data *
 	if IsDetectionJobEnabled(data.SafeOutputs) {
 		envVars["GH_AW_DETECTION_CONCLUSION"] = fmt.Sprintf("${{ needs.%s.outputs.detection_conclusion }}", constants.DetectionJobName)
 		envVars["GH_AW_DETECTION_REASON"] = fmt.Sprintf("${{ needs.%s.outputs.detection_reason }}", constants.DetectionJobName)
+		envVars["GH_AW_DETECTION_THREAT_KINDS"] = fmt.Sprintf("${{ needs.%s.outputs.detection_threat_kinds }}", constants.DetectionJobName)
 		envVars["GH_AW_RUN_DETECTION"] = fmt.Sprintf("${{ needs.%s.outputs.run_detection }}", constants.DetectionJobName)
 		envVars["GH_AW_THREAT_DETECTION_AIC"] = fmt.Sprintf("${{ needs.%s.outputs.aic }}", constants.DetectionJobName)
 	}

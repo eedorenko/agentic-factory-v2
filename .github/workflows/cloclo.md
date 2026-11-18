@@ -30,7 +30,11 @@ max-turns: 100
 engine:
   id: codex
   model-provider: github
+  model-routing:
+    goal: cost
+    mode: balanced
 imports:
+  - shared/pr-safe-output-defaults.md
   - ../skills/jqschema/SKILL.md
   - shared/mcp/serena-go.md
   - shared/reporting.md
@@ -45,9 +49,8 @@ tools:
   cache-memory:
     key: cloclo-memory-${{ github.workflow }}
 safe-outputs:
-  steer: true
   create-pull-request:
-    expires: 2d
+    draft: true
     title-prefix: "[cloclo] "
     labels: [automation, cloclo]
     excluded-files:
@@ -69,8 +72,6 @@ evals:
     question: Did the agent create a pull request or post a comment?
   - id: summary-comment-added
     question: Does the agent output confirm that a summary comment was added to the original conversation thread?
-
-model: copilot/gpt-5.6-terra
 ---
 
 # /cloclo

@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { spawnSync } from "child_process";
+import { spawnSync as spawnProcessSync } from "child_process";
 import { createRequire } from "module";
 import fs from "fs";
 import os from "os";
@@ -8,6 +8,9 @@ import path from "path";
 const require = createRequire(import.meta.url);
 const { EventEmitter } = require("events");
 const { PassThrough } = require("stream");
+const { CYBERSECURITY_POLICY_REJECTION_PREFIX } = require("./github_provider_policy_rejection.cjs");
+const { hasWorkflowToolPermissionDenial, WORKFLOW_TOOL_PERMISSION_DENIED_EXIT_CODE } = require("./permission_denied_helpers.cjs");
+const { COPILOT_MODEL_VERIFICATION_EXIT_CODE } = require("./copilot_model_selection.cjs");
 const { COPILOT_SDK_SERVER_STARTUP_TIMEOUT_MS, buildCopilotSDKServerArgs, getCopilotSDKServerPort, startCopilotSDKServer, stopCopilotSDKServer, waitForCopilotSDKServer } = require("./copilot_sdk_sidecar.cjs");
 const { buildCopilotSDKEnv, isCopilotSDKEnabled } = require("./process_runner.cjs");
 const {
@@ -62,6 +65,7 @@ const {
   isSDKSessionIdleTimeoutError,
   PROMPT_FILE_INLINE_THRESHOLD_BYTES,
   resolvePromptFileInput,
+  addCopilotDetectionDirectory,
   resolveRetryConfig,
   shouldRetryFailedExecution,
   shouldContinueCopilotSessionAfterFailure,
@@ -84,7 +88,27 @@ const {
   logCopilotInferenceConfiguration,
   resolveLongRunTokenThreshold,
   computeStartupRetryEligible,
-} = require("./copilot_harness.cjs");
+} = require("../../../scripts/markdown_metadata_test_adapter.cjs").withCompilerFixtures(require("./copilot_harness.cjs"));
+
+describe("external detection artifact access", () => {
+  it.each(["/tmp/gh-aw/threat-detection-inputs", "/runner temp/gh-aw/threat-detection-inputs"])("grants access only to the prepared inputs at %s", inputDir => {
+    const args = ["--add-dir", "/runtime/prompt", "--allow-all-tools", "--add-dir", "/workspace", "--prompt", "Inspect artifacts"];
+    expect(addCopilotDetectionDirectory(args, { GH_AW_PHASE: "detection", GH_AW_DETECTION_INPUT_DIR: inputDir })).toEqual(["--add-dir", inputDir, ...args]);
+    expect(args).not.toContain("/tmp/gh-aw/threat-detection");
+    expect(args[1]).toBe("/runtime/prompt");
+  });
+
+  it.each(["agent", "", undefined])("does not grant artifact access outside detection (%s)", phase => {
+    const args = ["--prompt", "Hello"];
+    expect(addCopilotDetectionDirectory(args, { GH_AW_PHASE: phase, GH_AW_DETECTION_INPUT_DIR: "/tmp/gh-aw/threat-detection-inputs" })).toBe(args);
+  });
+
+  it("leaves inline detection unchanged and rejects relative external input paths", () => {
+    const args = ["--prompt", "Hello"];
+    expect(addCopilotDetectionDirectory(args, { GH_AW_PHASE: "detection" })).toBe(args);
+    expect(() => addCopilotDetectionDirectory(args, { GH_AW_PHASE: "detection", GH_AW_DETECTION_INPUT_DIR: "." })).toThrow("absolute path");
+  });
+});
 
 describe("native invocation model and session selection", () => {
   const sessionId = "aabbccdd-1122-3344-5566-778899aabbcc";
@@ -123,10 +147,34 @@ const { detectErrors } = require("./agent_error_patterns.cjs");
 const agentTempDir = path.join(os.tmpdir(), "gh-aw/agent");
 const harnessChildEnv = {
   ...process.env,
+  GITHUB_WORKSPACE: path.dirname(require.resolve("./copilot_harness.cjs")),
   GH_AW_HARNESS_INITIAL_DELAY_MS: "1",
   GH_AW_HARNESS_MAX_DELAY_MS: "1",
   GH_AW_SKIP_REFLECT: "true",
 };
+
+// Child processes restore compiler provenance from aw_info.json, not this worker's in-memory fixture records.
+function spawnSync(command, args, options) {
+  const env = { ...(options.env || process.env) };
+  const workspace = path.resolve(env.GITHUB_WORKSPACE || options.cwd || process.cwd(), env.GH_AW_ENGINE_CWD || ".");
+  const agentsBaseDir = path.join(env.TMPDIR || os.tmpdir(), "gh-aw");
+  env.GH_AW_TMP_DIR ||= agentsBaseDir;
+  const documents = [];
+  for (const directory of new Set([path.join(workspace, ".github/agents"), path.join(agentsBaseDir, ".github/agents")])) {
+    if (!fs.existsSync(directory)) continue;
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(".agent.md")) documents.push(fs.readFileSync(path.join(directory, entry.name), "utf8"));
+    }
+  }
+  if (documents.length) {
+    const infoPath = path.join(env.GH_AW_TMP_DIR, "aw_info.json");
+    const info = fs.existsSync(infoPath) ? JSON.parse(fs.readFileSync(infoPath, "utf8")) : {};
+    Object.assign(info, require("./markdown_metadata.cjs").metadataManifestFields(require("../../../scripts/markdown_metadata_test_adapter.cjs").prepareMarkdownFixtures(...documents)));
+    fs.mkdirSync(path.dirname(infoPath), { recursive: true });
+    fs.writeFileSync(infoPath, JSON.stringify(info));
+  }
+  return spawnProcessSync(command, args, { ...options, env });
+}
 
 function makeHarnessTempDir(name) {
   fs.mkdirSync(agentTempDir, { recursive: true });
@@ -225,8 +273,56 @@ describe("copilot_harness.cjs", () => {
     }
   });
 
+  it("stops a native terminal 429 when fresh AWF reflection confirms the shared invocation cap", () => {
+    const directory = makeHarnessTempDir("copilot-invocation-cap-");
+    const stubPath = path.join(directory, "stub.cjs");
+    const preloadPath = path.join(directory, "reflect-fixture.cjs");
+    const awfConfigPath = path.join(directory, "awf-config.json");
+    const callsPath = path.join(directory, "calls.jsonl");
+    const reflectData = { runs: { enabled: true, max_runs: 60, invocation_count: 60, remaining_runs: 0 } };
+    fs.writeFileSync(preloadPath, `require(${JSON.stringify(require.resolve("./awf_reflect.cjs"))}).fetchAWFReflect = async () => ({ ok: true, reflectData: ${JSON.stringify(reflectData)} });`);
+    fs.writeFileSync(awfConfigPath, "{}");
+    fs.writeFileSync(
+      stubPath,
+      `
+      const fs = require("fs");
+      fs.appendFileSync(process.env.COPILOT_HARNESS_STUB_CALLS, JSON.stringify({ called: true }) + "\\n");
+      console.error("429 Too Many Requests");
+      process.exitCode = 1;
+    `
+    );
+    try {
+      const result = spawnSync(process.execPath, ["copilot_harness.cjs", process.execPath, stubPath, "--prompt", "test"], {
+        cwd: path.dirname(require.resolve("./copilot_harness.cjs")),
+        env: {
+          ...harnessChildEnv,
+          NODE_OPTIONS: `${harnessChildEnv.NODE_OPTIONS || ""} --require=${JSON.stringify(preloadPath)}`,
+          AWF_REFLECT_ENABLED: "1",
+          GH_AW_TMP_DIR: directory,
+          GH_AW_AWF_CONFIG_PATH: awfConfigPath,
+          GH_AW_HARNESS_TELEMETRY_DIR: directory,
+          GH_AW_HARNESS_MAX_RETRIES: "2",
+          GH_AW_SAFE_OUTPUTS: "",
+          COPILOT_MODEL: "",
+          COPILOT_HARNESS_STUB_CALLS: callsPath,
+        },
+        encoding: "utf8",
+        timeout: 10000,
+      });
+      expect(result.status, result.stderr).toBe(1);
+      expect(fs.existsSync(callsPath), result.stderr).toBe(true);
+      expect(fs.readFileSync(callsPath, "utf8").trim().split("\n")).toHaveLength(1);
+      const telemetry = JSON.parse(fs.readFileSync(path.join(directory, "harness_retry.json"), "utf8"));
+      expect(telemetry.attempt_results[0].failure_classes).toContain("invocation_cap_exceeded");
+      expect(result.stderr).toContain("AWF shared invocation budget exhausted (60/60)");
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   describe("SDK content-filter rejection", () => {
     const content = "The model returned no content because the response was blocked by content filtering.";
+    const policyMessage = `${CYBERSECURITY_POLICY_REJECTION_PREFIX} If this seems wrong, try rephrasing your request.`;
     it("skips corrupt JSONL and short-circuits without decoding later records", () => {
       const first = JSON.stringify({ type: "assistant.message", data: { content, rte: true } });
       const output = `[INFO] startup\r\n{"broken"\nnull\n${first}\r\n{"later":true}`;
@@ -244,6 +340,30 @@ describe("copilot_harness.cjs", () => {
       expect(isCopilotContentFilterError(output)).toBe(true);
       expect(classifyCopilotFailure({ hasOutput: true, isContentFiltered: true, tokenCount: 27719 })).toBe("content_filter");
       expect(shouldRetryFailedExecution({ exitCode: 1, hasOutput: true, output, attempt: 0, maxRetries: 3 })).toBe(false);
+    });
+
+    it.each(["query", "sdk_driver"])("stops retries on a top-level provider policy rejection (%s)", errorType => {
+      const output = JSON.stringify({ type: "session.error", data: { errorType, message: policyMessage, ...(errorType === "query" ? { statusCode: 422 } : {}) } });
+      expect(isCopilotContentFilterError(output)).toBe(true);
+      expect(isCopilotContentFilterError(output, "openai")).toBe(false);
+      expect(classifyCopilotFailure({ hasOutput: true, isContentFiltered: isCopilotContentFilterError(output) })).toBe("content_filter");
+      expect(shouldRetryFailedExecution({ exitCode: 1, hasOutput: true, output, attempt: 0, maxRetries: 3 })).toBe(false);
+    });
+
+    it.each([
+      { type: "assistant.message", data: { content: policyMessage, rte: true } },
+      { type: "user.message", data: { errorType: "query", message: policyMessage } },
+      { type: "session.error", data: { errorType: "query", message: "422 Invalid request", statusCode: 422 } },
+      { type: "session.error", data: { errorType: "query", message: "Possible cybersecurity risk", statusCode: 422 } },
+      { type: "session.error", data: { errorType: "query", message: `Quoted: ${policyMessage}` } },
+      { type: "session.error", data: { errorType: "tool", message: policyMessage } },
+      { type: "session.error", data: { errorType: "query", message: policyMessage, parentToolCallId: "child" } },
+      { type: "session.error", agentId: "child", data: { errorType: "sdk_driver", message: policyMessage } },
+      { type: "session.error", data: { errorType: "query", message: null } },
+    ])("does not mistake unrelated or nested errors for a terminal policy rejection %j", event => {
+      const output = JSON.stringify(event);
+      expect(isCopilotContentFilterError(output)).toBe(false);
+      expect(shouldRetryFailedExecution({ exitCode: 1, hasOutput: true, output, attempt: 0, maxRetries: 3 })).toBe(true);
     });
 
     it.each([
@@ -801,10 +921,11 @@ describe("copilot_harness.cjs", () => {
       expect(shouldRetry(result, 0)).toBe(false);
     });
 
-    it("numerous permission-denied issues are treated as non-retryable", () => {
-      const result = { exitCode: 1, hasOutput: true, output: "permission denied\npermission denied\npermission denied" };
+    it.each(["permission denied", "permissions denied", "EACCES", "EPERM"])("repeated %s text is diagnostic, not a non-retryable permission signal", phrase => {
+      const result = { exitCode: 1, hasOutput: true, output: Array(5).fill(phrase).join("\n") };
       expect(hasNumerousPermissionDeniedIssues(result.output)).toBe(true);
-      expect(shouldRetry(result, 0)).toBe(false);
+      expect(shouldRetry(result, 0)).toBe(true);
+      expect(classifyCopilotFailure({ hasOutput: true, hasWorkflowToolPermissionDenial: hasWorkflowToolPermissionDenial(result.exitCode) })).toBe("partial_execution");
     });
 
     it("retries AWF API proxy blocks instead of treating them as a guard condition", () => {
@@ -1026,12 +1147,25 @@ describe("copilot_harness.cjs", () => {
 
       it("sdk_session_idle_timeout outranks permission_denied in failure classification", () => {
         // Both flags set — the more specific signal must win.
-        expect(classifyCopilotFailure({ hasOutput: true, isSDKSessionIdleTimeout: true, hasNumerousPermissionDenied: true })).toBe("sdk_session_idle_timeout");
+        expect(classifyCopilotFailure({ hasOutput: true, isSDKSessionIdleTimeout: true, hasWorkflowToolPermissionDenial: true })).toBe("sdk_session_idle_timeout");
       });
 
       it("mcp_gateway_shutdown outranks permission_denied in failure classification", () => {
         // Both flags set — the more specific signal must win.
-        expect(classifyCopilotFailure({ hasOutput: true, isMCPGatewayShutdown: true, hasNumerousPermissionDenied: true })).toBe("mcp_gateway_shutdown");
+        expect(classifyCopilotFailure({ hasOutput: true, isMCPGatewayShutdown: true, hasWorkflowToolPermissionDenial: true })).toBe("mcp_gateway_shutdown");
+      });
+
+      it("classifies an explicit workflow tool denial instead of a generic CLI exit", () => {
+        const output = "[sdk-driver] permission denied by workflow tool permissions: shell(git status)";
+        expect(hasWorkflowToolPermissionDenial(output)).toBe(false);
+        expect(
+          classifyCopilotFailure({
+            hasOutput: true,
+            hasWorkflowToolPermissionDenial: hasWorkflowToolPermissionDenial(WORKFLOW_TOOL_PERMISSION_DENIED_EXIT_CODE),
+          })
+        ).toBe("permission_denied");
+        expect(shouldRetryFailedExecution({ exitCode: WORKFLOW_TOOL_PERMISSION_DENIED_EXIT_CODE, hasOutput: true, output, attempt: 0, maxRetries: 3 })).toBe(false);
+        expect(shouldRetryFailedExecution({ exitCode: 1, hasOutput: true, output, attempt: 0, maxRetries: 3 })).toBe(true);
       });
 
       it("retries sdk_session_idle_timeout as partial execution (shouldRetry)", () => {
@@ -1042,13 +1176,7 @@ describe("copilot_harness.cjs", () => {
           output: "[copilot-sdk-driver] Timeout after 60000ms waiting for session.idle",
         };
         const MAX_RETRIES = 3;
-        const shouldRetryLocal = (r, attempt) => {
-          if (r.exitCode === 0) return false;
-          if (hasNumerousPermissionDeniedIssues(r.output)) return false;
-          if (isCAPIQuotaExceededError(r.output)) return false;
-          return attempt < MAX_RETRIES && r.hasOutput;
-        };
-        expect(shouldRetryLocal(result, 0)).toBe(true);
+        expect(shouldRetryFailedExecution({ ...result, attempt: 0, maxRetries: MAX_RETRIES })).toBe(true);
       });
 
       it("retries mcp_gateway_shutdown as partial execution (shouldRetry)", () => {
@@ -1059,13 +1187,7 @@ describe("copilot_harness.cjs", () => {
           output: '{"message":"Gateway shutdown initiated","serversTerminated":1,"status":"closed"}',
         };
         const MAX_RETRIES = 3;
-        const shouldRetryLocal = (r, attempt) => {
-          if (r.exitCode === 0) return false;
-          if (hasNumerousPermissionDeniedIssues(r.output)) return false;
-          if (isCAPIQuotaExceededError(r.output)) return false;
-          return attempt < MAX_RETRIES && r.hasOutput;
-        };
-        expect(shouldRetryLocal(result, 0)).toBe(true);
+        expect(shouldRetryFailedExecution({ ...result, attempt: 0, maxRetries: MAX_RETRIES })).toBe(true);
       });
 
       it("extractOutputTail never exceeds maxChars even when maxChars is 1", () => {
@@ -2951,9 +3073,7 @@ process.stdin.on("end", () => fs.writeFileSync(process.env.COPILOT_HARNESS_STUB_
      * @returns {{ shouldRetry: boolean, useContinueOnRetry: boolean }}
      */
     function blendedRetryDecision(result, attempt, copilotSDKMode, continueDisabledPermanently = false) {
-      if (result.exitCode === 0) return { shouldRetry: false, useContinueOnRetry: false };
-      if (hasNumerousPermissionDeniedIssues(result.output)) return { shouldRetry: false, useContinueOnRetry: false };
-      if (attempt >= MAX_RETRIES || !result.hasOutput) return { shouldRetry: false, useContinueOnRetry: false };
+      if (!shouldRetryFailedExecution({ ...result, attempt, maxRetries: MAX_RETRIES })) return { shouldRetry: false, useContinueOnRetry: false };
       // --continue is only enabled in CLI mode and only when not permanently disabled.
       const useContinueOnRetry = !copilotSDKMode && !continueDisabledPermanently;
       return { shouldRetry: true, useContinueOnRetry };
@@ -3070,7 +3190,12 @@ process.stdin.on("end", () => fs.writeFileSync(process.env.COPILOT_HARNESS_STUB_
   });
 
   describe("noop pre-flight and retry guard", () => {
-    it.each([false, true])("keeps a content-filter rejection failed without retries even when noop is written: %s", writeNoop => {
+    const filterEvents = [
+      { type: "assistant.message", data: { content: "The model returned no content because the response was blocked by content filtering.", rte: true, toolRequests: [] } },
+      { type: "session.error", data: { errorType: "query", message: CYBERSECURITY_POLICY_REJECTION_PREFIX, statusCode: 422 } },
+      { type: "session.error", data: { errorType: "sdk_driver", message: CYBERSECURITY_POLICY_REJECTION_PREFIX } },
+    ];
+    it.each(filterEvents.flatMap(event => [false, true].map(writeNoop => ({ event, writeNoop }))))("keeps a content-filter rejection failed without retries %j", ({ event, writeNoop }) => {
       const tempDir = makeHarnessTempDir("copilot-filtered-retry-");
       const safeOutputsPath = path.join(tempDir, "safe-outputs.jsonl");
       const stubPath = path.join(tempDir, "stub.cjs");
@@ -3081,7 +3206,7 @@ process.stdin.on("end", () => fs.writeFileSync(process.env.COPILOT_HARNESS_STUB_
         `const fs = require("fs");
 fs.appendFileSync(process.env.COPILOT_HARNESS_STUB_CALLS, "attempt\\n");
 if (${writeNoop}) fs.appendFileSync(process.env.GH_AW_SAFE_OUTPUTS, JSON.stringify({type:"noop",message:"nothing to do"}) + "\\n");
-process.stderr.write(JSON.stringify({type:"assistant.message",data:{content:"The model returned no content because the response was blocked by content filtering.",rte:true,toolRequests:[]}}) + "\\n");
+process.stderr.write(${JSON.stringify(JSON.stringify(event))} + "\\n");
 process.exit(1);`,
         "utf8"
       );
@@ -3217,14 +3342,104 @@ process.exit(1);`,
     });
   });
 
+  describe.each(["SDK", "CLI"])("trusted workflow permission-denial signal in %s mode", mode => {
+    it.each([
+      ["human marker", "[sdk-driver] permission denied by workflow tool permissions: shell(ls)", 1, "partial_execution", 2, false],
+      ["JSON source/event", '{"source":"sdk-driver","event":"permission-denied-by-workflow-tool-permissions"}', 1, "partial_execution", 2, false],
+      ["JSON component/type", '{"component":"sdk-driver","type":"permission-denied-by-workflow-tool-permissions"}', 1, "partial_execution", 2, false],
+      ["JSON guard event", '{"type":"guard.tool_denials_exceeded","data":{"denialCount":5,"threshold":5}}', 1, "partial_execution", 2, false],
+      ["repeated permission denied", "permission denied\npermission denied\npermission denied", 1, "partial_execution", 2, false],
+      ["repeated permissions denied", "permissions denied\npermissions denied\npermissions denied", 1, "partial_execution", 2, false],
+      ["repeated EACCES", "EACCES\nEACCES\nEACCES", 1, "partial_execution", 2, false],
+      ["repeated EPERM", "EPERM\nEPERM\nEPERM", 1, "partial_execution", 2, false],
+      ["mixed generic permission phrases", "permission denied\nEACCES: permission denied\nEPERM operation not permitted", 1, "partial_execution", 2, false],
+      ["trusted denial exit", "driver stopped", WORKFLOW_TOOL_PERMISSION_DENIED_EXIT_CODE, "permission_denied", 1, true],
+      ["model verification exit", "driver stopped", COPILOT_MODEL_VERIFICATION_EXIT_CODE, mode === "SDK" ? "copilot_model_verification" : "partial_execution", mode === "SDK" ? 1 : 2, false],
+    ])("uses exit status, not assistant output, for %s", (name, output, exitCode, failureClass, expectedAttempts, reportsMissingTool) => {
+      const directory = makeHarnessTempDir("copilot-trusted-tool-denial-");
+      const stubPath = path.join(directory, "stub.cjs");
+      const preloadPath = path.join(directory, "preload.cjs");
+      const callsPath = path.join(directory, "calls.jsonl");
+      const safeOutputsPath = path.join(directory, "safe-outputs.jsonl");
+      fs.writeFileSync(
+        preloadPath,
+        `const fs = require("fs");
+const sidecar = require(${JSON.stringify(require.resolve("./copilot_sdk_sidecar.cjs"))});
+sidecar.startCopilotSDKServer = async () => ({});
+sidecar.stopCopilotSDKServer = async () => {};
+require(${JSON.stringify(require.resolve("./awf_reflect.cjs"))}).resolveMultiProviderFromReflect = () => ({
+  model: "openai/test-model",
+  models: [{ id: "test-model", provider: "openai" }],
+  providers: [{ name: "openai", type: "openai", baseUrl: "http://127.0.0.1:3002" }],
+});
+require(${JSON.stringify(require.resolve("./awf_reflect.cjs"))}).waitForProviderListenerReady = async () => ({ ok: true });
+const safeOutputs = require(${JSON.stringify(require.resolve("./safeoutputs_cli.cjs"))});
+const emit = safeOutputs.emitMissingToolPermissionIssue;
+safeOutputs.emitMissingToolPermissionIssue = options => emit({
+  ...options,
+  runSafeOutputsCLI: (type, payload) => fs.appendFileSync(process.env.GH_AW_SAFE_OUTPUTS, JSON.stringify({ type, ...payload }) + "\\n"),
+});`
+      );
+      fs.writeFileSync(
+        stubPath,
+        `const fs = require("fs");
+const callsPath = process.env.COPILOT_HARNESS_STUB_CALLS;
+fs.appendFileSync(callsPath, "{}\\n");
+if (fs.readFileSync(callsPath, "utf8").trim().split("\\n").length === 1) {
+  process.stdout.write(JSON.stringify({ type: "assistant.message", data: { content: ${JSON.stringify(output)} } }) + "\\n");
+  process.exitCode = ${exitCode};
+} else {
+  process.stdout.write("Task completed.\\n");
+}`
+      );
+      try {
+        const result = spawnSync(process.execPath, ["--require", preloadPath, "copilot_harness.cjs", process.execPath, stubPath, process.execPath], {
+          cwd: path.dirname(require.resolve("./copilot_harness.cjs")),
+          env: {
+            ...harnessChildEnv,
+            COPILOT_SDK_URI: mode === "SDK" ? "http://127.0.0.1:3002" : "",
+            COPILOT_MODEL: "",
+            GH_AW_MODEL_ROUTING: "",
+            GH_AW_MODEL_FALLBACK: "",
+            GITHUB_WORKSPACE: directory,
+            GH_AW_ENGINE_CWD: directory,
+            GH_AW_TMP_DIR: directory,
+            GH_AW_HARNESS_TELEMETRY_DIR: directory,
+            GH_AW_HARNESS_MAX_RETRIES: "1",
+            GH_AW_SAFE_OUTPUTS: safeOutputsPath,
+            COPILOT_HARNESS_STUB_CALLS: callsPath,
+          },
+          encoding: "utf8",
+          timeout: 10000,
+        });
+        expect(result.status, result.stderr).toBe(expectedAttempts === 2 ? 0 : reportsMissingTool ? WORKFLOW_TOOL_PERMISSION_DENIED_EXIT_CODE : 1);
+        expect(fs.existsSync(callsPath), result.stderr).toBe(true);
+        expect(fs.readFileSync(callsPath, "utf8").trim().split("\n")).toHaveLength(expectedAttempts);
+        const telemetry = JSON.parse(fs.readFileSync(path.join(directory, "harness_retry.json"), "utf8"));
+        expect(telemetry.attempt_results[0].failure_classes).toEqual([failureClass]);
+        if (reportsMissingTool) {
+          const payload = JSON.parse(fs.readFileSync(safeOutputsPath, "utf8"));
+          expect(payload.type).toBe("report_missing_tool");
+          expect(payload.reason).toContain("workflow tool permission denial detected");
+          expect(payload.alternatives).not.toContain("Verify token scopes");
+        } else {
+          expect(fs.existsSync(safeOutputsPath)).toBe(false);
+          expect(result.stderr).not.toContain("detected permission-denied failure");
+        }
+      } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe("permission-denied suppression when expected safe-outputs already produced", () => {
-    it("exits 0 and suppresses terminal verdict when numerous permission-denied occurs after expected safe-output was written", () => {
+    it.each([1, WORKFLOW_TOOL_PERMISSION_DENIED_EXIT_CODE])("exits 0 and suppresses terminal verdict after expected safe-output was written (exit %s)", exitCode => {
       const tempDir = makeHarnessTempDir("copilot-perm-denied-suppression-");
       const safeOutputsPath = path.join(tempDir, "safe-outputs.jsonl");
       const stubPath = path.join(tempDir, "stub.cjs");
       const promptPath = path.join(tempDir, "prompt.txt");
       const callsPath = path.join(tempDir, "calls.jsonl");
-      // Stub writes an expected safe-output then fails with numerous permission-denied output.
+      // Both ordinary failures and trusted permission denials preserve completed work.
       fs.writeFileSync(
         stubPath,
         `const fs = require("fs");
@@ -3233,7 +3448,7 @@ const safeOutputsPath = process.env.GH_AW_SAFE_OUTPUTS;
 fs.appendFileSync(callsPath, JSON.stringify({args: process.argv.slice(2)}) + "\\n");
 fs.appendFileSync(safeOutputsPath, JSON.stringify({type:"add_comment",body:"Report posted"}) + "\\n");
 process.stdout.write("permission denied\\npermission denied\\npermission denied\\nEACCES: permission denied\\nEPERM operation not permitted\\n");
-process.exit(1);`,
+process.exit(${exitCode});`,
         "utf8"
       );
       fs.writeFileSync(promptPath, "fix the bug", "utf8");
@@ -3245,20 +3460,21 @@ process.exit(1);`,
         timeout: 15000,
       });
       const callCount = fs.readFileSync(callsPath, "utf8").trim().split("\n").filter(Boolean).length;
-      // Only one attempt — no retries when permission-denied is suppressed
+      // Only one attempt — completed work must not be replayed.
       expect(callCount).toBe(1);
       // Harness exits 0 because the core work (add_comment) already succeeded
       expect(result.status).toBe(0);
-      expect(result.stderr).toContain("suppressing terminal verdict (false-red: core work succeeded)");
+      expect(result.stderr).toContain(exitCode === WORKFLOW_TOOL_PERMISSION_DENIED_EXIT_CODE ? "suppressing terminal verdict (false-red: core work succeeded)" : "treating as success (late-activity exit suppressed)");
+      expect(fs.readFileSync(safeOutputsPath, "utf8").trim().split("\n").map(JSON.parse)).toEqual([{ type: "add_comment", body: "Report posted" }]);
     });
 
-    it("exits 1 and emits report_missing_tool when numerous permission-denied occurs with no expected safe-outputs", () => {
+    it("retries repeated permission text until the retry budget is exhausted without reporting a missing tool", () => {
       const tempDir = makeHarnessTempDir("copilot-perm-denied-no-outputs-");
       const safeOutputsPath = path.join(tempDir, "safe-outputs.jsonl");
       const stubPath = path.join(tempDir, "stub.cjs");
       const promptPath = path.join(tempDir, "prompt.txt");
       const callsPath = path.join(tempDir, "calls.jsonl");
-      // Stub fails with numerous permission-denied but writes no expected safe-output.
+      // Stub repeatedly fails without a trusted permission-denial status.
       fs.writeFileSync(
         stubPath,
         `const fs = require("fs");
@@ -3272,13 +3488,17 @@ process.exit(1);`,
 
       const result = spawnSync(process.execPath, ["copilot_harness.cjs", process.execPath, stubPath, "--prompt-file", promptPath], {
         cwd: path.dirname(require.resolve("./copilot_harness.cjs")),
-        env: { ...harnessChildEnv, COPILOT_HARNESS_STUB_CALLS: callsPath, GH_AW_SAFE_OUTPUTS: safeOutputsPath, GH_AW_SAFEOUTPUTS_CLI: "true" },
+        env: { ...harnessChildEnv, COPILOT_HARNESS_STUB_CALLS: callsPath, GH_AW_SAFE_OUTPUTS: safeOutputsPath, GH_AW_SAFEOUTPUTS_CLI: "true", GH_AW_HARNESS_MAX_RETRIES: "1", GH_AW_HARNESS_TELEMETRY_DIR: tempDir },
         encoding: "utf8",
         timeout: 15000,
       });
       // Harness exits 1 because no expected output was produced
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("detected numerous permission-denied issues — not retrying");
+      expect(fs.readFileSync(callsPath, "utf8").trim().split("\n")).toHaveLength(2);
+      const telemetry = JSON.parse(fs.readFileSync(path.join(tempDir, "harness_retry.json"), "utf8"));
+      expect(telemetry.attempt_results.map(attempt => attempt.failure_classes)).toEqual([["partial_execution"], ["partial_execution"]]);
+      expect(fs.existsSync(safeOutputsPath)).toBe(false);
+      expect(result.stderr).not.toContain("detected permission-denied failure");
     });
 
     it("exits 0 without retrying when the LLM invocation cap is saturated but a terminal safe-output was already produced", () => {
@@ -3990,7 +4210,7 @@ process.exit(1);`
     it("uses the advertised Responses API for MAI-Code-1.1-Flash", () => {
       process.env.COPILOT_MODEL = "mai-code-1.1-flash";
       applyCopilotWireAPI({
-        modelsJson: JSON.parse(fs.readFileSync(path.join(__dirname, "models.json"), "utf8")),
+        modelsJson: null,
         awfReflectData: reflectModels([["mai-code-1.1-flash", ["/responses", "ws:/responses"]]]),
       });
       expect(process.env.COPILOT_PROVIDER_WIRE_API).toBe("responses");
@@ -4173,10 +4393,9 @@ process.exit(1);`
       expect(process.env.COPILOT_PROVIDER_WIRE_API).toBeUndefined();
     });
 
-    it.each(["grok-4.5", "grok-4.6", "grok-4.7"])("uses the responses API from the bundled catalog for %s", model => {
+    it.each(["grok-4.5", "grok-4.6", "grok-4.7"])("uses the responses API from AWF for %s without local metadata", model => {
       process.env.COPILOT_MODEL = model;
-      const modelsJson = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "models.json"), "utf8"));
-      applyCopilotWireAPI({ modelsJson, logger: () => {} });
+      applyCopilotWireAPI({ modelsJson: null, awfReflectData: reflectModels([[model, ["/responses"]]]), logger: () => {} });
       expect(process.env.COPILOT_PROVIDER_WIRE_API).toBe("responses");
     });
 
@@ -4462,8 +4681,13 @@ if (args.includes("--session-id")) {
 process.stdout.write("done\\n");`
     );
     // SDK sidecar double: listens on the requested --port until the harness stops it.
+    const sidecarArgsPath = path.join(tmpDir, "sidecar-args.json");
     const sidecarPath = path.join(tmpDir, "copilot-sidecar.cjs");
-    fs.writeFileSync(sidecarPath, `#!/usr/bin/env node\nconst args = process.argv.slice(2);\nrequire("net").createServer(socket => socket.end()).listen(Number(args[args.indexOf("--port") + 1]), "127.0.0.1");\n`, { mode: 0o755 });
+    fs.writeFileSync(
+      sidecarPath,
+      `#!/usr/bin/env node\nconst fs = require("fs");\nconst args = process.argv.slice(2);\nfs.writeFileSync(${JSON.stringify(sidecarArgsPath)}, JSON.stringify(args));\nrequire("net").createServer(socket => socket.end()).listen(Number(args[args.indexOf("--port") + 1]), "127.0.0.1");\n`,
+      { mode: 0o755 }
+    );
     const env = {
       ...harnessChildEnv,
       GH_AW_TMP_DIR: tmpDir,
@@ -4473,7 +4697,19 @@ process.stdout.write("done\\n");`
       GH_AW_HARNESS_STALL_WARNING_MS: "0",
       NODE_OPTIONS: `--require ${preloadPath}`,
     };
-    for (const key of ["COPILOT_MODEL", "GH_AW_MODEL_FALLBACK", "GH_AW_MODEL_ROUTING", "AWF_REFLECT_ENABLED", "GH_AW_SKIP_REFLECT", "COPILOT_SDK_URI", "GH_AW_PHASE", "GH_AW_SAFE_OUTPUTS", "COPILOT_PROVIDER_WIRE_API", "GH_AW_MODEL_ALIASES"])
+    for (const key of [
+      "COPILOT_MODEL",
+      "GH_AW_MODEL_FALLBACK",
+      "GH_AW_MODEL_ROUTING",
+      "AWF_REFLECT_ENABLED",
+      "GH_AW_SKIP_REFLECT",
+      "COPILOT_SDK_URI",
+      "GH_AW_PHASE",
+      "GH_AW_DETECTION_INPUT_DIR",
+      "GH_AW_SAFE_OUTPUTS",
+      "COPILOT_PROVIDER_WIRE_API",
+      "GH_AW_MODEL_ALIASES",
+    ])
       delete env[key];
     Object.assign(env, envOverrides);
     const result = spawnSync(process.execPath, ["copilot_harness.cjs", process.execPath, ...(sdk ? [stubPath, sidecarPath] : [stubPath, "--prompt", "Hello"])], {
@@ -4487,6 +4723,7 @@ process.stdout.write("done\\n");`
       tmpDir,
       result,
       args: fs.existsSync(argsPath) ? JSON.parse(fs.readFileSync(argsPath, "utf8")) : null,
+      sidecarArgs: fs.existsSync(sidecarArgsPath) ? JSON.parse(fs.readFileSync(sidecarArgsPath, "utf8")) : null,
       selection: fs.existsSync(selectionPath) ? JSON.parse(fs.readFileSync(selectionPath, "utf8")) : null,
     };
   }
@@ -4537,13 +4774,18 @@ process.stdout.write("done\\n");`
 
   it.each([true, false])("does not create a CLI selection record in SDK mode (routed=%s)", async routed => {
     const [providerPort, sdkPort] = [await freePort(), await freePort()];
-    const { result, args, selection } = runHarness(
-      { AWF_REFLECT_ENABLED: "1", ...(routed ? { GH_AW_MODEL_ROUTING: "1" } : { COPILOT_MODEL: "gpt-5.6-luna" }), COPILOT_SDK_URI: `http://127.0.0.1:${sdkPort}` },
+    const inputDir = "/runner temp/gh-aw/threat-detection-inputs";
+    const { tmpDir, result, args, sidecarArgs, selection } = runHarness(
+      { AWF_REFLECT_ENABLED: "1", GH_AW_PHASE: "detection", GH_AW_DETECTION_INPUT_DIR: inputDir, ...(routed ? { GH_AW_MODEL_ROUTING: "1" } : { COPILOT_MODEL: "gpt-5.6-luna" }), COPILOT_SDK_URI: `http://127.0.0.1:${sdkPort}` },
       { routed, providerPort, sdk: true }
     );
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stderr).toContain("copilot-sdk driver mode: starting sidecar");
+    expect(sidecarArgs).toContain("--add-dir");
+    expect(sidecarArgs[sidecarArgs.indexOf("--add-dir") + 1]).toBe(inputDir);
+    expect(sidecarArgs).not.toContain("/tmp/gh-aw/threat-detection");
+    expect(fs.readFileSync(path.join(tmpDir, "sidecar-args.json"), "utf8")).toContain(inputDir);
     expect(args).not.toContain("--session-id");
     expect(selection).toBeNull();
   });
@@ -5001,7 +5243,7 @@ describe("Copilot sub-agent model resolution (recorded /reflect from run 3930457
     expect(run.resolutions).toEqual([{ name: "haiku-small", configuredModel: "small", resolvedModel: "claude-haiku-5.5", model: expected }]);
 
     // The harness hands the resolved models to the SDK driver, which passes them to the session.
-    const { runWithCopilotSDK } = require("./copilot_sdk_session.cjs");
+    const { runWithCopilotSDK } = require("../../../scripts/markdown_metadata_test_adapter.cjs").withCompilerFixtures(require("./copilot_sdk_session.cjs"));
     const base = tempDir("copilot-subagent-sdk-session-");
     fs.mkdirSync(path.join(base, ".github/agents"), { recursive: true });
     fs.writeFileSync(path.join(base, ".github/agents/haiku-small.agent.md"), "---\nmodel: small\n---\nWho are you?");
@@ -5071,7 +5313,7 @@ describe("Copilot sub-agent model resolution (recorded /reflect from run 3930457
     expect(run.records).toContainEqual({ engine: "copilot", role: "planner", configured_model: "GPT-5.4 (copilot)", resolved_model: null, provider: "copilot", status: "failed", cause: "model_unavailable" });
     expect(run.resolutions.map(resolution => resolution.name)).toEqual(["haiku-small"]);
 
-    const { runWithCopilotSDK } = require("./copilot_sdk_session.cjs");
+    const { runWithCopilotSDK } = require("../../../scripts/markdown_metadata_test_adapter.cjs").withCompilerFixtures(require("./copilot_sdk_session.cjs"));
     const base = tempDir("copilot-subagent-sdk-repository-");
     fs.mkdirSync(path.join(base, ".github/agents"), { recursive: true });
     fs.writeFileSync(path.join(base, ".github/agents/planner.agent.md"), vscodePinnedAgent);
@@ -5135,8 +5377,8 @@ describe("Copilot sub-agent model resolution (recorded /reflect from run 3930457
     ]);
     const personalAgentsDir = path.join(copilotHome, "agents");
     expect(fs.readdirSync(personalAgentsDir).sort()).toEqual(["haiku-small.agent.md", "multiline.agent.md"]);
-    expect(fs.readFileSync(path.join(personalAgentsDir, "haiku-small.agent.md"), "utf8")).toBe(files["haiku-small.agent.md"].replace("model: small # alias", 'model: "claude-haiku-5.5" # alias'));
-    expect(fs.readFileSync(path.join(personalAgentsDir, "multiline.agent.md"), "utf8")).toBe('---\nname: multiline\nmodel: "claude-haiku-5.5"\ndescription: retained\n---\nPrompt retained.\n');
+    expect(fs.readFileSync(path.join(personalAgentsDir, "haiku-small.agent.md"), "utf8")).toBe('---\n{"description":"Small model","model":"claude-haiku-5.5","name":"haiku-small","tools":["read"]}\n---\nWho are you?\nmodel: small\n');
+    expect(fs.readFileSync(path.join(personalAgentsDir, "multiline.agent.md"), "utf8")).toBe('---\n{"description":"retained","model":"claude-haiku-5.5","name":"multiline"}\n---\nPrompt retained.\n');
     for (const [name, content] of Object.entries(files)) expect(fs.readFileSync(path.join(agentsDir, name), "utf8")).toBe(content);
     expect(execFileSync("git", ["status", "--porcelain"], { cwd: workspace, encoding: "utf8" })).toBe("");
   });
@@ -5223,6 +5465,8 @@ Module._load = function(request, ...args) {
    */
   async function runHarness({ sdk = false, agents = {}, inlineAgents = {}, workspaceAgents = {}, noop = false, reflect = recordedReflect(), env: envOverrides = {} }) {
     const dir = tempDir("copilot-subagent-harness-");
+    const markdownMetadata = require("../../../scripts/markdown_metadata_test_adapter.cjs").prepareMarkdownFixtures(...Object.values(agents), ...Object.values(inlineAgents), ...Object.values(workspaceAgents));
+    fs.writeFileSync(path.join(dir, "aw_info.json"), JSON.stringify(require("./markdown_metadata.cjs").metadataManifestFields(markdownMetadata)));
     const workspace = path.join(dir, "workspace");
     const engineCwd = envOverrides.GH_AW_ENGINE_CWD || workspace;
     fs.mkdirSync(path.join(engineCwd, ".github/agents"), { recursive: true });
@@ -5413,7 +5657,7 @@ process.stdout.write("done\\n");`
     const run = await runHarness({ agents: { "haiku-small.agent.md": "---\nname: haiku-small\nmodel: small\n---\nWho are you?\n" } });
     expect(run.result.status, run.result.stderr).toBe(0);
     expect(run.started).not.toBeNull();
-    expect(run.started.personalAgents).toEqual({ "haiku-small.agent.md": '---\nname: haiku-small\nmodel: "claude-haiku-5.5"\n---\nWho are you?\n' });
+    expect(run.started.personalAgents).toEqual({ "haiku-small.agent.md": '---\n{"model":"claude-haiku-5.5","name":"haiku-small"}\n---\nWho are you?\n' });
     expect(run.started.agentFiles["haiku-small.agent.md"]).toBe("---\nname: haiku-small\nmodel: small\n---\nWho are you?\n");
     expect(run.agentFile("haiku-small.agent.md")).toBe("---\nname: haiku-small\nmodel: small\n---\nWho are you?\n");
     expect(run.gitStatus()).toBe("");
@@ -5424,7 +5668,7 @@ process.stdout.write("done\\n");`
     const inline = "---\nname: inline-large\nmodel: large\n---\nPropose.\n";
     const run = await runHarness({ inlineAgents: { "inline-large.agent.md": inline } });
     expect(run.result.status, run.result.stderr).toBe(0);
-    expect(run.started.personalAgents).toEqual({ "inline-large.agent.md": '---\nname: inline-large\nmodel: "claude-sonnet-5.5"\n---\nPropose.\n' });
+    expect(run.started.personalAgents).toEqual({ "inline-large.agent.md": '---\n{"model":"claude-sonnet-5.5","name":"inline-large"}\n---\nPropose.\n' });
     expect(run.agentFile("inline-large.agent.md")).toBe(inline);
   });
 

@@ -12,6 +12,7 @@ This directory models the factory's queue-worker lifecycle and compares its assu
 | `compare.mjs`      | Parsed YAML/TypeScript extraction, actual library build/scan commands and native CJS/AsyncLocalStorage probes                          |
 | `trace.mjs`        | Strict finite-value trace parser, independent abstraction replay and readable trace rendering                                          |
 | `compare.test.mjs` | Comparison sensitivity, mutated executable fixture and generated trace validation tests                                                |
+| `trace.test.mjs`   | Readable trace rendering and cell-escaping test                                                                                       |
 
 The universe contains two externally admitted root Works. `queueBranch` starts absent; the first authorized producer submit atomically creates it with the compiler-approved Policy and Work. `Installed` models availability of that compiled Policy proposal, not an administrator-seeded ledger. Dispatch requires the created branch and Policy. Each Work has a provisioned worker profile; equal priority, dependency readiness, capacity, run binding and resource authorization are simplified assumptions. `Dispatch` projects the first compatible worker assignment from one protected prefix request, not the complete native dispatch set. Homogeneous batching is permitted only when `Batch` is true; otherwise the assignment is a singleton. Different profiles cannot share an assignment. Actual mixed-profile probes produce two separate dispatches; leaving the other modeled Work queued is projection, not a claim about scheduler selection. This two-Work projection does not exercise all three dispatch slots, profile trust-domain/share-key restrictions, assignment byte bounds or queue fairness/recovery algorithms.
 
@@ -74,17 +75,41 @@ Build and scan fixtures reuse existing source/dependencies via symlinks as build
 | Warning-only lint exits zero | Actual library scan and precheck flag probes; `require-http-response-error-listener` is an error, other configured rules warn |
 | Refiner memory is declarative, lowering to a protected git-tree adapter | Parsed `tools.work-queue.memory` is compared with the actual compiled preparation job's adapter and immutable target. The real collector preserves structured objects and checks the compiled one-per-Claim maximum independently for two Claims; no remote memory verification is exercised |
 
-`comparison.json` separates fact mismatches from documentation observations and assumptions. The README's rule-link table is compared with registered IDs as table coverage only, not a semantic audit of all rule descriptions. Prompts' final-action wording, nonduplicate issues, three total monster assignments, build/tests, quality bars and downstream remediation success are not claimed to be enforced. No installed policy/profile artifact is present in this comparison; actual deployed permissions and contracts remain outside its evidence.
+`comparison.json` separates fact mismatches from documentation observations and assumptions. The README's rule-link table is compared with registered IDs as table coverage only, not a semantic audit of all rule descriptions. No installed policy/profile artifact is present in this comparison; actual deployed permissions and contracts remain outside its evidence.
 
-The four previously omitted rule-table entries now link their existing sections: `no-async-foreach-callback`, `no-single-char-string-replace`, `no-string-fallback-for-non-string-message` and `require-http-response-error-listener`. The comparison requires linked-table coverage to match registered rules and checks that section targets exist. Tests deliberately remove these rows or break their targets; this checks reference coverage, not all rule-description semantics.
+The rule-link table now covers the registered `no-dynamic-string-replacement` rule and the previously omitted entries `no-async-foreach-callback`, `no-single-char-string-replace`, `no-string-fallback-for-non-string-message` and `require-http-response-error-listener`. The comparison requires linked-table coverage to match registered rules and checks that section targets exist. Tests deliberately remove these rows or break their targets; this checks reference coverage, not all rule-description semantics.
 
 The collector probe runs its unchanged CJS entrypoint with fixture-supplied original assignment context and an artifact output root. Its legacy patch-directory existence probe is stubbed as absent without touching that directory. The probe exercises actual count partitioning, but does not authenticate a live assignment or deliver an issue.
 
 Tests alter extracted facts, add misleading comments/body examples, rename an actual registration, and downgrade the hard HTTP rule in an executable fixture. That fixture changes the observed ESLint exit status and must fail the comparison. Trace tests also reject altered transitions and check recorded model/config/log hashes.
 
+## Non-goals
+
+The model and checker do not enforce or prove:
+
+- Prompt wording, nonduplicate issue creation, or the monster's three-assignment limit.
+- Agent obligations to run builds and tests or meet quality and false-positive thresholds.
+- Successful downstream remediation.
+- Production refinement, deployed policy/profile permissions, scheduler fairness, or unbounded liveness.
+
+These are agent, deployment, or operational obligations outside the bounded model.
+
+## Sync Notes
+
+The checks use dependencies from two existing package directories. From the repository root, install them first:
+
+```bash
+npm ci --prefix eslint-factory
+npm ci --prefix actions/setup/js
+```
+
+`eslint-factory` provides TypeScript, ESLint, and Vitest; `actions/setup/js` provides the YAML parser used by the comparison. Then run `node specs/eslint-factory/check.mjs`, `node --test specs/eslint-factory/compare.test.mjs`, and `node --test specs/eslint-factory/trace.test.mjs`. The comparison test verifies that missing rows and broken targets are detected; the trace test covers readable rendering and cell escaping only. Run `node --test specs/eslint-factory/compare.test.mjs` and `node --test specs/eslint-factory/trace.test.mjs` after changing comparison or trace logic. Run the checker and comparison test after adding, removing, or renaming a registered rule or editing the rule-link table. This checks link coverage, not rule-description semantics.
+
+The model checker also requires Java and the existing official TLC jar. The checker defaults `JAVA` to a macOS Homebrew path, so non-macOS hosts must set `JAVA` to their Java executable; see [Reproduce](#reproduce).
+
 ## Reproduce
 
-Use existing Node dependencies in `eslint-factory/node_modules` and `actions/setup/js/node_modules`, an existing Java runtime and the official TLC jar. The driver refuses any jar except SHA-256 `936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88`. It uses at most two TLC workers, a 1 GiB Java heap, a 60-second per-case timeout (overridable up to 120 seconds) and a ten-minute total budget. JVM extracted modules, compiler outputs and all fixture files stay inside the artifact path.
+Use existing Node dependencies in `eslint-factory/node_modules` and `actions/setup/js/node_modules`, an existing Java runtime, and the official TLC jar. On non-macOS hosts, set `JAVA` to the Java executable because the checker default is a macOS Homebrew path. The driver refuses any jar except SHA-256 `936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88`. It uses at most two TLC workers, a 1 GiB Java heap, a 60-second per-case timeout (overridable up to 120 seconds) and a ten-minute total budget. JVM extracted modules, compiler outputs and all fixture files stay inside the artifact path.
 
 ```bash
 export TLA2TOOLS_JAR=/absolute/path/to/existing/tla2tools.jar
@@ -94,6 +119,7 @@ node specs/eslint-factory/check.mjs --artifacts="$ARTIFACTS/run"
 FACTORY_ARTIFACTS="$ARTIFACTS/tests" \
 FACTORY_MODEL_ARTIFACTS="$ARTIFACTS/run" \
   node --test specs/eslint-factory/compare.test.mjs
+node --test specs/eslint-factory/trace.test.mjs
 node actions/setup/js/node_modules/prettier/bin/prettier.cjs \
   --check 'specs/eslint-factory/*.mjs'
 ```

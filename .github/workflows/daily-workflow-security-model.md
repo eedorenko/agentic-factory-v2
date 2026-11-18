@@ -21,10 +21,11 @@ checkout:
   fetch-depth: 0
 imports:
   - shared/tla-plus.md
+  - shared/reporting.md
 env:
   PYTHONDONTWRITEBYTECODE: "1"
 steps:
-  - name: Set up Go for the compiled-profile verifier
+  - name: Setup Go for the compiled-profile verifier
     uses: actions/setup-go@v7.0.0
     with:
       go-version-file: go.mod
@@ -113,8 +114,12 @@ Compare that boundary against the current security architecture and compiler
 threat specification cited by the README, plus the corresponding compiler and
 runtime code. State precisely which behavior is enforced, merely documented,
 assumed, configurable, or not modeled. Trace every new predicate to source paths
-and symbols. Include failure/cancellation paths and explicitly authorized tool
-credentials; do not assume every token is forbidden in the agent.
+and symbols. Use the prioritized refinement backlog in
+`specs/workflow-security/README.md` as the source of truth for unresolved
+boundaries, keeping the tracking owner and target module aligned with any
+proposed refinement. A backlog item is not by itself a confirmed defect.
+Include failure/cancellation paths and explicitly authorized tool credentials;
+do not assume every token is forbidden in the agent.
 
 Refine one bounded aspect of the model when warranted. Preserve all existing
 secure runs, negative controls, and witness traces. Add a targeted mutation or
@@ -131,6 +136,15 @@ If the model exhibits a violation with `Fault = "none"`, minimize the trace and
 decide whether it represents an implementation defect, a model error, or an
 architectural gap. Do not file the intentional `Fault != "none"` controls or
 `No*` reachability witnesses as vulnerabilities.
+
+## Report formatting
+
+For any issue or pull request body, use `###` (h3) or lower headers only. Keep the
+summary and decisions visible; put long findings, logs, and evidence in
+`<details><summary><b>...</b></summary>...</details>` blocks. Structure the report
+as overview → key findings/metrics → detailed findings → next actions. Use `- [ ]`
+for follow-up work and format workflow run references as
+`[§12345](https://github.com/github/gh-aw/actions/runs/12345)`.
 
 ## Concretize and report
 

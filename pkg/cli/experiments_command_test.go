@@ -13,6 +13,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestExperimentsAnalyzeOutcomeFlag(t *testing.T) {
+	t.Parallel()
+
+	cmd := NewExperimentsAnalyzeSubcommand()
+	outcome, err := cmd.Flags().GetBool("adoption")
+	require.NoError(t, err)
+	assert.False(t, outcome)
+	assert.Contains(t, cmd.Flags().Lookup("adoption").Usage, "additional GitHub API requests")
+	require.NoError(t, cmd.Flags().Parse([]string{"--adoption"}))
+	outcome, err = cmd.Flags().GetBool("adoption")
+	require.NoError(t, err)
+	assert.True(t, outcome)
+}
+
 func TestReconcileExperimentDetailsWithConfigs(t *testing.T) {
 	t.Parallel()
 
