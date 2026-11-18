@@ -402,7 +402,7 @@ gh-aw emits these metrics at the end of each job, alongside the built-in spans. 
 | --- | --- | --- | --- | --- |
 | `gh_aw.job.duration` | histogram | `s` | `gh-aw.job.name`, `gh-aw.workflow.name`, `cicd.pipeline.task.run.result`, `gh-aw.engine.id`, `gen_ai.request.model` | Every job. |
 | `gh_aw.job.errors` | counter | `{job}` | `gh-aw.job.name`, `gh-aw.workflow.name`, `cicd.pipeline.task.run.result` | The job result is `failure`, `timed_out`, or `cancelled`. |
-| `gen_ai.client.token.usage` | counter | `{token}` | `gh-aw.job.name`, `gh-aw.workflow.name`, `gen_ai.token.type`, `gen_ai.request.model`, `gh-aw.engine.id` | Jobs that run the agent or detection engine and report non-zero token usage. `gen_ai.token.type` is `input`, `output`, `input_cache_read`, or `input_cache_write`. |
+| `gen_ai.client.token.usage` | counter | `{token}` | `gh-aw.job.name`, `gh-aw.workflow.name`, `gen_ai.token.type`, `gen_ai.request.model`, `gh-aw.engine.id` | Jobs that run the agent or detection engine and report finite, non-negative token counts. Zero values are emitted, so a zero-valued series means zero reported usage, not missing data. `gen_ai.token.type` is `input`, `output`, `input_cache_read`, or `input_cache_write`. |
 | `gh_aw.agent.turns` | histogram | `{turn}` | `gh-aw.job.name`, `gh-aw.workflow.name` | The agent job, when the engine reports a turn count. |
 | `gh_aw.tool_calls` | counter | `{call}` | `gh-aw.job.name`, `gh-aw.workflow.name`, `gh-aw.tool.status` (`ok` or `error`) | The gateway summary reports tool calls. |
 | `gh_aw.workflow.output.items` | counter | `{item}` | `gh-aw.job.name`, `gh-aw.workflow.name`, `gh-aw.safe_output.type` | The conclusion job, once per safe-output type. |
@@ -412,7 +412,7 @@ gh-aw emits these metrics at the end of each job, alongside the built-in spans. 
 
 Histograms use the default explicit buckets `1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600`. Counters and histograms use delta temporality.
 
-For compatibility, the exporter also emits the aliases below with the same observations and attributes. The `run` aliases still describe job-level measurements, and `gh_aw.run.errors` uses the unit `{run}`. Query either the canonical metric or its alias, not both.
+For compatibility, the exporter also emits the aliases below with the same value. The `run` aliases are not interchangeable with the `job` metrics in every case: `gh_aw.job.*` uses the result of the emitting job (`cicd.pipeline.task.run.result`), while `gh_aw.run.*` uses the inherited agent/run result. They differ, for example, when a downstream job fails but the agent run succeeded, so a job error can occur with no run error. `gh_aw.run.errors` uses the unit `{run}`. Query either the canonical metric or its alias, not both, and do not switch between them without checking the result semantics.
 
 | Canonical metric | Compatibility alias |
 | --- | --- |
@@ -428,7 +428,7 @@ When trace context is available, data points include trace-linked exemplars.
 
 ### Metric resource attributes
 
-Metric resources carry only these bounded attributes, taken from the workflow run or from `OTEL_RESOURCE_ATTRIBUTES` when set: `gh-aw.repository`, `gh-aw.engine.id`, `gh-aw.workflow.name`, `github.event_name`, and `github.job`. Values longer than 128 characters are dropped. Every other resource attribute, including those from [`resource-attributes`](#custom-resource-attributes), is excluded from metrics. Run IDs and other per-run identifiers are never metric dimensions, so trace-only attributes such as `github.run_id` are not available on metrics.
+Metric resources always carry `service.name` and, when the version is known, `service.version`; these are not subject to the filter below. Beyond that, metric resources carry only these bounded additional attributes, taken from the workflow run or from `OTEL_RESOURCE_ATTRIBUTES` when set: `gh-aw.repository`, `gh-aw.engine.id`, `gh-aw.workflow.name`, `github.event_name`, and `github.job`. Values longer than 128 characters are dropped. Every other resource attribute, including those from [`resource-attributes`](#custom-resource-attributes), is excluded from metrics. Run IDs and other per-run identifiers are never metric dimensions, so trace-only attributes such as `github.run_id` are not available on metrics.
 
 ### Batching
 
