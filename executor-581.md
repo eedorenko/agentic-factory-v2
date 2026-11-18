@@ -5,7 +5,7 @@ branch: none (verification-only, no code change expected)
 pr: none
 phase: verification
 checkpoint: wait for @eedorenko to confirm Prometheus contents / endpoint path; re-check artifacts of the next run (look for otel-metrics.jsonl)
-runs: 5
+runs: 4
 
 # Understanding
 
@@ -31,7 +31,6 @@ none
 
 # Run log
 
-- Run 5 (44209753398): triggered by own checkpoint; still no human reply; local /tmp/gh-aw has otel.jsonl only (no metrics, no export-errors). Posted status.
 - Run 1: found OTLP 404 and no metrics artifact; posted findings.
 - Run 2: no new human comment; artifacts still lack metrics file; posted status.
 - Run 4 (44208536916): still no human reply; Executor run 44206898601 (8 artifacts incl. repo-memory-default) has no otel-metrics.jsonl; local /tmp/gh-aw has otel.jsonl only. Posted status; no repeated @mention spam beyond one ask.
