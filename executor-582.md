@@ -2,25 +2,27 @@
 
 issue: #582
 branch: executor/582-review-and-update-gh-aw-otlp-docs-to-match-metrics-implementation
-pr: create_pull_request called in run 3 (signed-commits: false now set). Verify with list_pull_requests next run.
+pr: #585 (open, docs-only)
 phase: verification (PR awaiting review)
-checkpoint: confirm PR exists; wait for APPROVED review; merge_pr; post-merge verify; Done
-runs: 3
+checkpoint: after push of review-fix commit, wait for reviewer/Copilot APPROVED review (verify via get_reviews state APPROVED); then merge_pr; Run B post-merge verify; Done
+runs: 5
 
 # Understanding
 
-- Only doc changed: contrib/gh-aw/docs/src/content/docs/reference/open-telemetry.mdx (## Metrics split into ### subsections: Built-in metrics table + alias table, resource attrs, batching, export failures, logMetric params/guards).
-- Sources: actions/setup/js/otlp_metrics.cjs (logMetric ~L540, buildBuiltinRunMetrics ~L380, flush 1s), send_otlp_span.cjs (~L2843), otlp.cjs, pkg/workflow/observability_otlp.go L960.
+- Only doc changed: contrib/gh-aw/docs/src/content/docs/reference/open-telemetry.mdx (Metrics section split into subsections).
+- Sources: actions/setup/js/otlp_metrics.cjs (buildBuiltinRunMetrics), send_otlp_span.cjs (buildOTLPResourceAttributes always adds service.name/version).
 
 # Decisions
 
-- Doc-only. Branch from origin/main; one commit.
+- Doc-only, append commits to same branch.
+- Copilot review (COMMENTED, 3 low items) addressed in run 5: zero token values emitted, job vs run result semantics, service.* resource attrs bypass allowlist.
 
 # Failed approaches
 
-- Run 1/2: create_pull_request fell back to issues #583/#584 (unsigned push). Human fixed config; run 3 retried (branch had been lost, redid edits).
+- none active
 
 # Run log
 
-- Run 1-2: docs written; PR fell back to issues.
-- Run 3: redid edits (verified vs implementation), committed, create_pull_request.
+- Run 3: created PR #585.
+- Run 4: no action, waiting for review.
+- Run 5: fixed 3 Copilot review comments, pushed to PR branch.
