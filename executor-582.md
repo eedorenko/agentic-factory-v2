@@ -3,9 +3,9 @@
 issue: #582
 branch: executor/582-review-and-update-gh-aw-otlp-docs-to-match-metrics-implementation
 pr: #585 (open, docs-only)
-phase: verification (PR awaiting review)
-checkpoint: after push of review-fix commit, wait for reviewer/Copilot APPROVED review (verify via get_reviews state APPROVED); then merge_pr; Run B post-merge verify; Done
-runs: 5
+phase: merge requested (Run A done in run 6)
+checkpoint: Run B - confirm PR #585 MERGED via pull_request_read; if merged: update_project Testing, check doc on main, update_project Done, comment. If not merged, investigate and retry merge_pr.
+runs: 6
 
 # Understanding
 
@@ -26,3 +26,4 @@ runs: 5
 - Run 3: created PR #585.
 - Run 4: no action, waiting for review.
 - Run 5: fixed 3 Copilot review comments, pushed to PR branch.
+- Run 6: APPROVED review at head 16b5179 confirmed; called merge_pr(585).
