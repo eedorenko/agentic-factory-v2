@@ -5,7 +5,7 @@ branch: none (verification-only, no code change expected)
 pr: none
 phase: verification
 checkpoint: wait for @eedorenko to confirm Prometheus contents / endpoint path; re-check artifacts of the next run (look for otel-metrics.jsonl)
-runs: 7
+runs: 6
 
 # Understanding
 
@@ -35,5 +35,4 @@ none
 - Run 2: no new human comment; artifacts still lack metrics file; posted status.
 - Run 4 (44208536916): still no human reply; Executor run 44206898601 (8 artifacts incl. repo-memory-default) has no otel-metrics.jsonl; local /tmp/gh-aw has otel.jsonl only. Posted status; no repeated @mention spam beyond one ask.
 - Run 6 (44211113468): no new human comment (only Reviewer noop memory note); local otel.jsonl only, no metrics file. Posted brief status.
-- Run 7 (44212291932): no new human comment; local otel.jsonl only (no metrics file). Posted status.
 - Run 3: triggered by own checkpoint; still no human reply. Reviewer run 44206898590 artifacts also lack otel-metrics.jsonl. Posted status.
