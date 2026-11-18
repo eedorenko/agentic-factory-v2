@@ -1,5 +1,5 @@
-# gh-aw-metadata: {"schema_version":"v4","frontmatter_hash":"31d33ca321b61cec1be7b0115511b9cfd3b0bc5d48066dae05253bbfea6cd95f","body_hash":"24a84002847ccc26a77761847b4e479481d2d009f719cf9eceb644d7dd44c6ad","compiler_version":"7abff6a","strict":true,"agent_id":"copilot","engine_versions":{"copilot":"1.0.103"}}
-# gh-aw-manifest: {"version":1,"secrets":["COPILOT_GITHUB_TOKEN","FACTORY_APP_PRIVATE_KEY","GH_AW_DEFAULT_OTLP_ENDPOINT","GH_AW_DEFAULT_OTLP_HEADERS","GH_AW_GITHUB_MCP_SERVER_TOKEN","GH_AW_GITHUB_TOKEN","GITHUB_TOKEN"],"actions":[{"repo":"actions/checkout","sha":"3d3c42e5aac5ba805825da76410c181273ba90b1","version":"v7.0.1"},{"repo":"actions/create-github-app-token","sha":"64ab729a6294000f5aa4a4bc0b73d1f32bc45510","version":"v3.3.0"},{"repo":"actions/download-artifact","sha":"9000827ccba6bdab643e8b6fd33ac0654aef8333","version":"v8.0.2"},{"repo":"actions/github-script","sha":"3a2844b7e9c422d3c10d287c895573f7108da1b3","version":"v9.0.0"},{"repo":"actions/setup-node","sha":"949feb2413d6458794dcd2491c4babbbce0c15c1","version":"v7.1.0"},{"repo":"actions/upload-artifact","sha":"cf430e030ddbb5b0abf93d22962f4752f3646cd9","version":"v7.0.2"},{"repo":"github/gh-aw/actions/setup","sha":"7abff6aed2f9c1c349c16c69579d4dde5266fe1b","version":"7abff6aed2f9c1c349c16c69579d4dde5266fe1b"}],"skills":["microsoft/hve-core/.github/skills/coding-standards/code-review@4e84aee97eb0019afcb19bceb63347e096803ed5","microsoft/hve-core/.github/skills/security/owasp-agentic@4e84aee97eb0019afcb19bceb63347e096803ed5","microsoft/hve-core/.github/skills/security/owasp-top-10@4e84aee97eb0019afcb19bceb63347e096803ed5","microsoft/hve-core/.github/skills/security/supply-chain-security@4e84aee97eb0019afcb19bceb63347e096803ed5"],"containers":[{"image":"ghcr.io/github/gh-aw-firewall/agent:0.29.14@sha256:7f649a02f2cc235325ab512f546854e0fad32b7abdc6c24c5475ddc0639e0aaa"},{"image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.29.14@sha256:136785634c9207d7328c701d31d53941542ef307840bda6b348274c8842557c0"},{"image":"ghcr.io/github/gh-aw-firewall/router:0.29.14@sha256:b8822defe0cc2abebc619ee1cf49c34c67286fab117512f0d667962572564be0"},{"image":"ghcr.io/github/gh-aw-firewall/squid:0.29.14@sha256:878b9c1aaeca076004bf2157dd2be28586b68b2b3d69c3ff8fd2b5add2a3126c"},{"image":"ghcr.io/github/gh-aw-mcpg:v0.5.10","digest":"sha256:629ddcd68a48ab02e7db8af527d2756c6db563b00c1d31d8aa8fcbac96f01c59","pinned_image":"ghcr.io/github/gh-aw-mcpg:v0.5.10@sha256:629ddcd68a48ab02e7db8af527d2756c6db563b00c1d31d8aa8fcbac96f01c59"},{"image":"ghcr.io/github/gh-aw-node","digest":"sha256:8735428c2d4e602f90781ba0c571c400e8ff93c7ee1508a75d71f87e34e415cc","pinned_image":"ghcr.io/github/gh-aw-node@sha256:8735428c2d4e602f90781ba0c571c400e8ff93c7ee1508a75d71f87e34e415cc"},{"image":"ghcr.io/github/github-mcp-server:v2.1.0","digest":"sha256:f6056fc10bfffcc8c81a6417a2e9ca12808647e8dd6049642a4feaadee0e0f8a","pinned_image":"ghcr.io/github/github-mcp-server:v2.1.0@sha256:f6056fc10bfffcc8c81a6417a2e9ca12808647e8dd6049642a4feaadee0e0f8a"}],"has_pull_request":true,"mcp_servers":[{"name":"github","tools":["get_commit","get_file_contents","get_latest_release","get_pull_request","get_pull_request_comments","get_pull_request_diff","get_pull_request_files","get_pull_request_review_comments","get_pull_request_reviews","get_pull_request_status","get_release_by_tag","get_tag","issue_read","list_branches","list_commits","list_issue_types","list_issues","list_pull_requests","list_releases","list_starred_repositories","list_tags","pull_request_read","search_code","search_issues","search_pull_requests","search_repositories"]},{"name":"safeoutputs","tools":["add_comment","add_reviewer","create_pull_request_review_comment","noop","report_incomplete","report_missing_data","report_missing_tool","submit_pull_request_review"]}],"threat_detection":{"mode":"enabled"},"admission":false,"agent_metadata":{}}
+# gh-aw-metadata: {"schema_version":"v4","frontmatter_hash":"727755956dcdd5c4e5ddf74dcc9fcd4474d25458355bd29d34d6fe49c6bf1a97","body_hash":"fa6d4b5d6f74f16eee22b2a081fc03b91e9587f22ae88136c36dbd63eaacfb4f","compiler_version":"7abff6a","strict":true,"agent_id":"copilot","engine_versions":{"copilot":"1.0.103"}}
+# gh-aw-manifest: {"version":1,"secrets":["COPILOT_GITHUB_TOKEN","FACTORY_APP_PRIVATE_KEY","GH_AW_DEFAULT_OTLP_ENDPOINT","GH_AW_DEFAULT_OTLP_HEADERS","GH_AW_GITHUB_MCP_SERVER_TOKEN","GH_AW_GITHUB_TOKEN","GITHUB_TOKEN"],"actions":[{"repo":"actions/checkout","sha":"3d3c42e5aac5ba805825da76410c181273ba90b1","version":"v7.0.1"},{"repo":"actions/create-github-app-token","sha":"64ab729a6294000f5aa4a4bc0b73d1f32bc45510","version":"v3.3.0"},{"repo":"actions/download-artifact","sha":"9000827ccba6bdab643e8b6fd33ac0654aef8333","version":"v8.0.2"},{"repo":"actions/github-script","sha":"3a2844b7e9c422d3c10d287c895573f7108da1b3","version":"v9.0.0"},{"repo":"actions/setup-node","sha":"949feb2413d6458794dcd2491c4babbbce0c15c1","version":"v7.1.0"},{"repo":"actions/upload-artifact","sha":"cf430e030ddbb5b0abf93d22962f4752f3646cd9","version":"v7.0.2"},{"repo":"github/gh-aw/actions/setup","sha":"d8d9d75c120c9fbdba6eb17ede35597d511d42ce","version":"d8d9d75c120c9fbdba6eb17ede35597d511d42ce"}],"skills":["microsoft/hve-core/.github/skills/coding-standards/code-review@4e84aee97eb0019afcb19bceb63347e096803ed5","microsoft/hve-core/.github/skills/security/owasp-agentic@4e84aee97eb0019afcb19bceb63347e096803ed5","microsoft/hve-core/.github/skills/security/owasp-top-10@4e84aee97eb0019afcb19bceb63347e096803ed5","microsoft/hve-core/.github/skills/security/supply-chain-security@4e84aee97eb0019afcb19bceb63347e096803ed5"],"containers":[{"image":"ghcr.io/github/gh-aw-firewall/agent:0.29.14@sha256:7f649a02f2cc235325ab512f546854e0fad32b7abdc6c24c5475ddc0639e0aaa"},{"image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.29.14@sha256:136785634c9207d7328c701d31d53941542ef307840bda6b348274c8842557c0"},{"image":"ghcr.io/github/gh-aw-firewall/router:0.29.14@sha256:b8822defe0cc2abebc619ee1cf49c34c67286fab117512f0d667962572564be0"},{"image":"ghcr.io/github/gh-aw-firewall/squid:0.29.14@sha256:878b9c1aaeca076004bf2157dd2be28586b68b2b3d69c3ff8fd2b5add2a3126c"},{"image":"ghcr.io/github/gh-aw-mcpg:v0.5.10","digest":"sha256:629ddcd68a48ab02e7db8af527d2756c6db563b00c1d31d8aa8fcbac96f01c59","pinned_image":"ghcr.io/github/gh-aw-mcpg:v0.5.10@sha256:629ddcd68a48ab02e7db8af527d2756c6db563b00c1d31d8aa8fcbac96f01c59"},{"image":"ghcr.io/github/gh-aw-node","digest":"sha256:8735428c2d4e602f90781ba0c571c400e8ff93c7ee1508a75d71f87e34e415cc","pinned_image":"ghcr.io/github/gh-aw-node@sha256:8735428c2d4e602f90781ba0c571c400e8ff93c7ee1508a75d71f87e34e415cc"},{"image":"ghcr.io/github/github-mcp-server:v2.1.0","digest":"sha256:f6056fc10bfffcc8c81a6417a2e9ca12808647e8dd6049642a4feaadee0e0f8a","pinned_image":"ghcr.io/github/github-mcp-server:v2.1.0@sha256:f6056fc10bfffcc8c81a6417a2e9ca12808647e8dd6049642a4feaadee0e0f8a"}],"has_pull_request":true,"mcp_servers":[{"name":"github","tools":["get_commit","get_file_contents","get_latest_release","get_pull_request","get_pull_request_comments","get_pull_request_diff","get_pull_request_files","get_pull_request_review_comments","get_pull_request_reviews","get_pull_request_status","get_release_by_tag","get_tag","issue_read","list_branches","list_commits","list_issue_types","list_issues","list_pull_requests","list_releases","list_starred_repositories","list_tags","pull_request_read","search_code","search_issues","search_pull_requests","search_repositories"]},{"name":"safeoutputs","tools":["add_comment","add_reviewer","create_pull_request_review_comment","noop","report_incomplete","report_missing_data","report_missing_tool","submit_pull_request_review"]}],"threat_detection":{"mode":"enabled"},"admission":false,"agent_metadata":{}}
 # This file was automatically generated by gh-aw. DO NOT EDIT. To debug this workflow, load the skill at https://github.com/github/gh-aw/blob/main/debug.md
 #
 #    ___                   _   _
@@ -45,7 +45,7 @@
 #   - actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
 #   - actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
 #   - actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-#   - github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
+#   - github/gh-aw/actions/setup@d8d9d75c120c9fbdba6eb17ede35597d511d42ce # d8d9d75c120c9fbdba6eb17ede35597d511d42ce
 #
 # Container images used:
 #   - ghcr.io/github/gh-aw-mcpg:v0.5.10@sha256:629ddcd68a48ab02e7db8af527d2756c6db563b00c1d31d8aa8fcbac96f01c59
@@ -75,8 +75,6 @@ on:
   pull_request_review_comment:
     types:
       - created
-  schedule:
-    - cron: "*/30 * * * *"
   # steps: # Steps injected into pre-activation job
   # - env:
   # COMMENT_BODY: ${{ github.event.comment.body || '' }}
@@ -90,9 +88,9 @@ on:
   # exit 0
   # fi
   # if [ "$EVENT" = "issue_comment" ] || [ "$EVENT" = "pull_request_review_comment" ]; then
-  # # Anti-loop: skip own comments UNLESS it's a waiting-for-copilot checkpoint
+  # # Anti-loop: skip own comments UNLESS they @mention @reviewer (self-trigger)
   # if echo "$COMMENT_BODY" | grep -q "Generated by \[Review Agent"; then
-  # if echo "$COMMENT_BODY" | grep -q "REVIEW:WAITING"; then
+  # if echo "$COMMENT_BODY" | grep -q "@reviewer"; then
   # echo "skip=false" >> "$GITHUB_OUTPUT"
   # else
   # echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -103,13 +101,6 @@ on:
   # exit 0
   # fi
   # echo "skip=false" >> "$GITHUB_OUTPUT"
-  workflow_dispatch:
-    inputs:
-      aw_context:
-        default: ""
-        description: "Agent caller context (Reserved for Agentic Workflows)."
-        required: false
-        type: string
   workflow_run:
     # zizmor: ignore[dangerous-triggers] - workflow_run trigger is secured with role and fork validation
     branches:
@@ -181,7 +172,7 @@ jobs:
     steps:
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
+        uses: github/gh-aw/actions/setup@d8d9d75c120c9fbdba6eb17ede35597d511d42ce # d8d9d75c120c9fbdba6eb17ede35597d511d42ce
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -193,7 +184,6 @@ jobs:
           GH_AW_INFO_VERSION: "1.0.103"
           GH_AW_INFO_AWF_VERSION: "v0.29.14"
           GH_AW_INFO_ENGINE_ID: "copilot"
-          GH_AW_SETUP_AW_CONTEXT: ${{ inputs.aw_context }}
       - name: Mask OTLP telemetry headers
         run: bash "${RUNNER_TEMP}/gh-aw/actions/mask_otlp_headers.sh"
       - name: Resolve model routing
@@ -663,7 +653,7 @@ jobs:
     steps:
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
+        uses: github/gh-aw/actions/setup@d8d9d75c120c9fbdba6eb17ede35597d511d42ce # d8d9d75c120c9fbdba6eb17ede35597d511d42ce
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -675,7 +665,6 @@ jobs:
           GH_AW_INFO_VERSION: "1.0.103"
           GH_AW_INFO_AWF_VERSION: "v0.29.14"
           GH_AW_INFO_ENGINE_ID: "copilot"
-          GH_AW_SETUP_AW_CONTEXT: ${{ inputs.aw_context }}
       - name: Set runtime paths
         id: set-runtime-paths
         env:
@@ -1706,7 +1695,7 @@ jobs:
     steps:
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
+        uses: github/gh-aw/actions/setup@d8d9d75c120c9fbdba6eb17ede35597d511d42ce # d8d9d75c120c9fbdba6eb17ede35597d511d42ce
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -1718,7 +1707,6 @@ jobs:
           GH_AW_INFO_VERSION: "1.0.103"
           GH_AW_INFO_AWF_VERSION: "v0.29.14"
           GH_AW_INFO_ENGINE_ID: "copilot"
-          GH_AW_SETUP_AW_CONTEXT: ${{ inputs.aw_context }}
       - name: Generate GitHub App token
         id: safe-outputs-app-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
@@ -2082,7 +2070,7 @@ jobs:
     steps:
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
+        uses: github/gh-aw/actions/setup@d8d9d75c120c9fbdba6eb17ede35597d511d42ce # d8d9d75c120c9fbdba6eb17ede35597d511d42ce
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -2094,7 +2082,6 @@ jobs:
           GH_AW_INFO_VERSION: "1.0.103"
           GH_AW_INFO_AWF_VERSION: "v0.29.14"
           GH_AW_INFO_ENGINE_ID: "copilot"
-          GH_AW_SETUP_AW_CONTEXT: ${{ inputs.aw_context }}
       - name: Download activation artifact
         continue-on-error: true
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -2433,7 +2420,7 @@ jobs:
     steps:
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
+        uses: github/gh-aw/actions/setup@d8d9d75c120c9fbdba6eb17ede35597d511d42ce # d8d9d75c120c9fbdba6eb17ede35597d511d42ce
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -2443,7 +2430,6 @@ jobs:
           GH_AW_INFO_VERSION: "1.0.103"
           GH_AW_INFO_AWF_VERSION: "v0.29.14"
           GH_AW_INFO_ENGINE_ID: "copilot"
-          GH_AW_SETUP_AW_CONTEXT: ${{ inputs.aw_context }}
       - name: Check team membership for workflow
         id: check_membership
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -2468,9 +2454,9 @@ jobs:
             exit 0
           fi
           if [ "$EVENT" = "issue_comment" ] || [ "$EVENT" = "pull_request_review_comment" ]; then
-            # Anti-loop: skip own comments UNLESS it's a waiting-for-copilot checkpoint
+            # Anti-loop: skip own comments UNLESS they @mention @reviewer (self-trigger)
             if echo "$COMMENT_BODY" | grep -q "Generated by \[Review Agent"; then
-              if echo "$COMMENT_BODY" | grep -q "REVIEW:WAITING"; then
+              if echo "$COMMENT_BODY" | grep -q "@reviewer"; then
                 echo "skip=false" >> "$GITHUB_OUTPUT"
               else
                 echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -2547,7 +2533,7 @@ jobs:
     steps:
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
+        uses: github/gh-aw/actions/setup@d8d9d75c120c9fbdba6eb17ede35597d511d42ce # d8d9d75c120c9fbdba6eb17ede35597d511d42ce
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -2559,7 +2545,6 @@ jobs:
           GH_AW_INFO_VERSION: "1.0.103"
           GH_AW_INFO_AWF_VERSION: "v0.29.14"
           GH_AW_INFO_ENGINE_ID: "copilot"
-          GH_AW_SETUP_AW_CONTEXT: ${{ inputs.aw_context }}
       - name: Mask OTLP telemetry headers
         run: bash "${RUNNER_TEMP}/gh-aw/actions/mask_otlp_headers.sh"
       - name: Download agent output artifact
