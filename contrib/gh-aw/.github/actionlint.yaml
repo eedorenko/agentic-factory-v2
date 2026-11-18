@@ -1,0 +1,9 @@
+self-hosted-runner:
+  labels:
+    - aw-gpu-runner-T4
+
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      - 'unknown permission scope "copilot-requests"'
+      - 'unknown permission scope "drives"'
