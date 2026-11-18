@@ -9,13 +9,27 @@ interface SafeOutputConfig {
 
 // === Specific Safe Output Configuration Interfaces ===
 
+interface AddSecurityAdvisoryCommentConfig extends SafeOutputConfig {
+  footer?: boolean;
+  staged?: boolean;
+}
+
+interface CreateSecurityAdvisoryConfig extends SafeOutputConfig {
+  staged?: boolean;
+}
+
 /**
  * Configuration for creating GitHub issues
  */
 interface CreateIssueConfig extends SafeOutputConfig {
+  /** Maximum artifacts per issue (default: 10); non-positive values disable artifacts. */
+  "max-issue-artifacts"?: number;
+  /** Maximum UTF-8 body size: integer bytes or human-friendly size (default: "1mb"). */
+  "max-issue-artifact-size"?: number | string;
   "title-prefix"?: string;
   "body-footer"?: string;
   "deduplicate-by-title"?: boolean | number;
+  "deduplicate-by-labels"?: string[];
   labels?: string[];
   "target-repo"?: string;
   "allowed-repos"?: string[];
@@ -201,10 +215,15 @@ interface AddReviewerConfig extends SafeOutputConfig {
  * Configuration for updating issues
  */
 interface UpdateIssueConfig extends SafeOutputConfig {
+  /** Maximum artifacts per issue (default: 10); non-positive values disable artifacts. */
+  "max-issue-artifacts"?: number;
+  /** Maximum UTF-8 body size: integer bytes or human-friendly size (default: "1mb"). */
+  "max-issue-artifact-size"?: number | string;
   status?: boolean;
   target?: string;
   title?: boolean;
   body?: boolean;
+  operation?: "append" | "prepend" | "replace" | "replace-island";
   footer?: boolean;
 }
 
@@ -248,6 +267,7 @@ interface PushToPullRequestBranchConfig extends SafeOutputConfig {
  * Configuration for merging pull requests with policy checks.
  */
 interface MergePullRequestConfig extends SafeOutputConfig {
+  "allowed-base-branches": string[];
   "required-labels"?: string[];
   "required-title-prefix"?: string;
   "required-checks"?: string[];
@@ -372,6 +392,8 @@ interface SafeJobConfig {
 
 // Union type of all specific safe output configurations
 type SpecificSafeOutputConfig =
+  | AddSecurityAdvisoryCommentConfig
+  | CreateSecurityAdvisoryConfig
   | CreateIssueConfig
   | CreateDiscussionConfig
   | UpdateDiscussionConfig
@@ -408,6 +430,8 @@ type SpecificSafeOutputConfig =
 type SafeOutputConfigs = Record<string, SafeOutputConfig | SpecificSafeOutputConfig>;
 
 export {
+  AddSecurityAdvisoryCommentConfig,
+  CreateSecurityAdvisoryConfig,
   SafeOutputConfig,
   SafeOutputConfigs,
   // Specific configuration types

@@ -52,11 +52,62 @@ describe("report AST", () => {
     expect(renderReport(report(children)).body).toBe("<!-- gh-aw-work-issue:work_123 -->\n");
   });
 
+  it("treats null template values as scalar text", () => {
+    const options = { context: { value: null } };
+    expect(renderReport(report(parseReportMarkdown("Value: {value}", options))).body).toBe("Value: null\n");
+    expect(renderReport(report(parseReportMarkdown("{value}", options))).body).toBe("null\n");
+    expect(parseReportMarkdown("<!-- gh-aw-work-issue:{value} -->", { ...options, allowMetadata: true })).toEqual([{ type: "xml_marker", name: "gh-aw-work-issue", value: "null", compact: true }]);
+  });
+
   it("imports a durable review marker as its own block and retains its encoded identity", () => {
     const source = 'Review summary\n[gh-aw-workflow-call-id]: # "owner%2Frepo%2FWorkflow%20name"';
     const children = parseReportMarkdown(source, { allowMetadata: true, agentTainted: false });
     expect(children[1]).toEqual({ type: "review_marker", workflowCallId: "owner/repo/Workflow name", agentTainted: false });
     expect(renderReport(report(children)).body).toBe(source.replace("\n[", "\n\n[") + "\n");
+  });
+
+  it("preserves fragment-only reference definitions as opaque review metadata", () => {
+    const source = "Body text.\n\n[my-marker]: #score=85,run_id=1,run_attempt=1\n[my-data]: #v=1,data=H4sIAAAA-abc_def_ghi";
+    const children = parseReportMarkdown(source, { minimumHeadingLevel: 2, allowMetadata: true, agentTainted: true });
+
+    expect(children.map(node => node.type)).toEqual(["paragraph", "reference_definition", "reference_definition"]);
+    expect(children.slice(1)).toEqual([
+      { type: "reference_definition", value: "[my-marker]: #score=85,run_id=1,run_attempt=1", agentTainted: true },
+      { type: "reference_definition", value: "[my-data]: #v=1,data=H4sIAAAA-abc_def_ghi", agentTainted: true },
+    ]);
+    const body = renderReport(report(children)).body;
+    expect(body).toBe("Body text.\n\n[my-marker]: #score=85,run_id=1,run_attempt=1\n\n[my-data]: #v=1,data=H4sIAAAA-abc_def_ghi\n");
+    expect(body).toContain("[my-marker]: #score=85,run_id=1,run_attempt=1");
+    expect(body).toContain("[my-data]: #v=1,data=H4sIAAAA-abc_def_ghi");
+    expect(body).not.toContain("\\[my-marker\\]");
+    expect(body).not.toContain("abc\\_def\\_ghi");
+    expect(parseReportMarkdown("[external]: https://example.com", { allowMetadata: true })[0].type).toBe("paragraph");
+  });
+
+  it.each(["[state]: #value=a&amp;amp;b", "[state]: #value=&amp;lt;", "[state]: #value=&lt;"])("preserves literal entity bytes in reference definitions: %s", source => {
+    const children = parseReportMarkdown(source, { allowMetadata: true, agentTainted: true });
+
+    expect(children).toEqual([{ type: "reference_definition", value: source, agentTainted: true }]);
+    expect(renderReport(report(children)).body).toBe(`${source}\n`);
+  });
+
+  it("renders a secret-redacted reference definition as escaped text instead of aborting", () => {
+    vi.stubEnv("GH_AW_SECRET_NAMES", "REFERENCE_LABEL");
+    vi.stubEnv("SECRET_REFERENCE_LABEL", "marker-secret-fixture");
+    const children = parseReportMarkdown("[marker-secret-fixture]: #state=ok", { allowMetadata: true, agentTainted: true });
+
+    expect(() => renderReport(report(children))).not.toThrow();
+    const normalized = normalizeReport(report(children));
+    expect(normalized.children.map(node => node.type)).toEqual(["paragraph"]);
+    const body = renderReport(report(children)).body;
+    expect(body).toContain("\\[");
+    expect(body).toContain("state=ok");
+    expect(body).not.toContain("marker-secret-fixture");
+    expect(body).not.toContain("[marker-secret-fixture]:");
+  });
+
+  it("rejects non-fragment reference definitions in typed reports", () => {
+    expect(() => renderReport(report([{ type: "reference_definition", value: "[external]: javascript:alert(1)" }]))).toThrow("Invalid report reference definition");
   });
 
   it.each(["%", "%FF", "%E0%A4"])("keeps malformed review metadata %s literal instead of failing publication", encoded => {
@@ -291,6 +342,23 @@ describe("report AST", () => {
     expect(body).toContain("\\*\\*bold\\*\\*");
     expect(body).toContain("\\[click\\]");
     expect(body).toContain("`@octocat` &amp; text");
+  });
+
+  it("preserves complete temporary references for later expansion while escaping other Markdown", () => {
+    const { replaceTemporaryIdReferences } = require("./temporary_id.cjs");
+    const input = "See #aw_track1 and #aw_other_id; not #aw_test-id or # heading, *bold* and ordinary_text.";
+    const body = renderReport(report([paragraph(input)])).body;
+    expect(body).toBe("See #aw_track1 and #aw_other_id; not \\#aw\\_test-id or \\# heading, \\*bold\\* and ordinary\\_text.\n");
+    const ids = new Map([["aw_track1", { repo: "owner/repo", number: 123 }]]);
+    expect(replaceTemporaryIdReferences(body.split(";")[0], ids, "owner/repo")).toBe("See #123 and #aw_other_id");
+    expect(renderReport(report(parseReportMarkdown(body))).body).toBe(body);
+  });
+
+  it("preserves temporary references in image alt text", () => {
+    const body = renderReport(report([{ type: "paragraph", children: [{ type: "image", url: "https://example.com/image.png", alt: "Chart #aw_chart1 and other_text" }] }])).body;
+    expect(body).toBe("![Chart #aw_chart1 and other\\_text](https://example.com/image.png)\n");
+    const literalSlash = renderReport(report([{ type: "paragraph", children: [{ type: "image", url: "https://example.com/image.png", alt: "Chart \\#aw_chart1" }] }])).body;
+    expect(literalSlash).toBe("![Chart \\\\#aw\\_chart1](https://example.com/image.png)\n");
   });
 
   it("chooses fences after normalization and redaction", () => {

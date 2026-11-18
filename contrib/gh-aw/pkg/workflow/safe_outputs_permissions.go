@@ -88,14 +88,6 @@ func getPushFallbackAsPullRequest(config *PushToPullRequestBranchConfig) bool {
 	return *config.FallbackAsPullRequest
 }
 
-// getCheckBranchProtection returns the effective check-branch-protection setting (defaults to true).
-func getCheckBranchProtection(config *PushToPullRequestBranchConfig) bool {
-	if config == nil || config.CheckBranchProtection == nil {
-		return true // Default: check is enabled
-	}
-	return *config.CheckBranchProtection
-}
-
 // ComputePermissionsForSafeOutputs computes the minimal required permissions
 // based on the configured safe-outputs. This function is used by both the
 // consolidated safe outputs job and the conclusion job to ensure they only
@@ -112,7 +104,7 @@ func ComputePermissionsForSafeOutputs(safeOutputs *SafeOutputsConfig) *Permissio
 // safeOutputsGlobalAppTokenMinted reports whether the consolidated safe_outputs job
 // mints the global "safe-outputs-app-token" step. The step is skipped when no enabled
 // handler consumes GitHub permissions from the global app (for example when staged
-// handlers need no reads, or in a Linear-only configuration), so token expressions that
+// handlers need no reads, or in a connector-only configuration), so token expressions that
 // reference the step must fall back to a regular token in that case.
 //
 // This must stay in sync with buildPreambleTokenSteps, which uses the same condition

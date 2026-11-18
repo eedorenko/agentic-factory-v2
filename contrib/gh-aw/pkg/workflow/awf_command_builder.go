@@ -56,6 +56,9 @@ func BuildAWFCommand(config AWFCommandConfig) string {
 		awfHelpersLog.Printf("Warning: failed to build AWF config JSON: %v", err)
 	} else {
 		configFileSetup = buildAWFConfigFileSetup(config, awfConfigJSON)
+		if isModelRoutingRuntimeGuarded(config.WorkflowData) {
+			configFileSetup = buildGuardedAWFConfigFileSetup(config, awfConfigJSON)
+		}
 		expandableArgs = fmt.Sprintf("--config %q ", awfConfigRuntimePathExpr) + expandableArgs
 		awfHelpersLog.Print("Using AWF config file (--config flag)")
 	}
@@ -263,7 +266,38 @@ func appendArcDindMountSettings(expandableArgs, arcDindDockerHostProbe string, i
 func buildAWFConfigFileSetup(config AWFCommandConfig, awfConfigJSON string) string {
 	maxAICreditsExportLine, updatedAWFConfigJSON := buildMaxAICreditsExport(config, awfConfigJSON)
 	printfArg := buildAWFConfigPrintfArg(updatedAWFConfigJSON, maxAICreditsExportLine != "")
-	configFileSetup := buildConfigFilePrintfLine(printfArg)
+	return finishAWFConfigFileSetup(config, maxAICreditsExportLine, buildConfigFilePrintfLine(printfArg))
+}
+
+// buildGuardedAWFConfigFileSetup writes the routed AWF config when the activation
+// job selected routing for this run (GH_AW_MODEL_ROUTING=1), and otherwise the
+// non-routed config, so AWF never starts the router for a bypassed run.
+func buildGuardedAWFConfigFileSetup(config AWFCommandConfig, routedJSON string) string {
+	plainConfig := config
+	plainConfig.WorkflowData = withoutModelRouting(config.WorkflowData)
+	plainJSON, err := BuildAWFConfigJSON(plainConfig)
+	if err != nil {
+		awfHelpersLog.Printf("Warning: failed to build non-routed AWF config JSON: %v", err)
+		return buildAWFConfigFileSetup(config, routedJSON)
+	}
+	maxAICreditsExportLine, updatedRoutedJSON := buildMaxAICreditsExport(config, routedJSON)
+	_, updatedPlainJSON := buildMaxAICreditsExport(plainConfig, plainJSON)
+	hasExport := maxAICreditsExportLine != ""
+	routedLines := []string{`if [ "${GH_AW_MODEL_ROUTING:-}" = "1" ]; then`}
+	if isModelRoutingDynamic(config.WorkflowData) {
+		updatedRoutedJSON = injectDynamicModelRoutingMode(updatedRoutedJSON)
+		routedLines = append(routedLines, dynamicModelRoutingModeCheck())
+	}
+	printfLines := strings.Join(append(routedLines,
+		buildConfigFilePrintfLine(buildAWFConfigPrintfArg(updatedRoutedJSON, hasExport)),
+		"else",
+		buildConfigFilePrintfLine(buildAWFConfigPrintfArg(updatedPlainJSON, hasExport)),
+		"fi",
+	), "\n")
+	return finishAWFConfigFileSetup(config, maxAICreditsExportLine, printfLines)
+}
+
+func finishAWFConfigFileSetup(config AWFCommandConfig, maxAICreditsExportLine, configFileSetup string) string {
 	if maxAICreditsExportLine != "" {
 		configFileSetup = maxAICreditsExportLine + "\n" + configFileSetup
 	}
@@ -377,7 +411,7 @@ fi
 `
 	}
 	return fmt.Sprintf(`%s
-if [[ ! "$%s" =~ ^[0-9]+$ ]]; then
+if [[ ! "$%s" =~ ^(-1|[0-9]+)$ ]]; then
   %s="%s"
 fi
 %s
@@ -403,6 +437,7 @@ func buildAWFConfigPrintfArg(awfConfigJSON string, hasMaxAICreditsExport bool) s
 		preservedVars = append(preservedVars, "RUNNER_TEMP")
 	}
 	for _, name := range []string{
+		modelRoutingModeEnvVar,
 		"GH_AW_CLOUD_HYPERVISOR_BINARY",
 		"GH_AW_CLOUD_HYPERVISOR_KERNEL",
 		"GH_AW_CLOUD_HYPERVISOR_ROOTFS",

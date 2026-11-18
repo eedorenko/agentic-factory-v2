@@ -131,6 +131,11 @@ func resolveEffectiveModelAttribution(runDir string, info *AwInfo, routing *Mode
 	if result.RequestedModel == "" && (info.ModelRouting != nil || (routing != nil && routing.Status != "" && routing.Status != "not_routed")) {
 		result.RequestedModel = info.Model
 	}
+	// A router model value (for example router/economy) is what the workflow requested;
+	// show it next to the model the router picked.
+	if requested := info.requestedRouterValue(); requested != "" {
+		result.RequestedModel = requested
+	}
 
 	primaryModel := primaryTokenUsageModel(usage)
 	routingActive := (info.ModelRouting != nil && info.ModelRouting.Status != "" && info.ModelRouting.Status != "not_routed") ||
@@ -185,6 +190,9 @@ func mergeSessionModelRoutingAwInfo(runDir string, info *AwInfo) *AwInfo {
 	}
 	if modelRouting := sessionRouting.modelRouting(); modelRouting != nil {
 		sessionInfo.ModelRouting = modelRouting
+	}
+	if sessionRouting.ModelConfig != nil {
+		sessionInfo.ModelConfig = sessionRouting.ModelConfig
 	}
 	return &sessionInfo
 }
@@ -585,7 +593,7 @@ func aggregateModelRoutingCosts(summary *ModelRoutingSummary, requests []modelRo
 		}
 	}
 
-	for _, entry := range usageEntries {
+	for _, entry := range tokenUsageEntriesWithCreditDeltas(usageEntries) {
 		var bucket *ModelRoutingCost
 		switch {
 		case entry.Purpose == "routing_classification":
@@ -602,11 +610,7 @@ func aggregateModelRoutingCosts(summary *ModelRoutingSummary, requests []modelRo
 		bucket.OutputTokens += entry.OutputTokens
 		bucket.CacheReadTokens += entry.CacheReadTokens
 		bucket.CacheWriteTokens += entry.CacheWriteTokens
-		delta, _, valid := parseOptionalNonNegativeFloat(entry.AICreditsThisResponse)
-		if !valid {
-			inputTokensIncludeCache, _, _ := parseOptionalBool(entry.InputTokensIncludeCache)
-			delta = computeModelInferenceAICWithCacheSemantics(entry.Provider, entry.Model, entry.InputTokens, entry.OutputTokens, entry.CacheReadTokens, entry.CacheWriteTokens, entry.ReasoningTokens, inputTokensIncludeCache)
-		}
+		delta := tokenUsageEntryCredits(entry)
 		bucket.AIC += delta
 	}
 }

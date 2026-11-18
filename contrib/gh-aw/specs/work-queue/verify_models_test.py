@@ -123,6 +123,23 @@ class ModelRunnerTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("TLC_MODEL_FILTER must be", result.stderr)
 
+    def test_activation_receipt_configs_require_exact_verdicts(self):
+        for config, invariant in (
+            ("BrokenLifecycleReceipt", "AcceptanceNotAuthority"),
+            ("LifecyclePendingWitness", "NoAcceptedPendingWitness"),
+            ("LifecycleAcceptedBindingWitness", "NoAcceptedBindingWitness"),
+            ("LifecycleUnresolvedWitness", "NoUnresolvedReservationWitness"),
+        ):
+            with self.subTest(config=config):
+                result = self.run_model(config, f"Invariant {invariant} is violated", 12,
+                                        model="QueueLifecycle")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for output, status in (("Invariant BindingAuthority is violated", 12),
+                                       (f"Invariant {invariant} is violated", 0),
+                                       ("Parsing failed", 151)):
+                    rejected = self.run_model(config, output, status, model="QueueLifecycle")
+                    self.assertNotEqual(rejected.returncode, 0)
+
     def test_expiration_configs_require_exact_verdicts(self):
         model = "WorkExpiration"
         accepted = self.run_model("WorkExpiration", "Model checking completed. No error", model=model)
@@ -141,6 +158,39 @@ class ModelRunnerTests(unittest.TestCase):
                 self.assertEqual(accepted.returncode, 0, accepted.stderr)
                 rejected = self.run_model(config, "Invariant TypeOK is violated", 12, model=model)
                 self.assertNotEqual(rejected.returncode, 0)
+
+    def test_retirement_configs_require_exact_verdicts(self):
+        model = "ObsoleteWorkRetirement"
+        for config in ("Retirement", "RetirementSingle"):
+            accepted = self.run_model(config, "Model checking completed. No error", model=model)
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        for config, invariant in (
+            ("BrokenRetirementExpiry", "SelectionExpiration"),
+            ("BrokenRetirementPublication", "CancellationAuthority"),
+            ("BrokenRetirementPin", "CancellationAuthority"),
+            ("BrokenRetirementOwnership", "CancellationAuthority"),
+            ("BrokenRetirementBarrier", "CancellationAuthority"),
+            ("BrokenRetirementAvailability", "CancellationAuthority"),
+            ("BrokenRetirementLegacy", "LegacyReplayCompatibility"),
+            ("BrokenRetirementCheckpoint", "CheckpointMetadata"),
+            ("BrokenRetirementTerminal", "TerminalMetadata"),
+            ("BrokenRetirementDebt", "ProtectedState"),
+            ("BrokenRetirementReservation", "ProtectedState"),
+            ("BrokenRetirementResult", "ProtectedState"),
+            ("BrokenRetirementMaintenance", "RecoveryIsolation"),
+            ("RetirementCheckedWitness", "NoCheckedRetirement"),
+            ("RetirementLegacyWitness", "NoLegacyCheckpoint"),
+            ("RetirementRecoveryWitness", "NoRetirementRecovery"),
+            ("RetirementExpirationWitness", "NoElapsedPrefix"),
+        ):
+            with self.subTest(config=config):
+                accepted = self.run_model(config, f"Invariant {invariant} is violated", 12, model=model)
+                self.assertEqual(accepted.returncode, 0, accepted.stderr)
+                for output, status in ((f"Invariant {invariant} is violated", 0),
+                                       ("Invariant TypeOK is violated", 12),
+                                       ("Parsing failed", 151)):
+                    rejected = self.run_model(config, output, status, model=model)
+                    self.assertNotEqual(rejected.returncode, 0)
 
     def test_delivery_recovery_configs_require_exact_verdicts(self):
         model = "ClaimDeliveryRecovery"
@@ -199,9 +249,10 @@ class ModelRunnerTests(unittest.TestCase):
     def test_all_new_configs_are_registered_with_real_invariants(self):
         runner = (SPEC / "check.sh").read_text()
         for model, pattern in (("ClaimDeliveryHealth", r"(?:Delivery|BrokenDelivery).*\.cfg"),
+                               ("ObsoleteWorkRetirement", r"(?:Retirement.*|BrokenRetirement.*)\.cfg"),
                                ("WorkExpiration", r"(?:WorkExpiration|BrokenExpiration.*|Expiration.*Witness)\.cfg"),
                                ("ClaimDeliveryRecovery", r"(?:DeliveryRecovery.*|BrokenRecovery.*|Recovery(?:Released|Enriched|Retained|Unavailable)Witness)\.cfg"),
-                               ("QueueLifecycle", r"LifecycleReleasedPendingWitness\.cfg"),
+                               ("QueueLifecycle", r"(?:Lifecycle.*|BrokenLifecycle.*)\.cfg"),
                                ("DispatchReservationRecovery", r"(?:Reservation|BrokenReservation).*\.cfg"),
                                ("WorkerEvolution", r"(?:WorkerEvolution|BrokenEvolution|Evolution).*\.cfg"),
                                ("WorkerDeploymentBoundary", r"(?:WorkerDeploymentBoundary|BrokenBoundary|Boundary).*\.cfg"),

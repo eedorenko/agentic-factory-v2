@@ -17,6 +17,10 @@ const { normalizeCodexSession } = require("./codex_session.cjs");
 const { projectSessionResult, observedSessionModel } = require("./agent_session.cjs");
 const { resolveEffectiveModel, resolveModelRoutingSummary } = require("./model_attribution.cjs");
 const { normalizeHarnessRetryRecord } = require("./harness_retry_record.cjs");
+const { isDurableSessionRecord } = require("./durable_session_record.cjs");
+const { readEvalsNotEvaluatedStatus } = require("./evals_status.cjs");
+const { MAX_OTLP_RESPONSE_BYTES, readOTLPResponse, inspectOTLPResponse, unavailableOTLPResponse } = require("./otlp_response.cjs");
+const { OTEL_ATTR_WORKFLOW_NAME, OTEL_ATTR_REPOSITORY, OTEL_ATTR_RUN_ID, OTEL_ATTR_GITHUB_RUN_ID, OTEL_ATTR_ENGINE_ID, canonicalAttributeName } = require("./otel_attributes_generated.cjs");
 
 function getGhAwPath(relativePath) {
   const root = (process.env.GH_AW_TMP_DIR || "").trim() || "/tmp/gh-aw";
@@ -27,7 +31,7 @@ function getGhAwPath(relativePath) {
  * send_otlp_span.cjs
  *
  * Sends a single OTLP (OpenTelemetry Protocol) trace span to the configured
- * HTTP/JSON endpoint.  Used by actions/setup to instrument each job execution
+ * OTLP/HTTP JSON or protobuf endpoint. Used by actions/setup to instrument each job execution
  * with basic telemetry.
  *
  * Design constraints:
@@ -106,12 +110,13 @@ function toNanoString(ms) {
  * @returns {{ key: string, value: object }}
  */
 function buildAttr(key, value) {
+  key = canonicalAttributeName(key);
   if (typeof value === "boolean") {
     return { key, value: { boolValue: value } };
   }
   if (typeof value === "number") {
     if (Number.isFinite(value)) {
-      if (Number.isInteger(value)) {
+      if (Number.isInteger(value) && Number.isSafeInteger(value)) {
         return { key, value: { intValue: value } };
       }
       return { key, value: { doubleValue: value } };
@@ -134,7 +139,7 @@ function buildAttr(key, value) {
  * @returns {{ key: string, value: { doubleValue: number } }}
  */
 function buildDoubleAttr(key, value) {
-  return { key, value: { doubleValue: typeof value === "number" && Number.isFinite(value) ? value : 0 } };
+  return { key: canonicalAttributeName(key), value: { doubleValue: typeof value === "number" && Number.isFinite(value) ? value : 0 } };
 }
 
 /**
@@ -147,7 +152,7 @@ function buildDoubleAttr(key, value) {
  * @returns {{ key: string, value: { arrayValue: { values: Array<{ stringValue: string }> } } }}
  */
 function buildArrayAttr(key, values) {
-  return { key, value: { arrayValue: { values: values.map(v => ({ stringValue: String(v) })) } } };
+  return { key: canonicalAttributeName(key), value: { arrayValue: { values: values.map(v => ({ stringValue: String(v) })) } } };
 }
 
 /**
@@ -438,7 +443,7 @@ function buildGitHubActionsResourceAttributes({
   };
 
   upsertResourceAttr(buildAttr("github.repository", repository));
-  upsertResourceAttr(buildAttr("github.run_id", runId));
+  upsertResourceAttr(buildAttr(OTEL_ATTR_GITHUB_RUN_ID, runId));
   upsertResourceAttr(buildAttr("github.run_attempt", runAttempt));
   const runUrlAttr = buildGitHubActionsRunUrlAttribute(repository, runId);
   if (runUrlAttr) {
@@ -788,9 +793,17 @@ function selectGraderOutputForJob(jobName, readJSON = readJSONIfExists) {
  *
  * @param {any[]} evalResults
  * @param {number} eventTimeMs
+ * @param {import("./evals_status.cjs").EvalsNotEvaluatedStatus | null} [notEvaluated]
  * @returns {{attributes: Array<{key: string, value: object}>, events: Array<{timeUnixNano: string, name: string, attributes: Array<{key: string, value: object}>}>}}
  */
-function buildEvalTelemetry(evalResults, eventTimeMs) {
+function buildEvalTelemetry(evalResults, eventTimeMs, notEvaluated = null) {
+  if (notEvaluated) {
+    const attributes = [buildAttr("gh-aw.evals.status", notEvaluated.status), buildAttr("gh-aw.evals.reason_code", notEvaluated.reason_code)];
+    if (typeof notEvaluated.model === "string" && notEvaluated.model) {
+      attributes.push(buildAttr("gh-aw.eval.model", notEvaluated.model));
+    }
+    return { attributes, events: [{ timeUnixNano: toNanoString(eventTimeMs), name: "eval.status", attributes }] };
+  }
   if (!Array.isArray(evalResults)) {
     return { attributes: [], events: [] };
   }
@@ -937,12 +950,30 @@ function hasProxyConfigured(endpoint) {
  *
  * @param {string} url
  * @param {Record<string, string>} headers
- * @param {string} body
- * @returns {{ ok: boolean, status: number, statusText: string }}
+ * @param {string | Buffer} body
+ * @returns {{ ok: boolean, status: number, statusText: string, responseBody: Buffer, contentType: string, diagnosticsUnavailable: boolean }}
  */
 function sendOTLPViaCurl(url, headers, body) {
   /** @type {string[]} */
-  const args = ["--silent", "--show-error", "--location", "--output", "/dev/null", "--write-out", "%{http_code}", "--request", "POST", "--data-binary", "@-"];
+  const args = [
+    "--silent",
+    "--show-error",
+    "--location",
+    "--suppress-connect-headers",
+    "--dump-header",
+    "-",
+    // Let curl finish and emit its status before the subprocess deadline.
+    "--max-time",
+    "10",
+    "--max-filesize",
+    String(MAX_OTLP_RESPONSE_BYTES),
+    "--write-out",
+    "\n%{http_code}\n%{content_type}",
+    "--request",
+    "POST",
+    "--data-binary",
+    "@-",
+  ];
 
   for (const [key, value] of Object.entries(headers)) {
     args.push("--header", `${key}: ${value}`);
@@ -950,29 +981,60 @@ function sendOTLPViaCurl(url, headers, body) {
   args.push(url);
 
   const result = childProcess.spawnSync("curl", args, {
-    encoding: "utf8",
     input: body,
-    maxBuffer: 1024 * 1024,
+    stdio: ["pipe", "pipe", "pipe"],
+    maxBuffer: MAX_OTLP_RESPONSE_BYTES + 4096,
     timeout: 15_000,
   });
 
-  if (result.error) {
+  const interrupted = result.error && "code" in result.error && (result.error.code === "ENOBUFS" || result.error.code === "ETIMEDOUT");
+  if (result.error && !interrupted) {
     throw result.error;
   }
 
-  const status = Number.parseInt((result.stdout || "").trim(), 10);
-  if (Number.isInteger(status)) {
+  const output = Buffer.from(result.stdout || "");
+  // curl writes headers to stdout before each body. Unlike /dev/fd paths, "-"
+  // works with Node's socket-backed stdio on Linux as well as macOS.
+  // Stop at the final response's body: body bytes must never supply a status.
+  let bodyOffset = 0;
+  let headerStatus = 0;
+  while (output.subarray(bodyOffset, bodyOffset + 5).toString() === "HTTP/") {
+    const remaining = output.subarray(bodyOffset).toString("latin1");
+    const header = /^HTTP\/(?:1\.[01]|2|3) ([1-5]\d{2})(?:[ \t][^\r\n]*)?\r?\n(?:[^\r\n]+\r?\n)*\r?\n/.exec(remaining);
+    headerStatus = 0;
+    if (!header) break;
+    bodyOffset += header[0].length;
+    headerStatus = Number(header[1]);
+    if (headerStatus >= 200 && (headerStatus < 300 || headerStatus >= 400)) break;
+    if (headerStatus >= 300 && !/\r?\nlocation:/i.test(header[0])) break;
+    // Informational responses require a final response. curl suppresses
+    // redirect bodies when following Location, leaving the next header here.
+    if (headerStatus < 200) headerStatus = 0;
+  }
+  const responseOutput = output.subarray(bodyOffset);
+  const typeIndex = responseOutput.lastIndexOf("\n");
+  const statusIndex = responseOutput.lastIndexOf("\n", typeIndex - 1);
+  const trailerStatus = responseOutput.subarray(statusIndex + 1, typeIndex < 0 ? undefined : typeIndex).toString();
+  const status = headerStatus || (!interrupted && /^[1-5]\d{2}$/.test(trailerStatus) ? Number(trailerStatus) : 0);
+  const diagnostics = {
+    responseBody: statusIndex < 0 ? Buffer.alloc(0) : responseOutput.subarray(0, statusIndex),
+    contentType: typeIndex < 0 ? "" : responseOutput.subarray(typeIndex + 1).toString(),
+    diagnosticsUnavailable: Boolean(interrupted) || result.status !== 0,
+  };
+  if (status > 0) {
     return {
       ok: status >= 200 && status < 300,
       status,
-      statusText: result.status === 0 ? "OK" : (result.stderr || "curl failed").trim() || "curl failed",
+      statusText: result.status === 0 ? "OK" : (result.stderr || "curl failed").toString().trim() || "curl failed",
+      ...diagnostics,
     };
   }
 
   return {
     ok: false,
     status: 0,
-    statusText: (result.stderr || "curl failed").trim() || "curl failed",
+    statusText: (result.stderr || "curl failed").toString().trim() || "curl failed",
+    ...diagnostics,
   };
 }
 
@@ -987,6 +1049,7 @@ function sendOTLPViaCurl(url, headers, body) {
  * @type {RegExp}
  */
 const SENSITIVE_ATTR_KEY_RE = /token|secret|password|passwd|\bkey\b|auth|credential|api[_-]?key|access[_-]?key/i;
+const SAFE_TOKEN_TYPE_VALUES = new Set(["input", "output", "input_cache_read", "input_cache_write"]);
 
 /**
  * Maximum length (in characters) allowed for a string attribute value.
@@ -1022,6 +1085,7 @@ function sanitizeAttrs(attrs) {
     const isSensitive = SENSITIVE_ATTR_KEY_RE.test(attr.key);
     const val = attr.value;
     if (typeof val !== "object" || val === null) return attr;
+    if (attr.key === "gen_ai.token.type" && "stringValue" in val && typeof val.stringValue === "string" && SAFE_TOKEN_TYPE_VALUES.has(val.stringValue)) return attr;
     if (isSensitive && "stringValue" in val) {
       return { key: attr.key, value: { stringValue: REDACTED } };
     }
@@ -1205,12 +1269,11 @@ function parseOTLPEndpoints() {
  *
  * @param {OTLPEndpointEntry[]} endpoints  - Resolved endpoint list from {@link parseOTLPEndpoints}
  * @param {any} payload                 - Serialisable OTLP JSON object
- * @param {{ maxRetries?: number, baseDelayMs?: number, skipJSONL?: boolean }} [opts]
- * @returns {Promise<void>}
+ * @param {{ maxRetries?: number, baseDelayMs?: number, skipJSONL?: boolean, signal?: "traces" | "logs" | "metrics", sanitize?: (payload: any) => any }} [opts]
+ * @returns {Promise<boolean[]>} Per-endpoint export success, in `endpoints` order.
  */
 async function sendOTLPToAllEndpoints(endpoints, payload, opts = {}) {
-  if (endpoints.length === 0) return;
-  await Promise.allSettled(
+  const results = await Promise.allSettled(
     endpoints.map(ep =>
       sendOTLPSpan(ep.url, payload, {
         ...opts,
@@ -1220,10 +1283,12 @@ async function sendOTLPToAllEndpoints(endpoints, payload, opts = {}) {
       })
     )
   );
+  return results.map(result => result.status === "fulfilled" && result.value === true);
 }
 
 /**
- * POST an OTLP traces payload to `{endpoint}/v1/traces` with automatic retries.
+ * POST an OTLP payload with automatic retries. Base endpoints gain the signal path;
+ * Azure Monitor logs use their own stream, not the traces stream.
  *
  * Failures are surfaced as `console.warn` messages and never thrown; OTLP
  * export failures must not break the workflow.  Uses exponential back-off
@@ -1233,29 +1298,65 @@ async function sendOTLPToAllEndpoints(endpoints, payload, opts = {}) {
  * Reads `OTEL_EXPORTER_OTLP_HEADERS` from the environment and merges any
  * configured headers into every request, unless `headersOverride` is provided
  * (used for per-endpoint headers in the multi-endpoint case).
+ * `OTEL_EXPORTER_OTLP_{TRACES,LOGS,METRICS}_PROTOCOL` overrides `OTEL_EXPORTER_OTLP_PROTOCOL`
+ * for the matching signal;
+ * both accept `http/json` (the compatibility default) or `http/protobuf`.
  *
  * @param {string} endpoint  - OTLP base URL (e.g. https://traces.example.com:4317)
  * @param {any} payload   - Serialisable OTLP JSON object
- * @param {{ maxRetries?: number, baseDelayMs?: number, skipJSONL?: boolean, headersOverride?: string }} [opts]
- * @returns {Promise<void>}
+ * @param {{ maxRetries?: number, baseDelayMs?: number, skipJSONL?: boolean, headersOverride?: string, signal?: "traces" | "logs" | "metrics", sanitize?: (payload: any) => any }} [opts]
+ * @returns {Promise<boolean>}
  */
-async function sendOTLPSpan(endpoint, payload, { maxRetries = 2, baseDelayMs = 100, skipJSONL = false, headersOverride = undefined } = {}) {
+async function sendOTLPSpan(endpoint, payload, { maxRetries = 2, baseDelayMs = 100, skipJSONL = false, headersOverride = undefined, signal = "traces", sanitize = sanitizeOTLPPayload } = {}) {
+  if (signal === "metrics" && process.env.GH_AW_OTEL_METRICS !== "true") {
+    return false;
+  }
+  const sanitizedPayload = sanitize(payload);
   // Mirror payload locally so it survives even when the collector is unreachable.
   // Callers that already wrote the JSONL mirror pass skipJSONL: true to avoid a
   // duplicate line.
   if (!skipJSONL) {
-    appendToOTLPJSONL(payload);
+    appendToOTLPJSONL(sanitizedPayload);
   }
 
-  const url = endpoint.replace(/\/$/, "") + "/v1/traces";
+  const suffixIndex = endpoint.search(/[?#]/);
+  const base = (suffixIndex < 0 ? endpoint : endpoint.slice(0, suffixIndex)).replace(/\/+$/, "");
+  const suffix = suffixIndex < 0 ? "" : endpoint.slice(suffixIndex);
+  const signalBase = base.replace(/\/v1\/(?:traces|logs|metrics)$/, "");
+  const azureSignal = signal === "metrics" ? "Metrics" : signal === "logs" ? "Logs" : "Traces";
+  const signalBaseForExport = signalBase.replace(/\/streams\/Microsoft-OTLP-(?:Traces|Logs|Metrics)\/otlp$/, () => `/streams/Microsoft-OTLP-${azureSignal}/otlp`);
+  const url = (signal === "traces" ? base + (base.endsWith("/v1/traces") ? "" : "/v1/traces") : signalBaseForExport + `/v1/${signal}`) + suffix;
   // Use headersOverride when explicitly provided (including empty string, which means
   // "this endpoint has no configured headers" in the multi-endpoint fan-out path).
   // Fall back to OTEL_EXPORTER_OTLP_HEADERS only when headersOverride is absent
   // (undefined), which is the legacy single-endpoint case.
   const rawHeaders = headersOverride !== undefined ? headersOverride : process.env.OTEL_EXPORTER_OTLP_HEADERS || "";
   const extraHeaders = parseOTLPHeaders(rawHeaders);
-  const headers = { "Content-Type": "application/json", ...extraHeaders };
-  const sanitizedBody = JSON.stringify(sanitizeOTLPPayload(payload));
+  const signalProtocol = process.env[`OTEL_EXPORTER_OTLP_${signal.toUpperCase()}_PROTOCOL`];
+  const protocol = signalProtocol || process.env.OTEL_EXPORTER_OTLP_PROTOCOL || "http/json";
+  /** @type {string | Buffer} */
+  let sanitizedBody;
+  try {
+    if (protocol === "http/protobuf") {
+      const { encodeOTLPTraceRequest, encodeOTLPLogsRequest, encodeOTLPMetricsRequest } = require("./otlp_protobuf.cjs");
+      const encode = signal === "metrics" ? encodeOTLPMetricsRequest : signal === "logs" ? encodeOTLPLogsRequest : encodeOTLPTraceRequest;
+      sanitizedBody = encode(sanitizedPayload);
+    } else if (protocol === "http/json") {
+      sanitizedBody = JSON.stringify(sanitizedPayload);
+    } else {
+      throw new Error(`Unsupported OTLP ${signal} protocol; use http/json or http/protobuf`);
+    }
+  } catch (err) {
+    const reason = getErrorMessage(err);
+    console.warn(`OTLP export encoding failed: ${reason}`);
+    recordOTLPExportError({ endpoint, reason });
+    return false;
+  }
+  // The content type must describe the encoded body, not a caller header.
+  for (const key of Object.keys(extraHeaders)) {
+    if (key.toLowerCase() === "content-type") delete extraHeaders[key];
+  }
+  const headers = { "Content-Type": protocol === "http/protobuf" ? "application/x-protobuf" : "application/json", ...extraHeaders };
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (attempt > 0) {
       await new Promise(resolve => setTimeout(resolve, baseDelayMs * 2 ** (attempt - 1)));
@@ -1270,14 +1371,27 @@ async function sendOTLPSpan(endpoint, payload, { maxRetries = 2, baseDelayMs = 1
             signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
           });
       if (response.ok) {
-        return;
+        let diagnostic;
+        try {
+          const bytes = "responseBody" in response ? response.responseBody : await readOTLPResponse(response.body);
+          const contentType = "contentType" in response ? response.contentType : response.headers?.get("content-type") || "";
+          if ("diagnosticsUnavailable" in response && response.diagnosticsUnavailable) throw new Error("Response unavailable");
+          diagnostic = inspectOTLPResponse(bytes, contentType, protocol, signal);
+        } catch {
+          diagnostic = unavailableOTLPResponse(signal);
+        }
+        if (diagnostic.reason) {
+          console.warn(diagnostic.reason);
+          if (diagnostic.error) recordOTLPExportError({ endpoint, status: response.status, reason: diagnostic.reason });
+        }
+        return diagnostic.error !== true;
       }
       const reason = getOTLPExportFailureReason(response);
       const msg = formatOTLPExportFailureMessage(response, reason);
       if (response.status === 401 || response.status === 403) {
         console.warn(`OTLP export authorization failed: ${msg}. Check this collector's configured authorization header and write permissions; unchanged credentials will not be retried.`);
         recordOTLPExportError({ endpoint, status: response.status, reason });
-        return;
+        return false;
       }
       if (attempt < maxRetries) {
         console.warn(`OTLP export attempt ${attempt + 1}/${maxRetries + 1} failed: ${msg}, retrying…`);
@@ -1299,6 +1413,7 @@ async function sendOTLPSpan(endpoint, payload, { maxRetries = 2, baseDelayMs = 1
       }
     }
   }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -1470,11 +1585,11 @@ async function sendJobSetupSpan(options = {}) {
 
   const attributes = [
     buildAttr("gh-aw.job.name", jobName),
-    buildAttr("gh-aw.workflow.name", workflowName),
-    buildAttr("gh-aw.run.id", runId),
+    buildAttr(OTEL_ATTR_WORKFLOW_NAME, workflowName),
+    buildAttr(OTEL_ATTR_RUN_ID, runId),
     buildAttr("gh-aw.run.attempt", runAttempt),
     buildAttr("gh-aw.run.actor", actor),
-    buildAttr("gh-aw.repository", repository),
+    buildAttr(OTEL_ATTR_REPOSITORY, repository),
   ];
   const runUrlAttr = buildGitHubActionsRunUrlAttribute(repository, runId);
   if (runUrlAttr) {
@@ -1487,7 +1602,7 @@ async function sendJobSetupSpan(options = {}) {
   if (engineId) {
     const genAiSystem = ENGINE_TO_SYSTEM_MAP[engineId] || engineId;
     attributes.push(buildAttr("gen_ai.system", genAiSystem));
-    attributes.push(buildAttr("gh-aw.engine.id", engineId));
+    attributes.push(buildAttr(OTEL_ATTR_ENGINE_ID, engineId));
   }
   if (eventName) {
     attributes.push(buildAttr("gh-aw.event_name", eventName));
@@ -1598,6 +1713,26 @@ function readJSONLIfExists(filePath) {
     return Array.from(readJsonlFile(filePath));
   } catch {
     return [];
+  }
+}
+
+function readDurableParentRunId(runId, runAttempt) {
+  const file = getGhAwPath("agent/durable-session.jsonl");
+  try {
+    const info = fs.lstatSync(file);
+    if (!info.isFile() || info.size > 1024 * 1024 || fs.lstatSync(path.dirname(file)).isSymbolicLink()) throw new Error("Invalid durable session source");
+    let parentRunId;
+    for (const record of iterateJsonl(fs.readFileSync(file, "utf8"), { strict: true })) {
+      if (!isDurableSessionRecord(record)) throw new Error("Invalid durable session metadata");
+      if (record.data.runId !== String(runId) || record.data.runAttempt !== String(runAttempt) || record.type !== "durable.restore" || record.data.status !== "restored") continue;
+      if (parentRunId && parentRunId !== record.data.parentRunId) throw new Error("Conflicting durable session parents");
+      parentRunId = record.data.parentRunId;
+    }
+    return parentRunId;
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
+    if (code !== "ENOENT") console.warn("[otlp] Durable session parent unavailable: invalid or unreadable metadata");
+    return undefined;
   }
 }
 
@@ -2096,8 +2231,8 @@ function readAgentRuntimeMetrics(engineId = "") {
  * - `OTEL_SERVICE_NAME`             – service name (defaults to "gh-aw")
  * - `GH_AW_AIC`                     – total AI Credits for the run
  * - `GH_AW_AGENT_CONCLUSION`        – agent job result ("success", "failure", "timed_out",
- *                                     "cancelled", "skipped"); when "failure" or "timed_out"
- *                                     the span status is set to STATUS_CODE_ERROR (2)
+ *                                     "cancelled", "skipped"); when "failure", "timed_out",
+ *                                     or "cancelled", the span status is STATUS_CODE_ERROR (2)
  * - `GH_AW_DETECTION_CONCLUSION`   – threat-detection scan outcome ("success", "warning",
  *                                     "failure", "skipped"); emitted as
  *                                     `gh-aw.detection.conclusion` when present.
@@ -2133,7 +2268,7 @@ function readAgentRuntimeMetrics(engineId = "") {
  *                                    summary attributes and per-result span events
  *
  * @param {string} spanName - OTLP span name (e.g. `"gh-aw.job.conclusion"`)
- * @param {{ startMs?: number }} [options]
+ * @param {{ startMs?: number, jobResult?: string }} [options]
  * @returns {Promise<void>}
  */
 async function sendJobConclusionSpan(spanName, options = {}) {
@@ -2210,6 +2345,7 @@ async function sendJobConclusionSpan(spanName, options = {}) {
   // needs.detection.outputs.* in downstream jobs (conclusion, safe_outputs, etc.).
   const detectionConclusion = process.env.GH_AW_DETECTION_CONCLUSION || "";
   const detectionReason = process.env.GH_AW_DETECTION_REASON || "";
+  const jobResult = options.jobResult || (jobName === "detection" ? detectionConclusion : "");
   const runtimeMetrics = readAgentRuntimeMetrics(engineId);
   // Read once and reuse for both gh-aw.aic and gen_ai.usage.* attributes.
   const agentUsageFilePath = jobName === "detection" ? "/tmp/gh-aw/threat-detection/detection_usage.json" : "/tmp/gh-aw/agent_usage.json";
@@ -2268,12 +2404,19 @@ async function sendJobConclusionSpan(spanName, options = {}) {
     statusCode = 2;
     statusMessage = (errorMessages.length > 0 ? `errors detected: ${errorMessages[0]}` : "errors detected").slice(0, 256);
   }
+  // Only the agent job's own run status reflects its result; other jobs leave the
+  // job result unset rather than inheriting the agent/run outcome.
+  const metricJobConclusion = jobResult || (jobName === "agent" ? (runStatus === "timeout" ? "timed_out" : runStatus) : "");
 
   if (isAgentFailure && errorMessages.length > 0) {
     statusMessage = `agent ${agentConclusion}: ${errorMessages[0]}`.slice(0, 256);
   }
 
-  const attributes = [buildAttr("gh-aw.workflow.name", workflowName), buildAttr("gh-aw.run.id", runId), buildAttr("gh-aw.run.attempt", runAttempt), buildAttr("gh-aw.run.actor", actor), buildAttr("gh-aw.repository", repository)];
+  const attributes = [buildAttr(OTEL_ATTR_WORKFLOW_NAME, workflowName), buildAttr(OTEL_ATTR_RUN_ID, runId), buildAttr("gh-aw.run.attempt", runAttempt), buildAttr("gh-aw.run.actor", actor), buildAttr(OTEL_ATTR_REPOSITORY, repository)];
+  if (jobName === "agent") {
+    const durableParentRunId = readDurableParentRunId(runId, runAttempt);
+    if (durableParentRunId) attributes.push(buildAttr("gh-aw.durable.parent_run_id", durableParentRunId));
+  }
   const runUrlAttr = buildGitHubActionsRunUrlAttribute(repository, runId);
   if (runUrlAttr) {
     attributes.push(runUrlAttr);
@@ -2344,7 +2487,7 @@ async function sendJobConclusionSpan(spanName, options = {}) {
   if (engineId) {
     const genAiSystem = ENGINE_TO_SYSTEM_MAP[engineId] || engineId;
     attributes.push(buildAttr("gen_ai.system", genAiSystem));
-    attributes.push(buildAttr("gh-aw.engine.id", engineId));
+    attributes.push(buildAttr(OTEL_ATTR_ENGINE_ID, engineId));
   }
   if (model) attributes.push(buildAttr("gen_ai.request.model", model));
   if (modelAttribution.routing) {
@@ -2480,7 +2623,7 @@ async function sendJobConclusionSpan(spanName, options = {}) {
   attributes.push(...buildCustomOTLPAttributes());
 
   const graderTelemetry = buildGraderTelemetry(selectGraderOutputForJob(jobName), endMs);
-  const evalTelemetry = jobName === "evals" ? buildEvalTelemetry(readJSONLIfExists("/tmp/gh-aw/evals.jsonl"), endMs) : { attributes: [], events: [] };
+  const evalTelemetry = jobName === "evals" ? buildEvalTelemetry(readJSONLIfExists("/tmp/gh-aw/evals.jsonl"), endMs, readEvalsNotEvaluatedStatus()) : { attributes: [], events: [] };
 
   const resourceAttributes = buildGitHubActionsResourceAttributes({
     repository,
@@ -2585,25 +2728,28 @@ async function sendJobConclusionSpan(spanName, options = {}) {
   if (typeof aiCredits === "number") {
     usageAttrs.push(buildDoubleAttr("gh-aw.aic", aiCredits));
   }
-  if (typeof agentUsage.input_tokens === "number" && agentUsage.input_tokens > 0) {
+  if (typeof agentUsage.input_tokens === "number") {
     usageAttrs.push(buildAttr("gen_ai.usage.input_tokens", agentUsage.input_tokens));
   }
-  if (typeof agentUsage.output_tokens === "number" && agentUsage.output_tokens > 0) {
+  if (typeof agentUsage.output_tokens === "number") {
     usageAttrs.push(buildAttr("gen_ai.usage.output_tokens", agentUsage.output_tokens));
   }
-  if (typeof agentUsage.cache_read_tokens === "number" && agentUsage.cache_read_tokens > 0) {
+  if (typeof agentUsage.cache_read_tokens === "number") {
     usageAttrs.push(buildAttr("gen_ai.usage.cache_read.input_tokens", agentUsage.cache_read_tokens));
   }
-  if (typeof agentUsage.cache_write_tokens === "number" && agentUsage.cache_write_tokens > 0) {
+  if (typeof agentUsage.cache_write_tokens === "number") {
     usageAttrs.push(buildAttr("gen_ai.usage.cache_creation.input_tokens", agentUsage.cache_write_tokens));
   }
   // Emit gen_ai.usage.total_tokens as the sum of input and output so OTel GenAI
   // semantic-convention aggregations (e.g. sum(gen_ai.usage.total_tokens)) work
   // without per-backend normalization. Cache tokens are excluded from the total
   // to match the OpenTelemetry GenAI spec definition of "total tokens consumed".
-  const totalTokens = (typeof agentUsage.input_tokens === "number" ? agentUsage.input_tokens : 0) + (typeof agentUsage.output_tokens === "number" ? agentUsage.output_tokens : 0);
-  if (totalTokens > 0) {
-    usageAttrs.push(buildAttr("gen_ai.usage.total_tokens", totalTokens));
+  // A partial count is not a total; measured zero is distinct from unavailable.
+  if (typeof agentUsage.input_tokens === "number" && typeof agentUsage.output_tokens === "number") {
+    const totalTokens = agentUsage.input_tokens + agentUsage.output_tokens;
+    if (Number.isFinite(totalTokens)) {
+      usageAttrs.push(buildAttr("gen_ai.usage.total_tokens", totalTokens));
+    }
   }
 
   const endpoints = parseOTLPEndpoints();
@@ -2689,12 +2835,66 @@ async function sendJobConclusionSpan(spanName, options = {}) {
   // Always mirror to JSONL — the artifact is useful even without a live collector.
   appendToOTLPJSONL(payload);
 
-  if (endpoints.length === 0) {
-    return;
+  if (endpoints.length > 0) {
+    // Pass skipJSONL: true so sendOTLPToAllEndpoints/sendOTLPSpan don't double-write the mirror.
+    await sendOTLPToAllEndpoints(endpoints, payload, { skipJSONL: true });
   }
 
-  // Pass skipJSONL: true so sendOTLPToAllEndpoints/sendOTLPSpan don't double-write the mirror.
-  await sendOTLPToAllEndpoints(endpoints, payload, { skipJSONL: true });
+  if (process.env.GH_AW_OTEL_METRICS === "true") {
+    try {
+      const { buildBuiltinRunMetrics, buildOTLPMetricsPayload, sendOTLPMetrics, flushCustomMetrics, getUnreportedOTLPMetricFailures } = require("./otlp_metrics.cjs");
+      await flushCustomMetrics();
+      const gatewayMetrics = jobName === "conclusion" ? readJSONIfExists("/tmp/gh-aw/usage/activity/summary.json")?.gateway : undefined;
+      const metricAttributes = [
+        ...(eventName ? [buildAttr("github.event_name", eventName)] : []),
+        ...(job ? [buildAttr("github.job", job)] : []),
+        ...(repository ? [buildAttr(OTEL_ATTR_REPOSITORY, repository)] : []),
+        ...(workflowName ? [buildAttr(OTEL_ATTR_WORKFLOW_NAME, workflowName)] : []),
+        ...(engineId ? [buildAttr(OTEL_ATTR_ENGINE_ID, engineId)] : []),
+      ];
+      const metricVersion =
+        (typeof awInfo.cli_version === "string" ? awInfo.cli_version : "") ||
+        process.env.GH_AW_INFO_CLI_VERSION ||
+        (typeof awInfo.agent_version === "string" ? awInfo.agent_version : "") ||
+        (typeof awInfo.version === "string" ? awInfo.version : "") ||
+        "unknown";
+      const runConclusion = agentConclusion || (runStatus === "timeout" ? "timed_out" : runStatus);
+      const metrics = buildBuiltinRunMetrics({
+        jobName,
+        workflow: workflowName,
+        engine: engineId,
+        model,
+        jobConclusion: metricJobConclusion,
+        runConclusion,
+        startMs,
+        endMs,
+        inputTokens: agentUsage.input_tokens,
+        outputTokens: agentUsage.output_tokens,
+        cacheReadTokens: agentUsage.cache_read_tokens,
+        cacheWriteTokens: agentUsage.cache_write_tokens,
+        emitsTokenUsage: jobEmitsOwnTokenUsage,
+        turns: jobName === "agent" ? runtimeMetrics.turns : undefined,
+        toolCalls: gatewayMetrics?.total_calls,
+        failedToolCalls: gatewayMetrics?.failed_calls,
+        outputItemTypes: jobName === "conclusion" ? rawItemTypes : [],
+        maxAICreditsExceeded: maxAICreditsExceeded === true,
+        aiCreditsRateLimitError: aiCreditsRateLimitError === true,
+        exportFailures: getUnreportedOTLPMetricFailures(),
+        traceContext: { traceId, spanId: conclusionSpanId },
+      });
+      await sendOTLPMetrics(
+        buildOTLPMetricsPayload({
+          serviceName,
+          scopeVersion: metricVersion,
+          resourceAttributes: metricAttributes,
+          metrics,
+        }),
+        { traceId, spanId: conclusionSpanId }
+      );
+    } catch {
+      console.warn("[otlp] failed to emit built-in metrics");
+    }
+  }
 }
 
 module.exports = {
@@ -2717,13 +2917,17 @@ module.exports = {
   buildOTLPBatchPayload,
   buildOTLPBatchPayloads,
   buildOTLPPayload,
+  buildOTLPResourceAttributes,
   sanitizeOTLPPayload,
+  sanitizeAttrs,
+  parseOTELResourceAttributes,
   parseOTLPHeaders,
   parseOTLPEndpoints,
   sendOTLPSpan,
   sendOTLPToAllEndpoints,
   hasProxyConfigured,
   readJSONIfExists,
+  readOTLPExportErrorCount,
   readLastRateLimitEntry,
   buildCurrentWorkflowCallId,
   buildEpisodeAttributesFromContext,

@@ -275,6 +275,8 @@ func (state *Projection) replayOperation(operation Operation, kind string, commi
 		return state.recordObservation(observation, commit)
 	case "Completion":
 		return state.applyCompletion(operation, commit)
+	case "DeliveryEvidence":
+		return state.applyDeliveryEvidence(operation, commit)
 	case "ClaimCancellation", "WorkCancellation":
 		return state.replayCancellation(operation, kind, commit)
 	case "WorkPriority":
@@ -319,9 +321,21 @@ func (state *Projection) replayCancellation(operation Operation, kind string, co
 		return nil
 	}
 
-	var value WorkDefinition
+	var value struct {
+		WorkID  string `json:"work_id"`
+		Reason  string `json:"reason"`
+		Version int    `json:"version"`
+	}
 	if err := json.Unmarshal(operation, &value); err != nil {
 		return err
+	}
+	work := state.Works[value.WorkID]
+	if value.Version == 1 && value.Reason == "worker_contract_obsolete" && work != nil && work.State != "cancelled" && !state.obsoleteWork(work) {
+		return queueError("deployment_conflict", "obsolete cancellation requires available unpinned Work with no delivery barrier and an incompatible active worker contract")
+	}
+	if previous := state.Cancellations[value.WorkID]; work != nil && work.State == "cancelled" &&
+		(previous != nil || value.Version == 1) && !sameJSON(previous, operation) {
+		return queueError("cancellation_conflict", "terminal cancellation metadata is immutable")
 	}
 	if err := state.cancelWork(operation, commit); err != nil {
 		return err
@@ -348,6 +362,7 @@ func (state *Projection) replayTerminalResult(operation Operation, kind string, 
 		return err
 	}
 	state.TerminalBarriers[value.WorkID] = operation
+	delete(state.DeliveryEvidence, value.ClaimID)
 	if claim := state.Claims[value.ClaimID]; claim != nil && claim.KeepOpen {
 		state.TerminalBarriers[value.ClaimID] = operation
 	}

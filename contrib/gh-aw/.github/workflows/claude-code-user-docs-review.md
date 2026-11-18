@@ -40,7 +40,6 @@ network:
 tools:
   cli-proxy: true
   cache-memory: true
-  web-search:
   github:
     mode: gh-proxy
     toolsets: [default, discussions]
@@ -48,10 +47,12 @@ tools:
     - "cat *"
     - "ls *"
     - "grep *"
+    - "safeoutputs *"
 
 timeout-minutes: 30
 
 imports:
+  - shared/reporting.md
   - uses: shared/daily-audit-base.md
     with:
       title-prefix: "[claude-code-user-docs-review] "

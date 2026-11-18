@@ -35,6 +35,14 @@ Top-level fields in `--json` output are stable; nested sub-fields may be extende
 
 By default a single-run audit renders a Comparison section against an earlier run of the same workflow. Use `--no-baseline` when that baseline is unrepresentative or to avoid the extra downloads. A `--no-baseline` result is never written to the audit cache, so it cannot suppress the Comparison section of a later default audit.
 
+### Durable session continuation
+
+For durable workflows, `durable_session` separates checkpoint restoration from observed native startup. It reports `status`, `started`, engine, storage, available parent-run, artifact and native session IDs, and the unified-session evidence path. `resumed` requires matching restoration and native-start records from the audited run and attempt. `restored` without `started` confirms only restoration; `restore_failed` records a restoration error. Missing events, unsupported or invalid session files, and mismatched lineage report `unavailable` with a reason, never a successful continuation.
+
+The `info,usage` artifact selection contains the required evidence. Cached audits re-read it, and `health --logs-dir` reuses the same raw session evidence for its current-revision sample. These records do not establish restored workspace edits, exactly-once effects, or agent task completion.
+
+Health exposes `durable_sessions` with `resumed_runs`, `fresh_runs`, `restored_runs`, `restore_failed_runs`, `unavailable_runs`, and per-run `session` reports. Fresh runs count only observed native starts; restoration without a start is reported separately. Missing or budget-skipped cached evidence stays unavailable, including when every known-durable sample is unavailable. This is a cached evidence inventory, not a continuation rate, and does not change workflow health classifications or download artifacts.
+
 ### Retry history
 
 When unified-session retry evidence is available, `--json` includes a `retries`
@@ -56,6 +64,45 @@ continuations as retries. See the
 for `harness.attempt` records and
 [Harness Retry Policy](/gh-aw/reference/engines/#harness-retry-and-post-result-watchdog-policy)
 for execution behavior.
+
+### Invocation skip decisions
+
+Invocation skip decisions appear in `retries.decisions` and as searchable `harness.decision` unified-session events. Each records the proposed attempt, question outcomes, sanitized errors, latency, and whether an invocation was avoided. `retries.avoided_invocations` counts denied invocations separately from executed attempts and retries; a skip does not count as an agent retry.
+
+The Actions step summary shows a collapsible `skip-if-decision` section before the unified-session trace, including skipped invocation totals and a per-check table of outcomes, question counts, latency, and sanitized errors. It also appears when the initial invocation is skipped and no agent conversation exists. The section is omitted when no decision events were recorded and respects the existing summary byte limit.
+
+For example, this `--json` excerpt records a denied initial invocation. Question
+1 abstained because its referenced file could not be read, but question 2 was
+evaluated and denied, so no attempt executed:
+
+```json
+{
+  "retries": {
+    "agent_retries": 0,
+    "detection_retries": 0,
+    "attempts": [],
+    "engine_retries": 0,
+    "detection_engine_retries": 0,
+    "decisions": [
+      {
+        "proposedAttempt": 1,
+        "outcome": "deny",
+        "questions": [
+          { "question": 1, "outcome": "unknown", "error": "file_reference_failed" },
+          { "question": 2, "outcome": "deny" }
+        ],
+        "latencyMs": 20,
+        "timestamp": 1794096000000,
+        "avoidedInvocation": true,
+        "phase": "agent",
+        "path": "agent/harness_retry.json",
+        "index": 1
+      }
+    ],
+    "avoided_invocations": 1
+  }
+}
+```
 
 ### Searching session evidence
 
@@ -153,7 +200,9 @@ When routing data is available, Model Routing summarizes the classifier and sele
 
 The Friction section attributes execution-friction costs by driver and source. In JSON, `friction.drivers[]` provides each driver's `source`, counted and deduplicated occurrences, attribution state, and cost dimensions; `friction.events[]` provides the corresponding event-level source and label. Console output includes the source and available AIC, token, turn, tool-call, and latency costs on each driver and event, so a high-cost source such as `firewall`, `mcp_gateway`, or `agent_session` can be investigated directly. Unavailable dimensions are omitted rather than presented as measured zeroes.
 
-The Gateway Steering Events section reports `token_steering` and `timeout_steering` warnings emitted when a run approaches its AI Credits or time limit. JSON output includes each event's type, message, and timestamp when available.
+The Gateway Steering Events section reports `token_steering`, `timeout_steering` and `ai_credit_steering` warnings emitted when a run approaches its AI Credits or time limit. JSON output includes each event's type, message, and timestamp when available, plus its `threshold`, `trigger` and `conversation` when AWF records them. A "little left" notice, sent when only a few requests' worth of AI credits or a few minutes remain, has `trigger: "little_left"` and no threshold, and is shown as "little left" rather than as a percentage.
+
+`steering_deliveries` lists every delivery of a notice, one per conversation, read from `usage/aw_session.jsonl`: `type`, `trigger`, `threshold` (`null` for "little left"), `conversation` (an opaque key comparable only within the run, or `null`), `first`, `request_id` and `phase`. `steering_notices` keeps one entry per threshold per run. Runs on AWF v0.29.11 or older have no deliveries. See [Artifacts](/gh-aw/reference/artifacts/) for the underlying records.
 
 The Work Queue section reports the activation-time queue snapshot, the assigned worker's Work and Claim IDs, the agent's finish intent, and timestamped queue operations from workflow job logs. The section is omitted when no queue evidence is available. A finish intent is a request, not evidence of durable Completion or verified delivery.
 
@@ -250,8 +299,10 @@ Parent workflow success does not imply successful delegation. `metrics.error_cou
 | `agentic_overkill_for_agentic` | The task may not require an agentic workflow |
 | `agentic_poor_agentic_control` | Agentic control signals were weak |
 | `agentic_partially_reducible` | Part of the task could use deterministic steps |
-| `agentic_model_downgrade_available` | A smaller model may be sufficient |
+| `agentic_model_downgrade_available` | A routine task may not need a high-capability model: use per-task [model routing](/gh-aw/reference/model-routing/) by changing `engine.model` (if set) or the top-level `model` to `router`, or setting `mode: auto` in an existing `engine.model-routing` block; use `router/economy` to cap routing at the lowest level. Also emitted for runs routed at a fixed `balanced` or `robust` mode. Runs routed at economy, or routed by `auto` to a higher level, emit no finding |
 | `agentic_delegated_context_present` | Delegated workflow context was preserved |
+
+The `agentic_poor_agentic_control` assessment uses the larger of reported control signals and counted friction occurrences. This avoids summing potentially overlapping sources, but can undercount distinct signals. Counted friction includes integrity-filtered responses: these indicate friction, not that the gateway control failed. A derived count covers only the available log sources.
 
 The audit inspects the `detection` job result and the downloaded `detection` artifact. A failed job emits `threat_detection_job_failed`. A structured verdict in `detection_result.json`, or a legacy `THREAT_DETECTION_RESULT` verdict in `detection.log`, emits `threat_detected` when `prompt_injection`, `secret_leak`, or `malicious_patch` is true. Threat reasons are not copied into the finding description because they may contain sensitive agent output.
 
@@ -499,7 +550,7 @@ permissions:
 
 # Auto-File Issues for Critical Findings
 
-Use the `agentic-workflows` MCP tool `audit` with run ID ${{ github.event.workflow_run.id }}. Filter `key_findings` for severity `high` or `critical`. For each finding without a matching open issue, create one with the finding title, description, impact, and recommendations, labelled `audit-finding`. If no critical findings, call the `noop` safe output tool.
+Use the `agentic-workflows` MCP tool `audit` with run ID ${{ github.event.workflow_run.id }}. Filter `key_findings` for severity `high` or `critical`. For each finding without a matching open issue, create one with the finding title, description, impact, and recommendations, labeled `audit-finding`. If no critical findings, call the `noop` safe output tool.
 ```
 
 ### Weekly audit monitoring agent

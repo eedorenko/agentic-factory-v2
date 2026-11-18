@@ -571,8 +571,9 @@ limit 4,096, singleton assignments and three attempts with 30-second backoff.
 Invalid settings MUST produce property-specific errors. Optional advanced pools
 and fairness MUST remain scheduling, not identity authorization.
 `work_queue.issues` MUST configure projection globally; a boolean selects
-defaults or disables it, and an object MAY supply the optional `label` and
-`title_prefix` fields.
+defaults or disables it, and an object MAY supply `label`, `title_prefix`, and
+`orphaned_after_days` (default 30; integer 1–3,650) to control when tracked
+Issues without ledger Work are flagged for maintainer review.
 Workflow-level `work-queue-policy` and `tools.work-queue.issues` are deprecated;
 conflicting global/local definitions MUST fail.
 Concurrent first submissions MUST use the winning installed Policy and retry
@@ -887,6 +888,29 @@ recomputed state digest, including earlier checkpoints. It MUST NOT depend on
 API pagination, API caches, Issue mirrors or native run queries. This changes
 transport, not the version-3 wire format or the checkpoint trust boundary.
 
+While walking single-parent Git history, an exact newline-terminated canonical
+causal prefix of an already validated log may reuse its transaction validation.
+For Git transport, the canonical prefix's complete Git blob object identity
+may establish that byte equality without reading the same large payload again.
+Every Git parent is still checked, and every checkpoint boundary is still
+reconstructed from a freshly replayed source snapshot; verification need not
+compress and replay a throwaway replacement checkpoint. Noncanonical, changed
+or malformed historical logs require full validation; a matching checkpoint ID
+alone is never sufficient. No mutable
+projection is shared between reads. The synthetic Git-history benchmark includes
+135 Work items, 1,200 retained requests, four checkpoint generations and 128
+ancestry commits, with a
+three-second cold-validation budget excluding fixture construction and without
+hosted network latency. This budget does not extend durable delivery deadlines.
+An always-on full-history test covers 70 checkpoint generations and 1,470
+ancestry commits with retained Claims and requests. It checks the exact head and
+complete replayed projection through cold production Git transport, and rejects
+a broken oldest-checkpoint Git-parent binding despite valid newer snapshots.
+Both cases have a ten-second local-read ceiling; fixture construction is excluded.
+The optional captured-history benchmark checks the exact immutable head and
+replayed projection through production Git transport, including its cold
+object transfer and integrity checks, with a ten-second local-read ceiling.
+
 Hosted identity, approved worker configuration, native launch/termination and
 effect delivery remain separate evidence boundaries and MAY require APIs.
 Preparing a branchless repository's default branch is likewise a hosting
@@ -967,11 +991,12 @@ Use a small operation union:
 | `Work` | Admit immutable task metadata/payload; its first commit/operation position is its FIFO position |
 | `Claim` | Record selected Work, Claim, `dispatch_id`, and local assignment handle; charge/reserve a logical Work slot and create the group's native reservation on its first Claim |
 | `Completion` | Finish only an effective Claim and establish its authorization prerequisites; optional `keep_open` retains nonterminal Work |
+| `DeliveryEvidence` | Retain bounded original-worker verifier receipts and effect inventory for fresh post-restart readback; never establish Result by itself |
 | `Result` | Record a completed node's verified result/availability barrier after its scoped effect processing succeeds |
 | `DeliveryFailure` | Close a completed node's unresolved delivery barrier after terminal-run evidence and bounded reconciliation; never authorize effects or release successors |
 | `Observation` | Record normalized trusted GitHub Issue/PR condition evidence, including identity and observation time |
 | `ClaimCancellation` | Remove this Claim's authority; optionally record trusted retry-not-before metadata |
-| `WorkCancellation` | Terminal cancellation; optional `claim_id` fences the selected current owner; does not pretend the worker has stopped using capacity |
+| `WorkCancellation` | Terminal cancellation; optional `claim_id` fences the selected current owner; operation `version: 1` checks `worker_contract_obsolete` eligibility; absent version retains historical reason-only semantics; does not pretend the worker has stopped using capacity |
 | `WorkPriority` | Administrator-only prospective override for available Work, with `expected_priority` compare-and-set; admitted priority, FIFO position, retry boundary and all charged clocks remain unchanged |
 | `Dispatch` | Record launch started, bound run, definitive rejection, or uncertainty for a `dispatch_id` and its immutable Claim array |
 | `Release` | Release the group's native reservation once with trusted termination/nonlaunch evidence; logical Claim slots close independently |
@@ -979,6 +1004,38 @@ Use a small operation union:
 Do not repeat the entire Claim array in each dispatch lifecycle operation.
 Immutable membership is derived from the admission commit; lifecycle operations
 reference `dispatch_id`, its binding/evidence, and stable request identity.
+
+The QueueCommit protocol remains version 3. `WorkCancellation` without an
+operation `version` MUST retain legacy reason-only semantics, including
+`worker_contract_obsolete` cancellations of compatible or explicitly pinned Work.
+Operation `version: 1` adds a checked obsolescence transition for that reason;
+other explicit versions MUST be rejected. New maintenance and operator retirement
+producers MUST emit this checked form. Replay MUST require available, unclaimed,
+unpinned Work without any delivery barrier and an incompatible, available,
+approved active worker contract at the operation's committed time. Missing or
+unavailable deployments MUST NOT establish obsolescence. Selection MUST exclude
+Work expired at the current time, and publication MUST recheck against its own
+current prefix. Historical receipts and checkpoint state MUST NOT be rewritten
+to add or remove an operation version; only exact repeats of terminal
+cancellation metadata are idempotent. A retry of an accepted legacy operator
+request MUST recover its original request and fingerprint, not publish a checked
+replacement. All existing authorization, ownership and native-reservation
+requirements still apply to both forms.
+
+Native `work cancel-work --obsolete` MUST use the maintenance eligibility predicate,
+current-time expiration, UTF-8 byte ordering, and a single batch bounded by 256
+and the installed operation limit. An optional smaller `--limit` only narrows
+that bound. Publication uses the existing native administrator authority, not
+an impersonated workflow reconciler. `--dry-run` MUST remain read-only and MUST
+NOT assert authenticated publication authority. Retrying an accepted request
+MUST recover its original targets and fingerprint rather than reselect a batch
+from newly obsolete Work. No eligible targets MUST NOT record a request.
+Publication MUST retain the selection or recovery ledger snapshot and reject
+replacement ledgers, including hard-clear/readmission of identical Work IDs,
+while allowing verified same-ledger appends and checkpoints. Accepted receipt
+recovery MUST NOT be blocked by a later lower Policy operation limit; only the
+caller's limit bounds its size, and an insufficient limit MUST report the
+required numeric minimum. Fresh selection remains Policy-bounded.
 
 `WorkPriority` is published through an administrator `control` request in this
 same transaction log. Replay stores `effective_priority` separately from the
@@ -1148,9 +1205,12 @@ stateDiagram-v2
     [*] --> Reserved: Fair Claim prefix committed
     Reserved --> Started: CAS start marker and select one sender
     Reserved --> Released: Definitive prelaunch cancellation
-    Started --> Bound: Validate returned run ID or trusted activation
+    Started --> ActivationPending: Validated HTTP 200 receipt
+    Started --> Bound: Trusted activation before receipt is observed
     Started --> Uncertain: Lost or unexpected POST response
     Started --> Released: Definitive nonlaunch evidence
+    ActivationPending --> Bound: Trusted activation or checked reconciliation
+    ActivationPending --> Unresolved: Bounded recovery cannot establish binding
     Uncertain --> Bound: Trusted binding recovery
     Uncertain --> Released: Definitive nonlaunch evidence
     Uncertain --> Unresolved: Reconciliation budget exhausted
@@ -1219,7 +1279,10 @@ cancellation of active workers, infer termination from elapsed time, or replay
 uncertain effects. Existing dispatcher/operator reconciliation remains the
 fallback when scheduled maintenance is disabled.
 
-A dispatcher crash after reservation must leave a recoverable reservation.
+A dispatcher crash after reservation MUST preserve the reservation and its
+checked recovery path, not guarantee eventual recovery under unavailable or
+bounded evidence. An accepted run that never activates can remain unbound
+indefinitely; neither elapsed time nor a lost receipt permits another POST.
 Recording `Dispatch(started)` atomically selects one trusted sender run/attempt
 for the group; another publisher finding that marker only reconciles, never
 also sends. Once the marker exists, even its owner cannot assume a restarted
@@ -1248,16 +1311,27 @@ fair grant creates a new attempt; it is not a resend of the abandoned dispatch.
 The first release requires the GitHub REST dispatch contract pinned to API
 version `2026-03-10`: a successful POST returns HTTP 200 with
 `workflow_run_id`, `run_url`, and `html_url`. Preserve run/resource IDs as lossless
-canonical strings, not floating-point API integers. Validate the response, then
-fetch that exact run to check repository, approved workflow/ref revision,
-`workflow_dispatch` event, and trusted initiating principal before appending
-`Dispatch(bound)`. Hosts lacking that contract are unsupported, not an old-API
-compatibility path. Missing details, an unexpected success shape, or a lost
-response after sending are uncertain launches, never permission to resend. [G5]
+canonical strings, not floating-point API integers. Validate the receipt's IDs
+and exact destination URLs, then return the derived status `activation_pending`
+with the run ID and link. The normal accepted dispatcher path MUST perform zero
+worker-run metadata GETs and MUST NOT publish `Dispatch(bound)`. Receipt
+acceptance is not native verification, Claim/effect authority or completion.
+The durable state remains `started` until trusted binding/recovery changes it;
+`activation_pending` is not a new ledger state or operation.
+
+Preserve the accepted receipt in the Actions `work_queue_requests` controls
+output. This output is not new durable ledger evidence and is not automatically
+consumed by a later reconciler. The worker may already have bound itself before
+the dispatcher observes the receipt; the derived status MUST NOT overwrite or
+downgrade that durable binding. Hosts lacking the required dispatch contract are
+unsupported, not an old-API compatibility path. Missing details, an unexpected
+success shape, or a lost response after sending remain uncertain launches and
+fail controls, never permission to resend. [G5]
 
 The compiled worker exposes `dispatch_id` in its compiler-managed run name and
 receives the immutable assignment/claim-commit reference. Its **trusted
-activation step** may recover a missing binding: read the latest ledger, verify
+activation step** is the normal binding path and also recovers a missing binding:
+read the latest ledger, verify
 the recorded launch marker, exact assignment membership and approved execution
 scope, and authenticate its native run through the run API and trusted job
 context. AW's selected dispatch credential establishes the actual launch
@@ -1270,7 +1344,8 @@ with `run_binding_conflict`. Bind only the original native attempt, identified
 by `(run_id, run_attempt=1)`; reruns cannot acquire an unbound group's authority
 or inherit an earlier authorization. Agent execution and ordinary
 outputs remain blocked until the binding is durable and matches this attempt.
-The dispatcher uses the same binding rule if its response arrives later.
+An accepted receipt arriving later does not require dispatcher-side verification
+or a second binding publication.
 
 For an unbound marker, the reconciler checks any returned run ID and permitted
 run discovery using the compiled correlation name/workflow/principal, then
@@ -1281,6 +1356,23 @@ effects and retain the reservation. Recovery must account for every possible
 launch and verify exact terminal evidence; merely terminating the discovered
 subset is not proof that no other run exists. Already delivered effects cannot
 be undone by a later conflict diagnostic.
+
+Discovery is limited to two pages of 50 runs filtered by the approved worker
+workflow, `workflow_dispatch` event and immutable SHA. A full second page is an
+overflow conflict, including when a returned hint is independently verified.
+An exact hint does not bypass the bounded conflict scan. Retain returned or
+discovered exact hints throughout the current retry budget, including after
+transient API failures, 404s or a correlation-pending attempt title. Only a
+fully verified native response may supply binding authority; a pending title
+is retryable observation, not a true identity conflict. Distinct pending or
+verified run IDs, other identity mismatches and overflow remain conflicts.
+
+Without a usable hint, a never-activated run outside this discovery window
+cannot automatically recover its binding from the controls output. Retain the
+reservation and report unresolved/conflict; preserve the receipt for operator
+investigation rather than widening the scan or replaying effects. Recovery
+requires authenticated evidence and all normal binding checks. This is a
+safety guarantee, not an unconditional recovery/liveness guarantee.
 
 Use bounded attempts/backoff and a configured reconciliation deadline, then
 report `launch_unresolved` with the last evidence and next operator action.
@@ -1294,6 +1386,7 @@ an administrative force-release shortcut while a run may still execute.
 | Reserved, no start marker | CAS-commit a start marker and send once, or commit definitive prelaunch cancellation and cancel still-open Claims/release atomically |
 | Reserved, exact originating publisher attempt terminal | Bounded automatic recovery may CAS-cancel prelaunch after a fresh no-marker check; retain on unavailable/mismatched origin evidence or a concurrent start |
 | Started/uncertain, no binding | Validate and bind an actual run; otherwise retain reservation and report unresolved/conflict |
+| Accepted receipt, no binding (`activation_pending`) | Trusted activation normally binds; checked bounded reconciliation is the fallback. Receipt alone never grants authority or releases capacity |
 | Bound, queued/running | Retain unless the original trusted conclusion step proves job quiescence; cancellation requests and lease expiry never release |
 | Bound, worker jobs quiescent | Original worker conclusion step atomically closes still-open Claims and releases with job-inventory receipt evidence |
 | Bound, terminal | Cancel still-open Claims, reconcile completed members' result barriers, and release with exact run/attempt terminal evidence |
@@ -1348,7 +1441,7 @@ Repository configuration:
     "pending_limit": 30,
     "accounting_weights": {"": 1, "project-a": 2, "project-b": 1},
     "retry": {"max_attempts": 3, "backoff_seconds": 30},
-    "issues": {"label": "work", "title_prefix": "[work queue]"},
+    "issues": {"label": "work", "title_prefix": "[work queue]", "orphaned_after_days": 30},
     "pools": {"default": {"per_account_limit": 2}}
   }
 }
@@ -1655,7 +1748,9 @@ Producer/accounting scope is validated at submission, with priority 3/default ke
 
 #### Normal workflow
 
-The following example assumes the compiler permits a three-Claim batch:
+The following example assumes the compiler permits a three-Claim batch and
+shows one receipt/activation ordering; trusted activation may precede the
+dispatcher's receipt observation:
 
 ```mermaid
 sequenceDiagram
@@ -1673,10 +1768,11 @@ sequenceDiagram
     L-->>P: Immutable assigned handles and native reservation
     P->>L: CAS launch start marker
     P->>G: Send one dispatch with immutable assignment
-    G-->>P: Native run ID
-    P->>L: Validate and bind run
+    G-->>P: Validated HTTP 200 receipt with native run ID
+    Note over P: Report activation_pending; no worker-run GET or binding
     G->>A: Activate worker with native context
-    A->>L: Validate or recover binding and capture snapshot
+    A->>G: Authenticate exact native attempt and dispatch token
+    A->>L: Validate assignment, publish/recheck binding, capture snapshot
     A->>W: Deliver trusted Claim array
     loop Each assigned handle
         W->>P: Stage scoped output and completed/cancelled intent
@@ -1698,7 +1794,7 @@ sequenceDiagram
     L-->>D: Next activation sees Results, blocking paths and receipts
 ```
 
-There is no promise that the dispatcher can observe a durable grant during the same agent turn: publication happens later in safe outputs. Persist the derived receipt as a workflow artifact/step summary and expose it to subsequent activations. A same-turn durable acquire-and-respond API would require a different trusted orchestration boundary and is outside this design.
+There is no promise that the dispatcher can observe a durable grant during the same agent turn: publication happens later in safe outputs. Retain the derived receipt in Actions controls output for later inspection; this does not add durable run evidence to the queue or automatically supply a hint to later reconciliation. A same-turn durable acquire-and-respond API would require a different trusted orchestration boundary and is outside this design.
 
 Queue workers MUST reject unassigned execution; an ordinary dispatch cannot bypass the Claim requirement. Dispatcher workflows need no inbound Claim merely to propose queue intents, but cannot use that role to execute a queued Work's effects outside its assigned worker.
 
@@ -1727,6 +1823,7 @@ Use stable reason/status codes:
 | `partial_batch` | Fewer Claims than requested committed; include the limiting reason |
 | `request_replayed` | Return an already committed request; no new charge or selection |
 | `publish_conflict` | Tentative proposal lost; selection must be regenerated |
+| `activation_pending` | Validated HTTP 200 receipt; accepted but not verified/bound by this observation. Retain capacity; trusted activation or reconciliation must establish binding |
 | `launch_uncertain` | Launch marker exists without trustworthy binding/nonlaunch evidence; retain capacity |
 | `launch_unresolved` / `run_binding_conflict` | Reconciliation budget expired or incompatible native runs appeared; retain capacity and surface required intervention |
 | `dispatch_budget_blocked` / `assignment_size_blocked` | The next fair winner cannot fit this request; stop, do not filter it out |
@@ -1750,7 +1847,7 @@ Each processed dispatch intent produces a bounded derived receipt:
   "granted_claims": 2,
   "requested_dispatches": 2,
   "reserved_dispatches": 2,
-  "status": "launch_uncertain",
+  "status": "activation_pending",
   "grant_status": "partial_batch",
   "limiting_reason": "capacity_blocked",
   "claims": [
@@ -1759,14 +1856,17 @@ Each processed dispatch intent produces a bounded derived receipt:
   ],
   "dispatches": [
     {"dispatch_id": "d1", "claim_refs": ["c_1"], "status": "bound", "run_id": "101"},
-    {"dispatch_id": "d2", "claim_refs": ["c_2"], "status": "launch_uncertain", "run_id": null}
+    {"dispatch_id": "d2", "claim_refs": ["c_2"], "status": "activation_pending", "run_id": "102"}
   ]
 }
 ```
 
-IDs above are illustrative. A real receipt includes the authoritative claim-commit references and observed launch-state tip, because later recovery may update the launch result. Distinguish requested, granted, API-accepted/bound, completed, and released counts. A Claim may be granted without a launched worker.
+IDs above are illustrative. A real receipt includes the authoritative claim-commit references and observed launch-state tip, because later recovery may update the launch result. Distinguish requested, granted, API-accepted, verified/bound, completed, and released counts. A Claim may be granted without a launched worker; an accepted run ID is not a verified binding.
 
 Batch grant status and overall execution status are separate. A partial grant with an uncertain launch MUST expose `launch_uncertain` as the overall outcome; it is not a successful partial batch that merely hides the error in an item.
+Accepted pending activation alone is not a recovery failure. When no launch
+has an uncertain/rejected/error outcome, the overall status MAY be
+`activation_pending`; it MUST NOT hide a failed or uncertain sibling.
 
 Normal output should be a few lines: batch outcome, limiting reason, committed request/Claim references, and worker-run links. Detailed comparisons and per-attempt retry output belong in structured JSON/collapsible diagnostics. Always escape submitted identifiers/text; reuse the existing work-queue rendering discipline. [R20]
 
@@ -2252,7 +2352,22 @@ equal to or independently verified as an ancestor of the prepared base.
 Unrelated commits, malformed SHAs, conflicting routing, and unknown fields
 remain invalid. Canonical message binding and protected in-process creation/
 delivery proofs remain required; serialized artifacts, agent assertions, and
-public PR metadata cannot reconstruct those private proofs.
+public PR metadata cannot reconstruct those private proofs. The only durable
+substitute is a `DeliveryEvidence` operation published by the authenticated
+original worker attempt after Completion and before process exit or native
+release. Maintenance MUST perform fresh independent native readback against
+that evidence and MUST NOT treat the operation itself as proof of delivery.
+
+`DeliveryEvidence` is immutable per Claim/Completion and binds the original
+Work, Claim, Dispatch, local handle, run ID and native attempt 1. Its canonical
+JSON is limited to 32 KiB, with at most 128 ordered output receipts and 256
+recorded effects. Adapter configurations and bounded adapter fields are limited
+to 8 KiB. Content digests, native identities and immutable revisions replace
+resource bodies where possible; declared REST/GraphQL field values remain
+bounded readback expectations. Queue controls are verified from fresh checked
+same-Claim ledger inventory. Checkpoints retain evidence only while its delivery
+barrier is pending and omit the evidence key when empty, preserving historical
+checkpoint digests. Result or DeliveryFailure removes the pending evidence.
 
 After exact native-run/attempt terminal evidence and exhausted reconciliation,
 publish `DeliveryFailure` when delivery cannot be established. Record the
@@ -2262,6 +2377,12 @@ evidence that effects never began; absence of a receipt is `unknown`. A terminal
 failure is a decision to abandon this delivery barrier, not proof that no
 external mutations happened. Without terminal evidence, retain pending state
 and report the unresolved run instead.
+
+Maintenance MUST attempt available durable-evidence verification before
+publishing deadline expiry. If its first terminal-run reconciliation occurs
+after the delivery deadline, it MUST allow one bounded fresh readback, capped at
+15 seconds, before failing the barrier. This does not reopen the normal retry
+budget, re-execute handlers, or rewrite an existing terminal Result or failure.
 
 When no protected delivery verifier survives, automatic maintenance MAY
 explicitly enable deadline expiry. It MUST wait until the Completion's durable
@@ -3021,7 +3142,9 @@ and runtime/host/deployment limitations remain explicit in the record.
 | Capacity | Logical open-Claim and native dispatch reservations independently remain within their limits; partial finish does not free a live worker slot |
 | Recovery | Definitive no-launch/terminal evidence releases exactly once; uncertain launch and still-running lease expiry do not |
 | Launch fencing/binding | Persist start marker before POST, do not blindly retry uncertain POSTs, bind actual worker run, and reject effects without a matching trusted binding |
+| Accepted dispatch | Validated HTTP 200 returns `activation_pending` with zero dispatcher worker-run metadata GETs, no dispatcher binding, and no authority before trusted activation durably binds |
 | Launch recovery | Lost HTTP-200 run details can be recovered by authenticated worker activation; duplicate/conflicting runs and unsupported response shapes retain capacity |
+| Bounded native discovery | Keep exact hints through transient reads/404s and delayed titles; two full pages remain an overflow conflict even with a verified hint; an unfound never-activated launch stays fenced |
 | Abandoned prelaunch recovery | Bounded sweeps recover never-started reservations only after exact terminal-origin authentication; active/unknown/foreign/later-attempt evidence and concurrent start markers retain capacity, completed siblings and service charges |
 | Reconciliation budget | Deadline stops polling with an explicit unresolved outcome; empty discovery, timeout, cancellation request, and dispatcher termination never establish nonlaunch |
 | Trust | An agent cannot create keys, improve inherited priority, reset debt, alter the policy, or forge releases |
@@ -3163,15 +3286,21 @@ reactivation, cap/release, and a persistently un-packable next winner. A fixed-s
 ratio fixture is not a dynamic-eligibility liveness theorem.
 
 [`QueueLifecycle.tla`](https://github.com/github/gh-aw/blob/main/specs/work-queue/QueueLifecycle.tla) supplies a separate bounded lifecycle
-instantiation for multi-profile fair-prefix packing, binding conflicts and
-activation recovery, Control, mutually exclusive delivery outcomes, replacement
+instantiation for multi-profile fair-prefix packing, volatile accepted receipts
+and their loss, normal trusted activation, binding conflicts and unresolved
+retained capacity, Control, mutually exclusive delivery outcomes, replacement
 admission and bounded verification attempts. Its independent X/Y/X packing
 oracle distinguishes stopping at an un-packable winner from backfilling.
-Two positive configurations exhaust 208,108 states; eleven negative controls
-and three guarded witnesses require exact named diagnostics.
+Two positive configurations exhaust 876,564 states; twelve negative controls
+and seven guarded witnesses require exact named diagnostics. Receipt-only
+binding is an explicit negative control; pending acceptance, accepted binding
+and unresolved retained capacity are separately reachable. `activation_pending`
+is derived observation, not an additional durable protocol state.
 The [reproduction guide](https://github.com/github/gh-aw/blob/main/specs/work-queue/README.md#bounded-launch-delivery-and-recovery-evidence)
-states its evidence abstractions and omissions. It proves neither real host
-authentication nor eventual lifecycle progress.
+states its evidence abstractions and omissions. Bounded-discovery failure is
+abstracted; actual hint retention, HTTP retries, zero dispatcher worker-run
+GETs and the two-page/50-run scan remain runtime regression obligations.
+It proves neither real host authentication nor eventual lifecycle progress.
 
 [`QueueBootstrap.tla`](https://github.com/github/gh-aw/blob/main/specs/work-queue/QueueBootstrap.tla)
 separately checks bounded first-submit preparation and atomic genesis for empty
@@ -3296,7 +3425,7 @@ unexecuted formal, supported-host, performance, or deployment-security gate.
 
 | Requirement | Implementation/evidence status |
 |---|---|
-| Git-authoritative backing Issue mirrors | AW-managed activation/conclusion hooks project own authenticated admissions/original Claims without enrollment. Maintenance additionally projects existing mirrors for exact terminal requests authored by its authenticated current run/attempt; maintain/admin operators may explicitly synchronize one committed terminal request. Neither path grants admission/Claim authority, creates/rebinds Issues or comments, closes Issues, scans global dirty Work, or steals ambiguous-write fences. Automatic projection stays in the queue repository/pool scope. Exact pre-existing Issue grants, cross-repository projection and closure retain explicit trusted projector rules. No ledger operation/field is added. Local mocks cover these paths; no live intended-token Issue writes or hosted workflow runs are claimed |
+| Git-authoritative backing Issue mirrors | AW-managed activation/conclusion hooks project own authenticated admissions/original Claims without enrollment. Scheduled maintenance reconciles all existing same-repository mirrors against the checked ledger, closes verified non-PR results only under the admission-time `close-on-result` policy, and flags tracked issues older than configured `orphaned_after_days` with no matching Work for maintainer review. It is bounded to 256 ledger-bound mirrors and 1,000 tracked Issues per run, does not create/rebind mirrors or change queue state, and retains ambiguous-write fences. Maintain/admin operators may explicitly synchronize one committed terminal request without closing Issues. Automatic projection stays in the queue repository/pool scope. Exact pre-existing Issue grants, cross-repository projection and closure retain explicit trusted projector rules. No ledger operation/field is added. Local mocks cover these paths; no live intended-token Issue writes or hosted workflow runs are claimed |
 | Current-only QueueCommit contract and native Go/JavaScript conformance | Implemented. An earlier combined-source local capture passed 286 independent cases with 136 dependency hashes unchanged during that capture. Safe-output changes invalidate its claim to match the current source; regenerate the capture before using it as current release evidence. Typed Go canonicalization rejects invalid Unicode before JSON encoding repairs it; checked operation-construction errors propagate through CLI and delivery consumers. Conformance does not prove arbitrary runtime/host refinement |
 | Exact fairness, FIFO defaults, deterministic fair-prefix packing and CAS recovery | Implemented in both engines, with exact integer passes, causal FIFO positions, literal shared expectations and mocked CAS/ambiguous-acknowledgment regressions. Charges are durable Claims, not CPU time or successful completions. Live Git/network contention remains unverified |
 | Work/Issue/PR DAG, observations, Result/DeliveryFailure and replacements | Implemented with atomic graph admission, typed bounded observations, immutable resource bindings and verified Result barriers. Native and runtime tests cover stale/error observations, mixed outcomes, delivery deadlines and safe replacements; actual external API availability/rate behavior is not established by injected clients |
@@ -3309,7 +3438,7 @@ unexecuted formal, supported-host, performance, or deployment-security gate.
 | Disabled-queue safe-output compatibility | Modified legacy integration surfaces were reviewed against the PR base. Regression coverage preserves ordinary payloads, parsing, global counts, custom inputs, dispatch conversion, diagnostics and patch discovery; a collector differential matches 24 of 24 baseline cases. Stray role/assignment metadata cannot activate the queue, while an existing private Claim frame remains enforced. The joined suite above includes existing ordinary safe-output tests; finite cases do not prove equivalence for every possible input |
 | Compiler/MCP/operator/explain/trace and workflow examples | Implemented with current-only operator/snapshot/intent validation and credential-free observers/previews. Earlier native/probe/compiler/parser, operator and WASM checks pass. Main at `303b402810` is merged; all 328 workflows compile and isolated drift checking passes. Three generated lock conflicts were regenerated from merged sources, not hand-edited. Compiler DryRun disables queue tools and mutation jobs. The onboarding Policy is exercised by the real runtime validator and uses supported empty-key/size bounds. Closed Claim-adapter parsing preserves exact numbers; log writers surface original/short-write failures |
 | Independent service-deviation and eventual-service evidence | Bounded sibling model: 30 fixed + 60,360 dynamic states exhausted; four exact negative controls; full hierarchy/runtime refinement still outstanding |
-| Complete lifecycle/runtime refinement and supported-host integration | Bounded lifecycle safety: 208,108 exhausted states, eleven exact negative controls and three witnesses; full runtime/host refinement remains unverified |
+| Complete lifecycle/runtime refinement and supported-host integration | Bounded lifecycle safety: 876,564 exhausted states, twelve exact negative controls and seven witnesses, including volatile acceptance and unresolved retention; full runtime/host refinement remains unverified |
 | Retained-history, contention and recovery-headroom operating envelope | An earlier combined-source local capture passed 50 measurements/checks, including actual Go/JS cold replay and serialization at 1/16/64/80 MiB, bounded graph/assignment limits and recovery headroom, with 136 dependency hashes stable during that capture. It has not been regenerated after the safe-output review changes. These are historical shared-host samples and structural closure checks, not current-source release evidence, universal closure proof, live Git/network contention, supported-host/API measurements or deployment SLOs |
 | Historical queue formal review and traces | The 2026-10-07 capture exercised all 61 then-registered configurations, including 16 exhausted positive searches, 34 negative controls and nine guarded witnesses. It predates trusted-AW bootstrap and worker-evolution changes and is not current-source evidence for them. Earlier captures and unfinished continuation results remain preserved. See the [refinement record](https://github.com/github/gh-aw/blob/main/specs/work-queue/verification-2026-10-07-refinement.json) and [current model reproduction instructions](https://github.com/github/gh-aw/blob/main/specs/work-queue/README.md); full runtime/host refinement remains unproved |
 | ESLint factory formalization and actual-code comparison | Six bounded safety graphs exhaust 31,730 distinct states; nine deliberate controls, seven guarded witnesses and 16 independently replayed/tamper-checked traces cover factory lifecycle, scope, cardinality and exit-zero semantics. Executable observations cover all 66 registered/configured rules, actual ESLint warning/error exits, native Claim checks and collector per-Claim limits. Policy/producers/profile admission and whole-contract native readback remain assumptions. There is no automatic factory DAG; warning-only clean and prompt-only quality/global assignment bars are explicitly distinguished from runtime guarantees. See the [factory model](https://github.com/github/gh-aw/blob/main/specs/eslint-factory/README.md) |
@@ -3318,6 +3447,7 @@ unexecuted formal, supported-host, performance, or deployment-security gate.
 | Protected launch credentials, immutable effect targets and native delivery verification | Implemented with exact selected-client/profile proofs, immutable Work/profile/ancestor target intersection and private native readback. Both public and compiler control entry points reject missing/invalid protected launch metadata before client construction or queue publication, while previews and submit-only controls remain credential-independent. Local positive and refusal regressions pass; writer deployment automation is separate |
 | Trusted AW settings and first-submit bootstrap | Compiler, JavaScript and native Go share optional global scheduling/Issue settings and default-only atomic Policy-and-Work bootstrap. AW authorizes participants and approved targets; no producer enrollment, worker-principal settings or administrator seeding is required. Installed economic Policy stays authoritative. Local tests cover defaults, overrides, malformed/conflicting settings, multiple participants, concurrent bootstrap, selective route validation and duplicate-free replay. Hosted Git publication and immutable-SHA dispatch remain unverified live gates |
 | Worker-evolution bounded model | Trusted-AW bootstrap and prospective worker-evolution models cover contract compatibility, explicit pins, local readiness, CAS races, frozen completion/credentials and preservation of debt, Results, reservations and scheduling economics. Focused positive, exact negative and guarded witness configurations are registered in the [formal reference](https://github.com/github/gh-aw/blob/main/specs/work-queue/README.md). These bounded models are not a proof of arbitrary Go/JavaScript or hosted API refinement; earlier captures are not rewritten |
+| Obsolete retirement and historical cancellation compatibility | Native Go/JavaScript and operator regressions cover checked operation versions, legacy reason-only history, immutable terminal metadata, checkpoint/retry identity, expiration-sensitive selection and independent maintenance recovery. `ObsoleteWorkRetirement` adds two bounded safety configurations, thirteen exact mutation controls and four safety-guarded reachability witnesses. Approved routes, byte ordering and timestamps remain premises; the abstract checkpoint is not a codec proof, and recovery attempts do not establish live delivery or liveness. See the [retirement model](https://github.com/github/gh-aw/blob/main/specs/work-queue/README.md#obsolete-work-retirement-model) |
 | Worker-evolution runtime and compiler integration | Go/JavaScript implement durable deployment CAS, frozen admission contracts, immutable execution pins, caller-local approval and readiness, historical availability updates, checkpoint replay and frozen completion/delivery/reconciliation. Compiler stamps use complete worker authority frontmatter and imports; chunked proposals reconstruct exactly below Actions' per-value limit. Actual compiled ESLint bootstrap admits three Work items and launches three mocked native workers without duplicate replay. Full native queue/setup, scoped CLI/compiler, 1,053 JavaScript tests, typecheck and 334-workflow drift checks pass. Hosted execution remains unverified; the aggregate publication gate retains independently baseline-confirmed custom Go lint findings |
 
 Authenticated ingestion, actual run/attempt binding, Claim/resource checks and

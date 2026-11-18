@@ -27,6 +27,10 @@ GitHub Agentic Workflows supports environment variables in 13 distinct contexts:
 | **Safe Outputs Job** | `safe-outputs.jobs.<name>.env` | Specific safe-output job | Job-specific config |
 | **GitHub Actions Step** | `githubActionsStep.env` | Pre-defined steps | Step configuration |
 
+Strict mode rejects credential expressions in workflow-level `env`, including `secrets` references and `github.token` in either dot or bracket notation. Whole-context `github` references and context-wide wildcard projections such as `github.*` and `toJSON(github.*)` are also treated as credential references. Non-strict mode emits a warning. The same validation applies to non-exempt keys in `engine.env`. Supported credential keys in `engine.env` remain allowed; strict mode requires AWF v0.25.3 or newer to exclude those values from the agent sandbox.
+
+Invalid expressions in `env` or `engine.env` fail compilation in either mode. Actions bracket indexes use single-quoted strings, for example `github['repository']`; double-quoted indexes are invalid.
+
 ### Example Configurations
 
 **Workflow-level shared configuration:**
@@ -212,7 +216,7 @@ The JavaScript setup helpers bound child processes, archive operations, and setu
 | `GH_AW_MCP_CONTAINER_STATUS_TIMEOUT_MS` | `15000` | Docker/container status probes used in MCP gateway diagnostics. |
 | `GH_AW_MCP_DOCKER_CLEANUP_TIMEOUT_MS` | `30000` | Stale MCP gateway container cleanup. |
 | `GH_AW_MCP_SERVER_CHECK_TIMEOUT_MS` | `120000` | MCP server health-check script. |
-| `GH_AW_OUTCOME_GH_TIMEOUT_MS` | `300000` | `gh` CLI calls made by outcome evaluation. |
+| `GH_AW_ADOPTION_GH_TIMEOUT_MS` | `300000` | `gh` CLI calls made by outcome evaluation. |
 | `GH_AW_SAFEOUTPUTS_CLI_TIMEOUT_MS` | `120000` | `safeoutputs` CLI invocations used for structured diagnostics. |
 
 ### MCP gateway readiness polling
@@ -296,6 +300,8 @@ these `GH_AW_DEFAULT_*` variables at repo, org, or enterprise scope with
 `default_`-prefixed YAML keys such as `default_max_ai_credits`,
 `default_max_turn_cache_misses`,
 `default_detection_max_ai_credits`, `default_max_daily_ai_credits`, and `default_model_copilot`.
+
+OTLP metrics are enabled by default when configured. Set `default_otel_metrics: false` in the `gh aw env` defaults file to disable them at a scope; delete that variable to restore the default. A workflow-level `GH_AW_OTEL_METRICS` value takes precedence.
 
 ### Agent runs
 

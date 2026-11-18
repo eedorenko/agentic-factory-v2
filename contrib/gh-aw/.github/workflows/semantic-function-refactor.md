@@ -11,12 +11,16 @@ max-turns: 50
 
 permissions:
   contents: read
+  copilot-requests: write
   issues: read
   pull-requests: read
 
-model: claude-sonnet-5
 engine:
   id: claude
+  model-provider: github
+  model-routing:
+    goal: cost
+    mode: economy
 imports:
   - shared/otlp.md
   - shared/reporting.md
@@ -46,7 +50,7 @@ steps:
     with:
       go-version-file: go.mod
       cache: true
-  - name: Precompute semantic refactor slice
+  - name: Pre-compute semantic refactor slice
     run: |
       set -euo pipefail
       go run ./scripts/semantic-refactor-slice \

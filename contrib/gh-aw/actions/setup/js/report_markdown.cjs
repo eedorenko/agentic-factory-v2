@@ -1,6 +1,6 @@
 // @ts-check
 
-const { normalizeReportText, normalizeReportAllowedURL, normalizeReportImage } = require("./report_ast.cjs");
+const { normalizeReportText, normalizeReportAllowedURL, normalizeReportImage, isReportReferenceDefinition } = require("./report_ast.cjs");
 const { buildAllowedDomains, buildAllowedGitHubReferences, getCurrentRepoSlug, sanitizeUrlProtocols, sanitizeUrlDomains } = require("./sanitize_content_core.cjs");
 const { isRepoAllowed } = require("./repo_helpers.cjs");
 
@@ -197,7 +197,7 @@ function parseReportMarkdown(markdown, { context, inlineSlots, blockSlots, onBlo
   function substitute(source) {
     return source.replace(/\{(\w+)\}/g, (match, key) => {
       const value = valueFor(key);
-      if (typeof value === "object") throw new TypeError("Report nodes cannot appear in scalar fields");
+      if (value !== null && typeof value === "object") throw new TypeError("Report nodes cannot appear in scalar fields");
       return value === undefined ? match : String(value);
     });
   }
@@ -317,7 +317,7 @@ function parseReportMarkdown(markdown, { context, inlineSlots, blockSlots, onBlo
         else {
           const value = valueFor(match[1]);
           if (Array.isArray(value)) throw new TypeError("Report blocks cannot appear inline");
-          if (typeof value === "object") nodes.push(...value.children.map(node => ({ ...node })));
+          if (value !== null && typeof value === "object") nodes.push(...value.children.map(node => ({ ...node })));
           else text(value === undefined ? match[0] : String(value));
         }
       } else if (
@@ -398,10 +398,10 @@ function parseReportMarkdown(markdown, { context, inlineSlots, blockSlots, onBlo
   const isFieldLine = line => /^(?:\{\w+\}\s*)+$/.test(line.trim()) && (!inlineSlots || [...line.matchAll(/\{(\w+)\}/g)].some(field => !Object.hasOwn(inlineSlots, field[1])));
   const isBlockStart = line =>
     openingFence(line) ||
-    /^(?:#{1,6}\s|>|<details>(?:\s*$|\s*<summary>)|<\/details>\s*$|[-*+]\s|\d+\.\s|---\s*$)/.test(line) ||
+    /^(?:#{1,6}\s|>|<details(?:\s+open)?>(?:\s*$|\s*<summary>)|<\/details>\s*$|[-*+]\s|\d+\.\s|---\s*$)/.test(line) ||
     isFieldLine(line) ||
     isBlockSlot(line) ||
-    (allowMetadata && /^(?:<!--|\[gh-aw-workflow-call-id\]: # ")/.test(line.trim())) ||
+    (allowMetadata && (/^(?:<!--|\[gh-aw-workflow-call-id\]: # ")/.test(line.trim()) || isReportReferenceDefinition(line))) ||
     (allowFlagMarkers && /^<!-- (?:gh-aw-threat-detected|gh-aw-threat-engine-error) -->$/.test(line.trim()));
   /** @param {string} line */
   function cells(line) {
@@ -448,6 +448,9 @@ function parseReportMarkdown(markdown, { context, inlineSlots, blockSlots, onBlo
           nodes.push(fromSource({ type: "paragraph", children: inline(line) }));
         }
         index++;
+      } else if (allowMetadata && isReportReferenceDefinition(line)) {
+        nodes.push(fromSource({ type: "reference_definition", value: line }));
+        index++;
       } else if (allowMetadata && (match = /^<!-- ([a-zA-Z][a-zA-Z0-9_-]*)(?:: ?([\s\S]*))? -->$/.exec(line.trim()))) {
         if (["gh-aw-execution", "aw-essential-meta"].includes(match[1])) {
           if (match[2] === undefined) throw new TypeError("JSON report metadata requires a value");
@@ -470,7 +473,7 @@ function parseReportMarkdown(markdown, { context, inlineSlots, blockSlots, onBlo
         for (const field of line.matchAll(/\{(\w+)\}/g)) {
           const value = valueFor(field[1]);
           if (Array.isArray(value)) nodes.push(...value);
-          else if (typeof value === "object") nodes.push(fromSource({ type: "paragraph", children: value.children }));
+          else if (value !== null && typeof value === "object") nodes.push(fromSource({ type: "paragraph", children: value.children }));
           else if (String(value).trim()) nodes.push(fromSource({ type: "paragraph", children: [fromSource({ type: "text", value: String(value) })] }));
         }
         index++;
@@ -498,17 +501,20 @@ function parseReportMarkdown(markdown, { context, inlineSlots, blockSlots, onBlo
             // Invalid JSON examples remain literal code.
           }
         }
-        nodes.push(fromSource({ type: "code_block", language: /^[a-zA-Z0-9_+:-]*$/.test(language) ? language : "text", value, ...(fence[0] === "`" && fence.length > 3 ? { fenceLength: Math.min(fence.length, 128) } : {}) }));
+        // Only trusted persistence may construct ledger blocks as typed nodes.
+        // Markdown imports include ordinary comments published by the same bot.
+        const safeLanguage = !language.startsWith("gh-aw-comment-ledger:") && /^[a-zA-Z0-9_+:-]*$/.test(language) ? language : "text";
+        nodes.push(fromSource({ type: "code_block", language: safeLanguage, value, ...(fence[0] === "`" && fence.length > 3 ? { fenceLength: Math.min(fence.length, 128) } : {}) }));
       } else if ((match = /^(#{1,6})\s+(.+)$/.exec(line))) {
         nodes.push(fromSource({ type: "heading", level: Math.max(minimumHeadingLevel, match[1].length), children: inline(match[2]) }));
         index++;
-      } else if ((match = /^<details>\s*<summary>(.*)<\/summary>$/.exec(line.trim()))) {
+      } else if ((match = /^<details(\s+open)?>\s*<summary>(.*)<\/summary>$/.exec(line.trim()))) {
         index++;
-        nodes.push(fromSource({ type: "details", summary: summary(match[1]), children: blocks(true, detailsDepth + 1) }));
-      } else if (line.trim() === "<details>" && /^<summary>.*<\/summary>$/.test(lines[index + 1]?.trim() || "")) {
+        nodes.push(fromSource({ type: "details", ...(match[1] ? { open: true } : {}), summary: summary(match[2]), children: blocks(true, detailsDepth + 1) }));
+      } else if ((match = /^<details(\s+open)?>$/.exec(line.trim())) && /^<summary>.*<\/summary>$/.test(lines[index + 1]?.trim() || "")) {
         const summarySource = lines[index + 1].trim().slice("<summary>".length, -"</summary>".length);
         index += 2;
-        nodes.push(fromSource({ type: "details", summary: summary(summarySource), children: blocks(true, detailsDepth + 1) }));
+        nodes.push(fromSource({ type: "details", ...(match[1] ? { open: true } : {}), summary: summary(summarySource), children: blocks(true, detailsDepth + 1) }));
       } else if (/^>/.test(line)) {
         const quoted = [];
         while (index < lines.length && /^>/.test(lines[index])) quoted.push(lines[index++].replace(/^> ?/, ""));

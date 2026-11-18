@@ -23,6 +23,8 @@ var reportLog = logger.New("cli:logs_report")
 
 // LogsData represents the complete structured data for logs output
 type LogsData struct {
+	RetainedAdoption     *RetainedAdoptionData       `json:"retained_adoption,omitempty" console:"-"`
+	Delivery             []DeliveryData              `json:"delivery,omitempty" console:"-"`
 	FailureInvestigation *FailureInvestigation       `json:"failure_investigation,omitempty" console:"-"`
 	FailureClusters      []FailureCluster            `json:"failure_clusters,omitempty" console:"-"`
 	Summary              LogsSummary                 `json:"summary" console:"title:Workflow Logs Summary"`
@@ -30,8 +32,8 @@ type LogsData struct {
 	Episodes             []EpisodeData               `json:"episodes" console:"-"`
 	Edges                []EpisodeEdge               `json:"edges" console:"-"`
 	EpisodeRetrieval     *EpisodeRetrieval           `json:"episode_retrieval,omitempty" console:"-"`
-	Outcomes             []OutcomesData              `json:"outcomes,omitempty" console:"-"`
-	EpisodeOutcomes      *EpisodeOutcomesData        `json:"episode_outcomes,omitempty" console:"-"`
+	Outcomes             []OutcomesData              `json:"adoption,omitempty" console:"-"`
+	EpisodeOutcomes      *EpisodeOutcomesData        `json:"episode_adoption,omitempty" console:"-"`
 	ToolUsage            []ToolUsageSummary          `json:"tool_usage,omitempty" console:"title:🛠️  Tool Usage Summary,omitempty"`
 	MCPToolUsage         *MCPToolUsageSummary        `json:"mcp_tool_usage,omitempty" console:"title:🔧 MCP Tool Usage,omitempty"`
 	Observability        []ObservabilityInsight      `json:"observability_insights,omitempty" console:"-"`
@@ -157,13 +159,13 @@ type LogsSummary struct {
 	IntentionalFailureRuns int `json:"intentional_failure_runs,omitempty" console:"-"`
 
 	// Outcome metrics (populated when outcome evaluation is enabled)
-	OutcomeAccepted       int     `json:"outcome_accepted,omitempty" console:"-"`
-	OutcomeRejected       int     `json:"outcome_rejected,omitempty" console:"-"`
-	OutcomeIgnored        int     `json:"outcome_ignored,omitempty" console:"-"`
-	OutcomePending        int     `json:"outcome_pending,omitempty" console:"-"`
-	OutcomeAcceptanceRate float64 `json:"outcome_acceptance_rate,omitempty" console:"-"`
-	OutcomeWasteRate      float64 `json:"outcome_waste_rate,omitempty" console:"-"`
-	OutcomeZeroTouchRate  float64 `json:"outcome_zero_touch_rate,omitempty" console:"-"`
+	OutcomeAccepted       int     `json:"adoption_accepted,omitempty" console:"-"`
+	OutcomeRejected       int     `json:"adoption_rejected,omitempty" console:"-"`
+	OutcomeIgnored        int     `json:"adoption_not_applicable,omitempty" console:"-"`
+	OutcomePending        int     `json:"adoption_pending,omitempty" console:"-"`
+	OutcomeAcceptanceRate float64 `json:"adoption_acceptance_rate,omitempty" console:"-"`
+	OutcomeWasteRate      float64 `json:"adoption_rejection_rate,omitempty" console:"-"`
+	OutcomeZeroTouchRate  float64 `json:"adoption_zero_touch_rate,omitempty" console:"-"`
 }
 
 // RunData contains information about a single workflow run
@@ -252,6 +254,7 @@ type RunData struct {
 	EpisodeHops                []EpisodeHop           `json:"episode_hops,omitempty" console:"-"`
 	TokenUsageSummary          *TokenUsageSummary     `json:"token_usage_summary,omitempty" console:"-"`                                            // Token usage from firewall proxy
 	SteeringNotices            []SteeringNotice       `json:"steering_notices,omitempty" console:"-"`                                               // AWF steering notices delivered on model requests
+	SteeringDeliveries         []SteeringDelivery     `json:"steering_deliveries,omitempty" console:"-"`                                            // Every AWF steering notice delivery, one per conversation per notice
 	SteeringNoticesUnavailable bool                   `json:"steering_notices_unavailable,omitempty" console:"-"`                                   // True when the unified session could not be read
 	ModelRouting               *ModelRoutingSummary   `json:"model_routing,omitempty" console:"-"`                                                  // AWF model routing and per-run cost attribution
 	GitHubAPICalls             int                    `json:"github_api_calls,omitempty" console:"header:GitHub API Calls,format:number,omitempty"` // GitHub API calls made during the run
@@ -532,6 +535,14 @@ func applyGitHubMetadataToRunData(runData *RunData, run WorkflowRun) {
 	}
 }
 
+// applyRunDataSteering copies the AWF steering notices and notice deliveries read
+// from the unified session onto a run's JSON record.
+func applyRunDataSteering(runData *RunData, summary *TokenUsageSummary) {
+	runData.SteeringNotices = tokenUsageSteeringNotices(summary)
+	runData.SteeringDeliveries = tokenUsageSteeringDeliveries(summary)
+	runData.SteeringNoticesUnavailable = tokenUsageSteeringNoticesUnavailable(summary)
+}
+
 // buildRunData converts a processed run into RunData while accumulating rollup totals.
 // localRepo guards against cross-repo misclassification of intentional-failure workflows.
 func buildRunData(pr ProcessedRun, processedRuns []ProcessedRun, localRepo string, agg *logsAggregate, classifyLocal bool) RunData {
@@ -565,8 +576,7 @@ func buildRunData(pr ProcessedRun, processedRuns []ProcessedRun, localRepo strin
 	runData := newRunData(pr, engineInfo, chainMetrics, comparison, failureKind, gitHubAPICalls)
 	runData.EpisodeHops = collectRunEpisodeHops(pr, engineInfo.awContext)
 	runData.ModelRouting = pr.ModelRouting
-	runData.SteeringNotices = tokenUsageSteeringNotices(pr.TokenUsage)
-	runData.SteeringNoticesUnavailable = tokenUsageSteeringNoticesUnavailable(pr.TokenUsage)
+	applyRunDataSteering(&runData, pr.TokenUsage)
 	runData.Ledger = pr.Ledger
 	runData.awInfo = engineInfo.awInfo
 	if engineInfo.awInfo != nil {

@@ -25,7 +25,7 @@ function setup(fixtureOptions = {}) {
     workflowRef: `${REPOSITORY}/${WORKFLOW}@${REF}`,
     readWorkQueueLog: vi.fn(fixture.readWorkQueueLog),
     publishWorkQueueRequest: vi.fn(fixture.publishWorkQueueRequest),
-    core: { info: vi.fn() },
+    core: { info: vi.fn(), warning: vi.fn() },
     jobNames: { activation: "activation", agent: "agent", conclusion: "conclusion" },
     jobResults: { activation: { result: "success" }, agent: { result: "success" } },
     sleepFn: vi.fn(async () => {}),
@@ -286,11 +286,126 @@ describe("inline trusted worker termination", () => {
 });
 
 describe("scheduled work queue recovery", () => {
+  it("retires obsolete backlog through the scheduled maintenance entry point without dispatching", async () => {
+    const contract = "a".repeat(64);
+    const { fixture, options } = setup({
+      bound: false,
+      granted: false,
+      count: 1,
+      configurePolicy: policy => {
+        policy.authorization = "aw";
+        policy.producers = {};
+        const profile = policy.pools.default.profiles.default;
+        delete profile.principal;
+        profile.logical_contract = contract;
+      },
+    });
+    const worker = fixture.state.deployments.get("default").get("default");
+    fixture.append("deployment", {
+      operations: [
+        {
+          kind: "Deployment",
+          pool: "default",
+          worker_profile: "default",
+          expected_ref: worker.current_ref,
+          expected_contract: contract,
+          profile: { ...worker.revisions[REF].profile, ref: "b".repeat(40), logical_contract: "b".repeat(64) },
+          available: true,
+          reason: "compiler_deployment",
+        },
+      ],
+    });
+    const publisher = fixture.nativeRun(fixture.dispatcherContext);
+    options.context = { ...fixture.dispatcherContext, job: "work_queue_compaction" };
+    options.workflowRef = `${REPOSITORY}/${publisher.path}@${REF}`;
+    options.githubClient.rest.actions.getWorkflowRun.mockResolvedValue({ status: 200, data: publisher });
+    expect(await maintenance(options)).toMatchObject({ obsolete_work_cancelled: 1, obsolete_work_reconciliation_failed: false });
+    expect([...fixture.state.works.values()][0]).toMatchObject({ state: "cancelled", cancellation_reason: "worker_contract_obsolete" });
+    expect(fixture.state.dispatches.size).toBe(0);
+    expect(fixture.state.claims.size).toBe(0);
+    expect(await maintenance(options)).toMatchObject({ obsolete_work_cancelled: 0 });
+  });
+
   it.each([
-    { pending: false, deferIssueFailure: false },
-    { pending: true, deferIssueFailure: false },
-    { pending: true, deferIssueFailure: true },
-  ])("projects only this maintenance run's committed terminal requests without rollback: %j", async ({ pending, deferIssueFailure }) => {
+    ["deployment race", { code: "deployment_conflict" }],
+    ["authentication", { status: 401 }],
+    ["read", { status: 503 }],
+    ["publication", { status: 403 }],
+    ["durability", { code: "work_queue_obsolete_cancellation_not_durable" }],
+  ])("recovers a held reservation and expired pending delivery despite an obsolete sweep %s failure", async (_kind, failure) => {
+    const { fixture, options, nativeRun } = setup({ count: 1 });
+    const member = fixture.assignment.claims[0];
+    fixture.append("finish", { dispatch_id: fixture.assignment.dispatch_id, claim_handle: member.handle, outcome: "completed" }, { ...fixture.workerActor, dispatch_id: fixture.assignment.dispatch_id, claim_handle: member.handle });
+    expect(fixture.state.dispatches.get(fixture.assignment.dispatch_id).released).toBe(false);
+    expect(fixture.state.works.get(member.work_id).barrier).toBe("pending");
+    options.context = { ...fixture.dispatcherContext, job: "work_queue_compaction" };
+    const publisher = fixture.nativeRun(fixture.dispatcherContext);
+    options.workflowRef = `${REPOSITORY}/${publisher.path}@${REF}`;
+    options.githubClient.rest.actions.getWorkflowRun.mockResolvedValue({ status: 200, data: publisher });
+    options.now = fixture.at + fixture.policy.pools.default.reconciliation.deadline_ms;
+    options.publishWorkQueueRequest = vi.fn(async args => fixture.append(args.request.kind, args.request.parameters, args.actor, args.request.id, options.now));
+    nativeRun.status = "completed";
+    nativeRun.conclusion = "failure";
+    const canary = "private-obsolete-provider-message-token-and-stack";
+    const error = Object.assign(new Error(canary, { cause: new Error(canary) }), failure, { response: { data: { message: canary }, headers: { authorization: canary } } });
+    const sweep = vi.spyOn(require("./work_queue_deployment_control.cjs"), "reconcileObsoleteWork").mockRejectedValue(error);
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    try {
+      const result = await maintenance(options);
+      expect(sweep).toHaveBeenCalledOnce();
+      expect(result).toMatchObject({
+        obsolete_work_cancelled: null,
+        obsolete_work_reconciliation_failed: true,
+        reconciled: 1,
+        results: [{ released: true, delivery: { claims: { h1: { state: "delivery_failed", effects: "unknown" } } } }],
+      });
+      expect(fixture.state.dispatches.get(fixture.assignment.dispatch_id).released).toBe(true);
+      expect(fixture.state.works.get(member.work_id)).toMatchObject({ barrier: "failed", disposition: "unknown" });
+      const operations = fixture.transactions.flatMap(commit => commit.operations);
+      expect(operations.filter(operation => operation.kind === "Release")).toHaveLength(1);
+      expect(operations.filter(operation => operation.kind === "DeliveryFailure")).toHaveLength(1);
+      expect(operations.some(operation => operation.kind === "Result")).toBe(false);
+      expect(options.core.warning).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("obsolete-work reconciliation failed; core recovery will continue"));
+      const diagnostics = stderr.mock.calls.map(call => call[0]).join("");
+      expect(diagnostics).toContain("maintenance.obsolete.failed failed=true");
+      expect(diagnostics).not.toContain(canary);
+      expect(JSON.stringify(result)).not.toContain(canary);
+      expect(JSON.stringify(options.core.warning.mock.calls)).not.toContain(canary);
+    } finally {
+      sweep.mockRestore();
+      stderr.mockRestore();
+    }
+  });
+
+  it("keeps independent delivery verification failures fatal after an obsolete sweep failure", async () => {
+    const { fixture, options, nativeRun } = setup({ count: 1 });
+    const member = fixture.assignment.claims[0];
+    fixture.append("finish", { dispatch_id: fixture.assignment.dispatch_id, claim_handle: member.handle, outcome: "completed" }, { ...fixture.workerActor, dispatch_id: fixture.assignment.dispatch_id, claim_handle: member.handle });
+    options.context = { ...fixture.dispatcherContext, job: "work_queue_compaction" };
+    const publisher = fixture.nativeRun(fixture.dispatcherContext);
+    options.workflowRef = `${REPOSITORY}/${publisher.path}@${REF}`;
+    options.githubClient.rest.actions.getWorkflowRun.mockResolvedValue({ status: 200, data: publisher });
+    nativeRun.status = "completed";
+    nativeRun.conclusion = "failure";
+    const sweep = vi.spyOn(require("./work_queue_deployment_control.cjs"), "reconcileObsoleteWork").mockRejectedValue(new Error("private-sweep-error"));
+    const finalize = vi.spyOn(require("./finish_work_queue_claim.cjs"), "finalizeWorkerResults").mockRejectedValue(new Error("private-delivery-error"));
+    try {
+      await expect(maintenance(options)).rejects.toThrow("work_queue_maintenance_reconciliation_unresolved");
+      expect(finalize).toHaveBeenCalledOnce();
+      expect(fixture.state.dispatches.get(fixture.assignment.dispatch_id).released).toBe(true);
+      expect(fixture.state.works.get(member.work_id).barrier).toBe("pending");
+      expect(options.core.warning).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("obsolete-work reconciliation failed"));
+    } finally {
+      sweep.mockRestore();
+      finalize.mockRestore();
+    }
+  });
+
+  it.each([
+    { pending: false, deferIssueWarning: false },
+    { pending: true, deferIssueWarning: false },
+    { pending: true, deferIssueWarning: true },
+  ])("reconciles all mirrors from the checked ledger without rollback: %j", async ({ pending, deferIssueWarning }) => {
     const { fixture, options, nativeRun } = setup({ count: 1 });
     const member = fixture.assignment.claims[0];
     fixture.append("finish", { dispatch_id: fixture.assignment.dispatch_id, claim_handle: member.handle, outcome: "completed" }, { ...fixture.workerActor, dispatch_id: fixture.assignment.dispatch_id, claim_handle: member.handle });
@@ -306,28 +421,25 @@ describe("scheduled work queue recovery", () => {
     const configuration = vi.spyOn(require("./cancel_work_queue_closed_issue.cjs"), "readIssuesConfig").mockResolvedValue({ label: "work", title_prefix: "[work queue]" });
     const projection = vi.spyOn(require("./work_queue_issues.cjs"), "main").mockResolvedValue({ pending: pending ? [{ reason: "unavailable" }] : [] });
     try {
-      if (pending && !deferIssueFailure) {
-        await expect(maintenance({ ...options, projectIssues: true, deferIssueFailure })).rejects.toMatchObject({
-          message: expect.stringMatching(/^ERR_VALIDATION: work_queue_issue_synchronization_pending; queue transitions are committed/),
-          code: "work_queue_issue_synchronization_pending",
-          category: "ERR_WORK_QUEUE_RECONCILIATION",
-        });
-      } else expect(await maintenance({ ...options, projectIssues: true, deferIssueFailure })).toMatchObject({ issue_sync_pending: pending ? [{ reason: "unavailable" }] : [] });
+      expect(await maintenance({ ...options, projectIssues: true, deferIssueWarning })).toMatchObject({ issue_sync_pending: pending ? [{ reason: "unavailable" }] : [] });
+      if (pending && !deferIssueWarning) {
+        expect(options.core.warning).toHaveBeenCalledWith(expect.stringContaining("Issue synchronization remains pending"));
+      } else {
+        expect(options.core.warning).not.toHaveBeenCalled();
+      }
       expect(projection).toHaveBeenCalledOnce();
       const args = projection.mock.calls[0][0];
       expect(args.trustedContext).toMatchObject({ role: "reconciler", workflow: publisher.path, event: "schedule" });
-      expect(args.transitionRequestIds).toHaveLength(1);
-      const receipt = fixture.state.requests.get(args.transitionRequestIds[0]);
-      expect(receipt.operations.some(operation => operation.kind === "DeliveryFailure" && operation.work_id === member.work_id)).toBe(true);
-      expect(receipt.actor.run_id).toBe(String(publisher.id));
-      expect(receipt.actor.run_attempt).toBe(publisher.run_attempt);
+      expect(args.reconcileMirrors).toBe(true);
+      expect(args.transitionRequestIds).toBeUndefined();
+      expect(fixture.state.works.get(member.work_id).barrier).toBe("failed");
     } finally {
       configuration.mockRestore();
       projection.mockRestore();
     }
   });
 
-  it.each(["pending", "throw"])("attempts later projection batches after an earlier %s batch and collects diagnostics", async mode => {
+  it.each(["pending", "throw"])("collects checked-ledger projection diagnostics after a %s failure", async mode => {
     const { fixture, options, nativeRun } = setup({ count: 1 });
     options.context = { ...fixture.dispatcherContext, job: "work_queue_compaction" };
     const publisher = fixture.nativeRun(fixture.dispatcherContext);
@@ -339,19 +451,16 @@ describe("scheduled work queue recovery", () => {
     const workId = fixture.assignment.claims[0].work_id;
     for (let index = 0; index < 17; index++) fixture.append("cancel_work", { operations: [{ kind: "WorkCancellation", work_id: workId, reason: "attempts_exhausted" }] }, actor, `terminal-${index}`);
     const configuration = vi.spyOn(require("./cancel_work_queue_closed_issue.cjs"), "readIssuesConfig").mockResolvedValue({ label: "work" });
-    const projection = vi
-      .spyOn(require("./work_queue_issues.cjs"), "main")
-      .mockImplementationOnce(async () => {
-        if (mode === "throw") throw new Error("secret-batch-failure");
-        return { pending: [{ work_id: workId, reason: "first batch pending" }] };
-      })
-      .mockResolvedValue({ pending: [{ work_id: workId, reason: "second batch pending" }] });
+    const projection = vi.spyOn(require("./work_queue_issues.cjs"), "main").mockImplementation(async () => {
+      if (mode === "throw") throw new Error("secret-batch-failure");
+      return { pending: [{ work_id: workId, reason: "reconciliation pending" }] };
+    });
     try {
-      const result = await maintenance({ ...options, projectIssues: true, deferIssueFailure: true });
-      expect(projection).toHaveBeenCalledTimes(2);
-      expect(projection.mock.calls.map(([args]) => args.transitionRequestIds.length)).toEqual([16, 1]);
-      expect(result.issue_sync_pending).toHaveLength(2);
-      expect(result.issue_sync_pending[1].reason).toBe("second batch pending");
+      const result = await maintenance({ ...options, projectIssues: true, deferIssueWarning: true });
+      expect(projection).toHaveBeenCalledOnce();
+      expect(projection.mock.calls[0][0].reconcileMirrors).toBe(true);
+      expect(result.issue_sync_pending).toHaveLength(1);
+      expect(result.issue_sync_pending[0].reason).toBe(mode === "throw" ? "Issue reconciliation setup failed; inspect safe API diagnostics and the checked ledger" : "reconciliation pending");
       expect(JSON.stringify(result.issue_sync_pending)).not.toContain("secret-batch-failure");
       expect(fixture.state.dispatches.get(fixture.assignment.dispatch_id).released).toBe(true);
     } finally {
@@ -426,7 +535,7 @@ describe("scheduled work queue recovery", () => {
       const configuration = vi.spyOn(require("./cancel_work_queue_closed_issue.cjs"), "readIssuesConfig").mockResolvedValue({ label: "work" });
       const projection = vi.spyOn(require("./work_queue_issues.cjs"), "main").mockResolvedValue({ pending: [{ reason: "mirror pending" }] });
       try {
-        await expect(maintenance({ ...options, projectIssues: true, deferIssueFailure: true })).rejects.toThrow("work_queue_maintenance_reconciliation_unresolved");
+        await expect(maintenance({ ...options, projectIssues: true, deferIssueWarning: true })).rejects.toThrow("work_queue_maintenance_reconciliation_unresolved");
         expect(projection).toHaveBeenCalledOnce();
       } finally {
         configuration.mockRestore();

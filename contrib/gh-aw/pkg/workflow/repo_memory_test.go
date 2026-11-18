@@ -226,7 +226,7 @@ func TestRepoMemoryStepsGeneration(t *testing.T) {
 	}
 
 	var builder strings.Builder
-	generateRepoMemorySteps(&builder, data)
+	NewCompiler().generateRepoMemorySteps(&builder, data, "agent")
 
 	output := builder.String()
 
@@ -1283,7 +1283,7 @@ func TestRepoMemoryWikiStepsGeneration(t *testing.T) {
 	}
 
 	var builder strings.Builder
-	generateRepoMemorySteps(&builder, data)
+	NewCompiler().generateRepoMemorySteps(&builder, data, "agent")
 
 	output := builder.String()
 	assert.Contains(t, output, "TARGET_REPO: ${{ github.repository }}.wiki",
@@ -1310,7 +1310,7 @@ func TestRepoMemoryWikiStepsWithTargetRepo(t *testing.T) {
 	}
 
 	var builder strings.Builder
-	generateRepoMemorySteps(&builder, data)
+	NewCompiler().generateRepoMemorySteps(&builder, data, "agent")
 
 	output := builder.String()
 	assert.Contains(t, output, "TARGET_REPO: myorg/myrepo.wiki",
@@ -1717,7 +1717,7 @@ func TestRepoMemoryValidationConfigAndGeneratedSteps(t *testing.T) {
 
 	data := &WorkflowData{RepoMemoryConfig: config}
 	var restore strings.Builder
-	generateRepoMemorySteps(&restore, data)
+	NewCompiler().generateRepoMemorySteps(&restore, data, "agent")
 	assert.NotContains(t, restore.String(), "Validate repo-memory baseline (default)")
 	generateRepoMemoryBaselineValidationSteps(&restore, data)
 	restoreYAML := restore.String()
@@ -1743,6 +1743,7 @@ func TestRepoMemoryValidationConfigAndGeneratedSteps(t *testing.T) {
 	require.NotNil(t, pushJob)
 	pushYAML := strings.Join(pushJob.Steps, "\n")
 	assert.Contains(t, pushYAML, "VALIDATION_SCRIPT_B64:")
+	assert.Contains(t, pushYAML, "GH_AW_MEMORY_SOURCE_JOB_RESULT: ${{ needs.agent.result }}")
 	assert.Contains(t, pushYAML, "MEMORY_JSON_SCHEMAS_REQUIRED: 'true'")
 	assert.Contains(t, pushYAML, "VALIDATION_TIMEOUT_SECONDS: 60")
 }

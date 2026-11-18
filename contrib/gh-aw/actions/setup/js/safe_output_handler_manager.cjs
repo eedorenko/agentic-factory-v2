@@ -13,9 +13,10 @@ const { loadAgentOutput } = require("./load_agent_output.cjs");
 const { normalizeSafeOutputConfig } = require("./safe_output_names.cjs");
 const { getErrorMessage } = require("./error_helpers.cjs");
 const { getStalePullRequestReason } = require("./pr_lifecycle.cjs");
-const { ERR_CONFIG, ERR_PARSE, ERR_SYSTEM, ERR_VALIDATION, SAFE_OUTPUT_E099 } = require("./error_codes.cjs");
+const { ERR_CONFIG, ERR_PARSE, ERR_SYSTEM, ERR_VALIDATION, SAFE_OUTPUT_E007, SAFE_OUTPUT_E099 } = require("./error_codes.cjs");
 const { classifySafeOutputResult, computeSafeOutputsStatus, isFailedProcessingResult } = require("./safe_outputs_status.cjs");
-const { finalizeBufferedReviewOutcomes } = require("./safe_output_outcomes.cjs");
+const { buildSafeOutputDependencyPlan, checkSafeOutputDependencies } = require("./safe_output_dependencies.cjs");
+const { projectSafeOutputData, finalizeBufferedReviewExecutions } = require("./safe_output_execution.cjs");
 const { hasUnresolvedTemporaryIds, replaceTemporaryIdReferences, replaceArtifactUrlReferences, normalizeTemporaryId, extractTemporaryIdReferences, getCreatedTemporaryId } = require("./temporary_id.cjs");
 const { generateMissingInfoSections } = require("./missing_info_formatter.cjs");
 const { setCollectedMissings } = require("./missing_messages_helper.cjs");
@@ -37,7 +38,7 @@ const {
   extractCreatedItemFromResult,
   writeTemporaryIdMapFile,
   writeSafeOutputErrorReport,
-  writeSafeOutputOutcomes,
+  writeSafeOutputExecutions,
   writeMergePullRequestDecision,
   SAFE_OUTPUT_ERRORS_FILE_PATH,
   CLAIM_DELIVERY_ERRORS_FILE_NAME,
@@ -47,7 +48,7 @@ const { emitSafeOutputActionOutputs } = require("./safe_outputs_action_outputs.c
 const { listCommentMemoryFiles, COMMENT_MEMORY_DIR } = require("./comment_memory_helpers.cjs");
 const { checkRateLimitHeadroom } = require("./rate_limit_helpers.cjs");
 const { redactSensitiveConfig } = require("./safe_outputs_config_redact.cjs");
-const { getEffectiveDetectionConclusion } = require("./threat_detection_warning.cjs");
+const { getEffectiveDetectionConclusion, getDetectionReasonText } = require("./threat_detection_warning.cjs");
 const nodePath = require("path");
 const fs = require("fs");
 const {
@@ -64,7 +65,9 @@ const {
 } = require("./work_queue_claim_scope.cjs");
 const { withClaimEffectClients, wrapClaimEffectClient } = require("./work_queue_effect_client.cjs");
 const { readClaimControlMessages } = require("./work_queue_control_delivery.cjs");
-const { readDeliveryControlInventory, inspectClaimDelivery, createClaimDeliveryVerifier, verifyBuiltinDeliveryOutput } = require("./work_queue_delivery.cjs");
+const { readDeliveryControlInventory, inspectClaimDelivery, createClaimDeliveryVerifier, verifyBuiltinDeliveryOutput, validateDeliveryContract, NO_WRITE_TYPES } = require("./work_queue_delivery.cjs");
+const { normalizeSafeOutputName } = require("./safe_output_names.cjs");
+const { collectDeliveryEvidence, publishDeliveryEvidence } = require("./work_queue_delivery_evidence.cjs");
 const { createClaimAdapterHandler, verifyClaimAdapterOutput, preparedAdapterPath, createDeclaredAdapterVerifier, wrapDeclaredBuiltinHandler } = require("./work_queue_claim_adapters.cjs");
 const GITHUB_TOKEN_CONFIG_KEY = "github-token";
 
@@ -73,14 +76,9 @@ const GITHUB_TOKEN_CONFIG_KEY = "github-token";
  * Maps safe output types to their handler module file paths
  */
 const HANDLER_MAP = {
-  linear_create_issue: "./linear_create_issue.cjs",
-  linear_add_comment: "./linear_add_comment.cjs",
-  linear_update_issue: "./linear_update_issue.cjs",
+  add_security_advisory_comment: "./add_security_advisory_comment.cjs",
+  create_security_advisory: "./create_security_advisory.cjs",
   create_issue: "./create_issue.cjs",
-  jira_create_issue: "./jira_create_issue.cjs",
-  jira_update_issue: "./jira_update_issue.cjs",
-  jira_add_comment: "./jira_add_comment.cjs",
-  jira_add_label: "./jira_add_label.cjs",
   add_comment: "./add_comment.cjs",
   comment_memory: "./comment_memory.cjs",
   create_discussion: "./create_discussion.cjs",
@@ -131,12 +129,6 @@ const HANDLER_MAP = {
   report_incomplete: "./report_incomplete_handler.cjs",
   create_report_incomplete_issue: "./create_report_incomplete_issue.cjs",
   create_project: "./create_project.cjs",
-  ado_create_work_item: "./create_work_item.cjs",
-  ado_update_work_item: "./update_work_item.cjs",
-  ado_comment_on_work_item: "./comment_on_work_item.cjs",
-  ado_assign_work_item: "./assign_work_item.cjs",
-  ado_link_work_items: "./link_work_items.cjs",
-  ado_upload_workitem_attachment: "./upload_workitem_attachment.cjs",
   create_project_status_update: "./create_project_status_update.cjs",
   update_project: "./update_project.cjs",
   upload_artifact: "./upload_artifact.cjs",
@@ -180,12 +172,9 @@ const WTD3_REQUIREMENT_ID = "WTD3";
  * @type {Set<string>}
  */
 const THREAT_WARNING_REVIEWABLE_TYPES = new Set([
-  "linear_create_issue",
-  "linear_add_comment",
+  "add_security_advisory_comment",
+  "create_security_advisory",
   "create_issue",
-  "jira_create_issue",
-  "jira_update_issue",
-  "jira_add_comment",
   "add_comment",
   "create_pull_request",
   "comment_memory",
@@ -209,8 +198,6 @@ const THREAT_WARNING_REVIEWABLE_TYPES = new Set([
   "ledger_mutation",
   "create_report_incomplete_issue",
   "report_incomplete",
-  "ado_create_work_item",
-  "ado_comment_on_work_item",
 ]);
 
 /**
@@ -229,7 +216,6 @@ const THREAT_WARNING_CONVERTIBLE_TYPES = new Map([["push_to_pull_request_branch"
  * @type {Set<string>}
  */
 const THREAT_WARNING_ABORT_TYPES = new Set([
-  "linear_update_issue",
   "noop",
   "close_issue",
   "link_sub_issue",
@@ -241,7 +227,6 @@ const THREAT_WARNING_ABORT_TYPES = new Set([
   "resolve_pull_request_review_thread",
   "dismiss_pull_request_review",
   "add_labels",
-  "jira_add_label",
   "remove_labels",
   "replace_label",
   "add_reviewer",
@@ -263,19 +248,16 @@ const THREAT_WARNING_ABORT_TYPES = new Set([
   "call_workflow",
   "autofix_code_scanning_alert",
   "create_agent_session",
-  "ado_update_work_item",
-  "ado_assign_work_item",
-  "ado_link_work_items",
-  "ado_upload_workitem_attachment",
 ]);
 
 /**
  * Resolve threat warning policy for a safe output type.
  * @param {string} messageType
+ * @param {Map<string, Function>} messageHandlers
  * @returns {{policy: "reviewable" | "convertible" | "abort" | "none", mappedType?: string}}
  */
-function getThreatWarningPolicy(messageType) {
-  if (THREAT_WARNING_ABORT_TYPES.has(messageType)) {
+function getThreatWarningPolicy(messageType, messageHandlers) {
+  if (THREAT_WARNING_ABORT_TYPES.has(messageType) || handlerThreatWarningAbortTypes.get(messageHandlers)?.has(messageType)) {
     return { policy: "abort" };
   }
   const mappedType = THREAT_WARNING_CONVERTIBLE_TYPES.get(messageType);
@@ -373,6 +355,15 @@ const PR_REVIEW_HANDLER_TYPES = new Set(["create_pull_request_review_comment", "
  */
 const handlerLoadErrorsByHandlerMap = new WeakMap();
 
+/** @type {WeakMap<Map<string, Function>, Set<string>>} Compiler-owned warning policies, never message payloads. */
+const handlerThreatWarningAbortTypes = new WeakMap();
+
+/** @type {WeakMap<Map<string, Function>, Map<string, {max: number, attempted: number}>>} Trusted connector proposal budgets, scoped to a handler factory. */
+const connectorBudgetsByHandlerMap = new WeakMap();
+
+/** @type {WeakSet<Function>} Only built-in local diagnostics may bypass publication checks. */
+const localDiagnosticHandlers = new WeakSet();
+
 /**
  * Wrap a handler so project-safe-output execution can temporarily bind global.github
  * to the handler-specific authenticated client.
@@ -453,6 +444,16 @@ function bindHandlerToFactoryScope(handler) {
 async function loadHandlers(config, prReviewBufferRegistry, resolvedAllowedMentionAliases, activationCommentLinks = []) {
   config = normalizeSafeOutputConfig(config);
   const messageHandlers = new Map();
+  handlerThreatWarningAbortTypes.set(messageHandlers, new Set(Object.keys(config).filter(type => config[type]?.threat_warning_policy === "abort")));
+  const connectorBudgets = new Map();
+  for (const [type, options] of Object.entries(config)) {
+    if (options?.connector_operation !== true) continue;
+    if (!Number.isSafeInteger(options.max) || options.max < 1 || options.max > 100) {
+      throw new Error(`Invalid trusted connector budget for "${type}": max must be an integer from 1 to 100`);
+    }
+    connectorBudgets.set(type, { max: options.max, attempted: 0 });
+  }
+  connectorBudgetsByHandlerMap.set(messageHandlers, connectorBudgets);
 
   /** @type {Map<string, string>} */
   const handlerLoadErrors = new Map();
@@ -538,7 +539,9 @@ async function loadHandlers(config, prReviewBufferRegistry, resolvedAllowedMenti
                   : value;
             }
           }
-          messageHandlers.set(type, factoryClaim ? authorizedHandler : bindHandlerToFactoryScope(executable));
+          const loadedHandler = factoryClaim ? authorizedHandler : bindHandlerToFactoryScope(executable);
+          if (type === "report_incomplete") localDiagnosticHandlers.add(loadedHandler);
+          messageHandlers.set(type, loadedHandler);
           core.info(`✓ Loaded and initialized handler for: ${type}`);
         } else {
           handlerLoadErrors.set(type, "handler module does not export a main function");
@@ -551,8 +554,9 @@ async function loadHandlers(config, prReviewBufferRegistry, resolvedAllowedMenti
           throw error;
         }
         // For other errors (e.g., module not found), log warning and continue
-        handlerLoadErrors.set(type, errorMessage);
-        core.warning(`Failed to load handler for ${type}: ${errorMessage}`);
+        const diagnostic = type === "merge_pull_request" ? "merge_pull_request handler initialization failed; check trusted policy and authentication configuration" : errorMessage;
+        handlerLoadErrors.set(type, diagnostic);
+        core.warning(`Failed to load handler for ${type}: ${diagnostic}`);
       }
     } else {
       core.debug(`Handler not enabled: ${type}`);
@@ -835,7 +839,7 @@ function rollbackReviewResultsForPR(results, repo, prNumber, errorMessage) {
  * the skip must be back-propagated here so the Processing Summary reflects the actual
  * outcome (skipped) rather than a misleading success count.
  *
- * @param {Array<{type: string, success: boolean, skipped?: boolean, skipReason?: string}>} results - Processing results to mutate
+ * @param {Array<{type: string, success: boolean, skipped?: boolean, skipReason?: string, deferred_manifest?: boolean, result?: {deferred_manifest?: boolean}}>} results - Processing results to mutate
  * @param {string} skipReason - Human-readable reason for the skip
  */
 function skipReviewResults(results, skipReason) {
@@ -843,6 +847,8 @@ function skipReviewResults(results, skipReason) {
     if ((r.type === "submit_pull_request_review" || r.type === "create_pull_request_review_comment") && r.success === true) {
       r.skipped = true;
       r.skipReason = skipReason;
+      r.deferred_manifest = false;
+      if (r.result) r.result.deferred_manifest = false;
     }
   }
 }
@@ -850,7 +856,7 @@ function skipReviewResults(results, skipReason) {
 /**
  * Mark buffered review results for a specific PR as skipped.
  *
- * @param {Array<{type: string, success: boolean, skipped?: boolean, skipReason?: string, repo?: string, pull_request_number?: number, result?: {repo?: string, pull_request_number?: number}}>} results
+ * @param {Array<{type: string, success: boolean, skipped?: boolean, skipReason?: string, deferred_manifest?: boolean, repo?: string, pull_request_number?: number, result?: {repo?: string, pull_request_number?: number, deferred_manifest?: boolean}}>} results
  * @param {string} repo - Repository slug (owner/repo)
  * @param {number} prNumber - Pull request number
  * @param {string} skipReason - Human-readable reason for the skip
@@ -863,6 +869,8 @@ function skipReviewResultsForPR(results, repo, prNumber, skipReason) {
     if ((r.type === "submit_pull_request_review" || r.type === "create_pull_request_review_comment") && r.success === true && (r.result?.repo ?? r.repo) === repo && (r.result?.pull_request_number ?? r.pull_request_number) === prNumber) {
       r.skipped = true;
       r.skipReason = skipReason;
+      r.deferred_manifest = false;
+      if (r.result) r.result.deferred_manifest = false;
     }
   }
 }
@@ -938,6 +946,7 @@ function buildSkippedResult(type, messageIndex, result) {
 /** @param {string} type @param {any} result @param {number} messageIndex */
 function recordMergeDecision(type, result, messageIndex) {
   if (type !== "merge_pull_request" || !result || result.deferred) return result;
+  if (result.success === false) result = { ...result, error: mergeProcessingError(result) };
   try {
     writeMergePullRequestDecision(result, messageIndex);
     return { ...result, audit_recorded: true };
@@ -948,6 +957,24 @@ function recordMergeDecision(type, result, messageIndex) {
   }
 }
 
+/** @param {any} [result] */
+function mergeProcessingError(result) {
+  if (result?.operation_outcome === "indeterminate") return "Merge outcome is indeterminate; inspect the live pull request before any further action. The merge was not retried.";
+  // Only preserve exact fixed diagnostics; other handler errors can contain private API data.
+  switch (result?.error) {
+    case "merge_pull_request gate checks failed":
+    case `${SAFE_OUTPUT_E007}: Missing check producer evidence for required check`:
+    case `${SAFE_OUTPUT_E007}: Unexpected check producer for required check`:
+    case `${SAFE_OUTPUT_E007}: Ambiguous check producers for required check`:
+    case `${SAFE_OUTPUT_E007}: GitHub rejected the merge request (HTTP 405); the merge was not retried`:
+    case `${SAFE_OUTPUT_E007}: GitHub rejected the merge request (HTTP 409); the merge was not retried`:
+    case `${SAFE_OUTPUT_E007}: GitHub rejected the merge request (HTTP 422); the merge was not retried`:
+      return result.error;
+    default:
+      return "merge_pull_request failed";
+  }
+}
+
 /** @param {any} result */
 function projectMergeFailure(result) {
   return {
@@ -955,6 +982,7 @@ function projectMergeFailure(result) {
     ...(result.audit_recorded ? { audit_recorded: true } : {}),
     ...(result.audit_failed ? { audit_failed: true, audit_error: result.audit_error } : {}),
     ...(typeof result.staged === "boolean" ? { staged: result.staged } : {}),
+    ...(result.operation_outcome === "indeterminate" ? { operation_outcome: "indeterminate", merged: null, data_trust: "untrusted" } : {}),
   };
 }
 
@@ -967,63 +995,11 @@ function projectMergeFailure(result) {
  * @returns {Array<number>} original message indices in processing order
  */
 function sortMessageIndicesByTemporaryIdDependencies(messages) {
-  const producers = new Map();
-  messages.forEach((message, index) => {
-    const temporaryId = getCreatedTemporaryId(message);
-    if (temporaryId && !producers.has(temporaryId)) {
-      producers.set(temporaryId, index);
-    }
-  });
-
-  /** @type {Array<Array<number>>} */
-  const dependents = messages.map(() => []);
-  const inDegree = messages.map(() => 0);
-  messages.forEach((message, index) => {
-    const dependencies = message.type === "create_issue" ? extractTemporaryIdReferences({ blocked_by: message.blocked_by }) : new Set();
-    for (const temporaryId of dependencies) {
-      const producerIndex = producers.get(temporaryId);
-      if (producerIndex !== undefined && producerIndex !== index) {
-        dependents[producerIndex].push(index);
-        inDegree[index]++;
-      }
-    }
-  });
-
-  /** @type {Array<number>} */
-  const ready = [];
-  /** @param {number} index */
-  const pushReady = index => {
-    // Keep the ready queue ordered by original message index so independent
-    // messages keep their original relative order (stable topological sort).
-    let position = ready.length;
-    while (position > 0 && ready[position - 1] > index) position--;
-    ready.splice(position, 0, index);
-  };
-  inDegree.forEach((degree, index) => {
-    if (degree === 0) pushReady(index);
-  });
-  /** @type {Array<number>} */
-  const sorted = [];
-  while (ready.length > 0) {
-    const index = ready.shift();
-    if (index === undefined) break;
-    sorted.push(index);
-    for (const dependentIndex of dependents[index]) {
-      inDegree[dependentIndex]--;
-      if (inDegree[dependentIndex] === 0) {
-        pushReady(dependentIndex);
-      }
-    }
-  }
-
-  if (sorted.length !== messages.length) {
+  const plan = buildSafeOutputDependencyPlan(messages);
+  if (plan.cyclic) {
     core.warning("Temporary ID dependency cycle detected; preserving original order for cyclic safe outputs");
-    const sortedIndices = new Set(sorted);
-    for (let index = 0; index < messages.length; index++) {
-      if (!sortedIndices.has(index)) sorted.push(index);
-    }
   }
-  return sorted;
+  return plan.order;
 }
 
 /**
@@ -1045,9 +1021,10 @@ function sortMessagesByTemporaryIdDependencies(messages) {
  * @param {Map<string, Function>} messageHandlers - Map of message handler functions
  * @param {Array<Object>} messages - Array of safe output messages
  * @param {((item: {type: string, url?: string, number?: number, repo?: string, temporaryId?: string}) => void)|null} [onItemCreated] - Optional callback invoked after each successful create operation (for manifest logging)
+ * @param {((results: Array<any>, protectedTargets: Set<string>, requiredComments: Map<string, any[]>) => Promise<void>)|null} [finalizeBufferedOutputs] - Finalize buffered effects before resolving waiting dependencies
  * @returns {Promise<{success: boolean, results: Array<any>, temporaryIdMap: Object, artifactUrlMap: Map<string, string>, outputsWithUnresolvedIds: Array<any>, missings: Object, codePushFailures: Array<{type: string, error: string}>}>}
  */
-async function processMessages(messageHandlers, messages, onItemCreated = null) {
+async function processMessages(messageHandlers, messages, onItemCreated = null, finalizeBufferedOutputs = null) {
   if (readClaimScopeContext() && !currentClaimHandle()) {
     throw new Error("Queue safe outputs must execute in a trusted per-Claim handler context; use the scoped manager");
   }
@@ -1058,8 +1035,58 @@ async function processMessages(messageHandlers, messages, onItemCreated = null) 
       return { ...message, _claimScopeError: getErrorMessage(error) };
     }
   });
-  const processingOrder = sortMessageIndicesByTemporaryIdDependencies(messages);
+  const dependencyPlan = buildSafeOutputDependencyPlan(messages);
+  if (dependencyPlan.cyclic) core.warning("Safe-output dependency cycle detected; preserving legacy temporary-ID ordering only for messages without depends-on");
+  const processingOrder = dependencyPlan.order;
+  const waitingMessages = [];
   const results = [];
+  /** @type {any} */
+  const reviewHandler = messageHandlers.get("submit_pull_request_review");
+  const reviewTargets = messages.map(message => (message.type === "submit_pull_request_review" && typeof reviewHandler?.getReviewTarget === "function" ? reviewHandler.getReviewTarget(message) : null));
+  const reviewKey = target => (target?.repo && target?.pull_request_number ? `${target.repo}#${target.pull_request_number}` : null);
+
+  function reviewCommentPrerequisites(i) {
+    const target = reviewKey(reviewTargets[i]);
+    if (!target) return new Set();
+    return new Set(
+      [...dependencyPlan.prerequisites[i]].filter(prerequisite => {
+        const record = results.find(result => result.messageIndex === prerequisite);
+        return record?.type === "create_pull_request_review_comment" && record.result?.buffered && record.result?.deferred_manifest && reviewKey(record.result) === target;
+      })
+    );
+  }
+
+  function protectedReviews() {
+    const published = new Set(results.filter(record => record.type === "submit_pull_request_review" && record.success && !record.skipped && record.result?.deferred_manifest).map(record => reviewKey(record.result)));
+    return new Set(
+      reviewTargets.flatMap((target, i) => {
+        const key = reviewKey(target);
+        const result = results.find(record => record.messageIndex === i);
+        if (!key && messages[i].type === "submit_pull_request_review" && typeof reviewHandler?.getReviewTarget === "function" && (!result || !result.success || result.skipped)) {
+          return [...dependencyPlan.prerequisites[i]].flatMap(prerequisite => {
+            const record = results.find(item => item.messageIndex === prerequisite && item.type === "create_pull_request_review_comment");
+            const commentKey = reviewKey(record?.result);
+            return commentKey && !published.has(commentKey) ? [commentKey] : [];
+          });
+        }
+        const dependsOnOwnComment = reviewCommentPrerequisites(i).size > 0;
+        const failedDependency = result && (!result.success || result.skipped) && dependencyPlan.prerequisites[i].size > 0;
+        return key && !published.has(key) && (dependsOnOwnComment || failedDependency) ? [key] : [];
+      })
+    );
+  }
+
+  function requiredReviewComments() {
+    const required = new Map();
+    for (let i = 0; i < messages.length; i++) {
+      const target = reviewKey(reviewTargets[i]);
+      const review = results.find(record => record.messageIndex === i);
+      if (!target || !review?.success || !review.result?.deferred_manifest) continue;
+      const comments = [...reviewCommentPrerequisites(i)].map(index => results.find(record => record.messageIndex === index)?.result?.metadata);
+      if (comments.length) required.set(target, comments);
+    }
+    return required;
+  }
   const detectionConclusion = getEffectiveDetectionConclusion(process.env.GH_AW_DETECTION_CONCLUSION, process.env.GH_AW_DETECTION_REASON);
   const detectionConclusionMissing = String(process.env.GH_AW_RUN_DETECTION || "").trim() === "true" && detectionConclusion === "";
 
@@ -1110,11 +1137,19 @@ async function processMessages(messageHandlers, messages, onItemCreated = null) 
 
   core.info(`Processing ${messages.length} message(s) in order of appearance...`);
 
-  // Process messages in dependency order while reporting original message indices
-  for (let position = 0; position < processingOrder.length; position++) {
-    const i = processingOrder[position];
+  /** @param {number} i @param {boolean} allowWaiting */
+  async function processMessage(i, allowWaiting) {
     let message = messages[i];
     const messageType = message.type;
+    const dependency = checkSafeOutputDependencies(dependencyPlan, i, results, allowWaiting, reviewCommentPrerequisites(i));
+    if (dependency.state === "waiting") {
+      waitingMessages.push(i);
+      return;
+    }
+    if (dependency.state === "failed") {
+      results.push({ type: messageType, messageIndex: i, success: false, errorCode: dependency.errorCode, error: dependency.error });
+      return;
+    }
     try {
       if (currentClaimHandle() && message._claimScopeError) throw new Error(message._claimScopeError);
       message = await assertClaimAuthorized(message);
@@ -1128,12 +1163,12 @@ async function processMessages(messageHandlers, messages, onItemCreated = null) 
           ? { cancelled: error.state === "cancelled", skipped: true, reason: error.state === "result" ? "Durable Result settled; effects not replayed" : "Claim cancelled; outputs suppressed", errorCode: error.code }
           : { errorCode: message._claimScopeErrorCode || error.code || "claim_scope_invalid", error: getErrorMessage(error) }),
       });
-      continue;
+      return;
     }
 
     if (!messageType) {
       core.warning(`Skipping message ${i + 1} without type`);
-      continue;
+      return;
     }
 
     if (detectionConclusion === "failure" || detectionConclusionMissing) {
@@ -1144,7 +1179,7 @@ async function processMessages(messageHandlers, messages, onItemCreated = null) 
       const errorCode = detectionConclusionMissing ? "threat_detection_conclusion_missing" : "threat_detection_failure_blocked";
       const error = detectionConclusionMissing
         ? `Threat detection was required but reported no conclusion; "${messageType}" was not applied.`
-        : `Threat detection concluded failure (reason: ${process.env.GH_AW_DETECTION_REASON || "unknown"}); "${messageType}" was not applied.`;
+        : `Threat detection concluded failure. ${getDetectionReasonText(process.env.GH_AW_DETECTION_REASON)} "${messageType}" was not applied.`;
       core.warning(`🚫 ${error}`);
       results.push({
         type: messageType,
@@ -1155,11 +1190,11 @@ async function processMessages(messageHandlers, messages, onItemCreated = null) 
         errorCode,
         error,
       });
-      continue;
+      return;
     }
 
     if (detectionConclusion === "warning") {
-      const threatPolicy = getThreatWarningPolicy(messageType);
+      const threatPolicy = getThreatWarningPolicy(messageType, messageHandlers);
       if (threatPolicy.policy === "abort") {
         const errorCode = "threat_detected_abort_policy";
         const error = `Threat-detection warn policy aborted "${messageType}" (Requirement ${WTD3_REQUIREMENT_ID}): non-reviewable outputs must not be applied when detection conclusion is warning.`;
@@ -1173,7 +1208,7 @@ async function processMessages(messageHandlers, messages, onItemCreated = null) 
           errorCode,
           error,
         });
-        continue;
+        return;
       }
       if (threatPolicy.policy === "convertible") {
         // Conversion execution is implemented in the handler for the convertible type.
@@ -1193,7 +1228,7 @@ async function processMessages(messageHandlers, messages, onItemCreated = null) 
       if (STANDALONE_STEP_TYPES.has(messageType)) {
         if (currentClaimHandle() && messageType === "noop") {
           results.push({ type: messageType, messageIndex: i, claim_handle: currentClaimHandle(), success: true, result: { effect: "none" } });
-          continue;
+          return;
         }
         // Silently skip - this is handled by a dedicated step
         core.debug(`Message ${i + 1} (${messageType}) will be handled by standalone step`);
@@ -1205,7 +1240,7 @@ async function processMessages(messageHandlers, messages, onItemCreated = null) 
           delegated: true,
           reason: "Handled by standalone step",
         });
-        continue;
+        return;
       }
 
       // Check if this message type is handled by a custom safe output job
@@ -1240,7 +1275,7 @@ async function processMessages(messageHandlers, messages, onItemCreated = null) 
           delegated: true,
           reason: "Handled by custom safe output job",
         });
-        continue;
+        return;
       }
 
       // Unknown message type - warn the user
@@ -1255,10 +1290,26 @@ async function processMessages(messageHandlers, messages, onItemCreated = null) 
         success: false,
         error: loadError ? `No handler loaded for type '${messageType}': ${loadError}` : `No handler loaded for type '${messageType}'`,
       });
-      continue;
+      return;
     }
 
     try {
+      const budget = connectorBudgetsByHandlerMap.get(messageHandlers)?.get(messageType);
+      if (budget) {
+        if (budget.attempted >= budget.max) {
+          results.push({
+            type: messageType,
+            messageIndex: i,
+            success: false,
+            errorCode: "connector_budget_exceeded",
+            error: `Connector operation "${messageType}" exceeded its max of ${budget.max} attempted invocation(s)`,
+          });
+          return;
+        }
+        // Reserve synchronously before invoking the credentialed handler. Failed
+        // proposals consume budget too; HTTP retries stay inside that invocation.
+        budget.attempted++;
+      }
       core.info(`Processing message ${i + 1}/${messages.length}: ${messageType}`);
 
       // Convert Map to plain object for handler
@@ -1346,11 +1397,12 @@ async function processMessages(messageHandlers, messages, onItemCreated = null) 
 
       // Call the message handler with the individual message and resolved temp IDs
       await assertClaimAuthorized(effectiveMessage);
-      const stalePRReason = await getStalePullRequestReason(global.github, global.context);
+      // Incomplete signals only record local diagnostics; they do not publish to the PR.
+      const stalePRReason = localDiagnosticHandlers.has(messageHandler) ? null : await getStalePullRequestReason(global.github, global.context);
       if (stalePRReason) {
         core.info(stalePRReason);
         results.push(buildSkippedResult(messageType, i, { skipped: true, reason: stalePRReason }));
-        continue;
+        return;
       }
       const result = recordMergeDecision(messageType, await messageHandler(effectiveMessage, resolvedTemporaryIds, temporaryIdMap), i);
 
@@ -1364,7 +1416,7 @@ async function processMessages(messageHandlers, messages, onItemCreated = null) 
         if (CODE_PUSH_TYPES.has(messageType) && !codePushSkip) {
           codePushSkip = { type: messageType, error: msg, skipped: true };
         }
-        continue;
+        return;
       }
 
       // Check if the handler explicitly returned a failure
@@ -1376,14 +1428,15 @@ async function processMessages(messageHandlers, messages, onItemCreated = null) 
           messageIndex: i,
           success: false,
           error: errorMsg,
-          ...(messageType === "merge_pull_request" ? { result: projectMergeFailure(result) } : {}),
+          ...projectSafeOutputData({ execution_trace: result.execution_trace }),
+          ...(messageType === "merge_pull_request" ? { result: projectMergeFailure(result) } : result.operation_outcome === "indeterminate" ? { result: { operation_outcome: "indeterminate" } } : {}),
         });
         // Track code-push failures for later comment annotations and conclusion reporting.
         if (CODE_PUSH_TYPES.has(messageType)) {
           codePushFailures.push({ type: messageType, error: errorMsg });
           core.warning(`⚠️ Code push operation '${messageType}' failed — continuing with remaining safe outputs (add_comment messages will include a failure note)`);
         }
-        continue;
+        return;
       }
 
       // Check if the operation was deferred due to unresolved temporary IDs
@@ -1402,7 +1455,7 @@ async function processMessages(messageHandlers, messages, onItemCreated = null) 
           deferred: true,
           result,
         });
-        continue;
+        return;
       }
 
       // If handler returned a temp ID mapping, add it to our map
@@ -1515,12 +1568,14 @@ async function processMessages(messageHandlers, messages, onItemCreated = null) 
 
       core.info(`✓ Message ${i + 1} (${messageType}) completed successfully`);
     } catch (error) {
-      core.error(`✗ Message ${i + 1} (${messageType}) failed: ${getErrorMessage(error)}`);
+      const errorMsg = messageType === "merge_pull_request" ? mergeProcessingError() : getErrorMessage(error);
+      core.error(`✗ Message ${i + 1} (${messageType}) failed: ${errorMsg}`);
       results.push({
         type: messageType,
         messageIndex: i,
         success: false,
-        error: getErrorMessage(error),
+        error: errorMsg,
+        ...projectSafeOutputData({ execution_trace: error?.execution_trace }),
       });
       // Track code-push failures for later comment annotations and conclusion reporting.
       if (CODE_PUSH_TYPES.has(messageType)) {
@@ -1530,45 +1585,141 @@ async function processMessages(messageHandlers, messages, onItemCreated = null) 
     }
   }
 
+  // Keep the legacy first pass/retry boundary: a dependent waits for its
+  // prerequisite's real retry result, not its provisional deferred record.
+  for (const i of processingOrder) await processMessage(i, true);
+
+  async function drainWaitingMessages() {
+    for (let position = 0; position < waitingMessages.length;) {
+      const i = waitingMessages[position];
+      if (checkSafeOutputDependencies(dependencyPlan, i, results, true, reviewCommentPrerequisites(i)).state === "waiting") {
+        position++;
+        continue;
+      }
+      waitingMessages.splice(position, 1);
+      await processMessage(i, false);
+    }
+  }
+
   // Retry deferred messages now that more temporary IDs may have been resolved
   // This retry loop mirrors the main processing loop but operates on messages that were
   // deferred during the first pass (e.g., link_sub_issue waiting for parent/sub creation).
   // IMPORTANT: Like the main loop, this must register temporary IDs and track outputs
   // with unresolved IDs to enable full synthetic update resolution.
-  if (deferredMessages.length > 0) {
+  async function retryDeferredMessages() {
+    if (deferredMessages.length === 0) return;
     core.info(`\n=== Retrying Deferred Messages ===`);
     core.info(`Found ${deferredMessages.length} deferred message(s) to retry`);
 
-    for (const deferred of deferredMessages) {
-      try {
-        core.info(`Retrying message ${deferred.messageIndex + 1}/${messages.length}: ${deferred.type}`);
+    let pending = deferredMessages.filter(deferred => results.some(result => result.messageIndex === deferred.messageIndex && result.deferred));
+    for (let round = 0; pending.length > 0 && round <= messages.length; round++) {
+      const roundStartTemporaryIdCount = temporaryIdMap.size;
+      const attempted = new Set(pending.map(deferred => deferred.messageIndex));
+      const stillDeferred = [];
+      for (const deferred of pending) {
+        try {
+          core.info(`Retrying message ${deferred.messageIndex + 1}/${messages.length}: ${deferred.type}`);
 
-        // Convert Map to plain object for handler
-        const resolvedTemporaryIds = Object.fromEntries(temporaryIdMap);
+          // Convert Map to plain object for handler
+          const resolvedTemporaryIds = Object.fromEntries(temporaryIdMap);
 
-        // Record the temp ID map size before processing to detect new IDs
-        const tempIdMapSizeBefore = temporaryIdMap.size;
+          // Record the temp ID map size before processing to detect new IDs
+          const tempIdMapSizeBefore = temporaryIdMap.size;
 
-        // Call the handler again with updated temp ID map
-        await assertClaimAuthorized(deferred.message);
-        const stalePRReason = await getStalePullRequestReason(global.github, global.context);
-        const result = stalePRReason ? { skipped: true, reason: stalePRReason } : recordMergeDecision(deferred.type, await deferred.handler(deferred.message, resolvedTemporaryIds, temporaryIdMap), deferred.messageIndex);
+          // Call the handler again with updated temp ID map
+          await assertClaimAuthorized(deferred.message);
+          const stalePRReason = localDiagnosticHandlers.has(deferred.handler) ? null : await getStalePullRequestReason(global.github, global.context);
+          const result = stalePRReason ? { skipped: true, reason: stalePRReason } : recordMergeDecision(deferred.type, await deferred.handler(deferred.message, resolvedTemporaryIds, temporaryIdMap), deferred.messageIndex);
 
-        if (result && result.skipped === true && !result.deferred) {
-          const msg = result.reason || result.warning || result.error || "Handler returned skipped: true";
-          core.info(`⏭ Retry of message ${deferred.messageIndex + 1} (${deferred.type}) skipped — ${msg}`);
-          const resultIndex = results.findIndex(r => r.messageIndex === deferred.messageIndex);
-          if (resultIndex >= 0) {
-            results[resultIndex] = buildSkippedResult(deferred.type, deferred.messageIndex, result);
+          if (result && result.skipped === true && !result.deferred) {
+            const msg = result.reason || result.warning || result.error || "Handler returned skipped: true";
+            core.info(`⏭ Retry of message ${deferred.messageIndex + 1} (${deferred.type}) skipped — ${msg}`);
+            const resultIndex = results.findIndex(r => r.messageIndex === deferred.messageIndex);
+            if (resultIndex >= 0) {
+              results[resultIndex] = buildSkippedResult(deferred.type, deferred.messageIndex, result);
+            }
+            continue;
           }
-          continue;
-        }
 
-        // Check if the handler explicitly returned a failure
-        if (result && result.success === false && !result.deferred) {
-          const errorMsg = result.error || "Handler returned success: false";
+          // Check if the handler explicitly returned a failure
+          if (result && result.success === false && !result.deferred) {
+            const errorMsg = result.error || "Handler returned success: false";
+            core.error(`✗ Retry of message ${deferred.messageIndex + 1} (${deferred.type}) failed: ${errorMsg}`);
+            // Replace the deferred record so terminal retry failures classify as failed.
+            const resultIndex = results.findIndex(r => r.messageIndex === deferred.messageIndex);
+            if (resultIndex >= 0) {
+              results[resultIndex] = {
+                type: deferred.type,
+                messageIndex: deferred.messageIndex,
+                success: false,
+                deferred: false,
+                error: errorMsg,
+                ...projectSafeOutputData({ execution_trace: result.execution_trace }),
+                result: deferred.type === "merge_pull_request" ? projectMergeFailure(result) : { ...result, success: false, deferred: false, error: errorMsg },
+              };
+            }
+            continue;
+          }
+
+          // Check if still deferred
+          if (result && result.deferred === true) {
+            core.warning(`⏸ Message ${deferred.messageIndex + 1} (${deferred.type}) still deferred - some temporary IDs remain unresolved`);
+            // Update the existing result entry
+            const resultIndex = results.findIndex(r => r.messageIndex === deferred.messageIndex);
+            if (resultIndex >= 0) {
+              results[resultIndex].result = result;
+            }
+            stillDeferred.push(deferred);
+          } else {
+            core.info(`✓ Message ${deferred.messageIndex + 1} (${deferred.type}) completed on retry`);
+
+            // If handler returned a temp ID mapping, add it to our map
+            // This ensures that sub-issues created during deferred retry have their temporary IDs
+            // registered so parent issues can reference them in synthetic updates
+            if (result && result.temporaryId && result.repo && result.number) {
+              const normalizedTempId = normalizeTemporaryId(result.temporaryId);
+              temporaryIdMap.set(normalizedTempId, {
+                repo: result.repo,
+                number: result.number,
+              });
+              core.info(`Registered temporary ID: ${result.temporaryId} -> ${result.repo}#${result.number}`);
+            }
+
+            // Check if this output was created with unresolved temporary IDs
+            // For create_issue, create_discussion - check if body has unresolved IDs
+            // This enables synthetic updates to resolve references after all items are created
+            if (result && result.number && result.repo) {
+              const contentToCheck = getContentToCheck(deferred.type, deferred.message, result);
+              if (contentToCheck && hasUnresolvedTemporaryIds(contentToCheck, temporaryIdMap, artifactUrlMap)) {
+                core.info(`Output ${result.repo}#${result.number} was created with unresolved temporary IDs - tracking for update`);
+                outputsWithUnresolvedIds.push({
+                  type: deferred.type,
+                  message: deferred.message,
+                  result: result,
+                  originalTempIdMapSize: tempIdMapSizeBefore,
+                });
+              }
+              if (result && result.temporaryId && result.temporaryIdEntry) {
+                const normalizedTempId = normalizeTemporaryId(result.temporaryId);
+                temporaryIdMap.set(normalizedTempId, result.temporaryIdEntry);
+              }
+            }
+
+            // Update the result to success
+            const resultIndex = results.findIndex(r => r.messageIndex === deferred.messageIndex);
+            if (resultIndex >= 0) {
+              results[resultIndex].success = true;
+              results[resultIndex].deferred = false;
+              results[resultIndex].result = result;
+            }
+
+            // Log to manifest after deferred retry success
+            logCreatedItemFromResult(onItemCreated, deferred.type, result);
+          }
+        } catch (error) {
+          const errorMsg = deferred.type === "merge_pull_request" ? mergeProcessingError() : getErrorMessage(error);
           core.error(`✗ Retry of message ${deferred.messageIndex + 1} (${deferred.type}) failed: ${errorMsg}`);
-          // Replace the deferred record so terminal retry failures classify as failed.
+          // Replace the deferred record so terminal retry exceptions classify as failed.
           const resultIndex = results.findIndex(r => r.messageIndex === deferred.messageIndex);
           if (resultIndex >= 0) {
             results[resultIndex] = {
@@ -1577,83 +1728,62 @@ async function processMessages(messageHandlers, messages, onItemCreated = null) 
               success: false,
               deferred: false,
               error: errorMsg,
-              result: deferred.type === "merge_pull_request" ? projectMergeFailure(result) : { ...result, success: false, deferred: false, error: errorMsg },
+              ...projectSafeOutputData({ execution_trace: error?.execution_trace }),
+              result: { success: false, deferred: false, error: errorMsg },
             };
           }
-          continue;
-        }
-
-        // Check if still deferred
-        if (result && result.deferred === true) {
-          core.warning(`⏸ Message ${deferred.messageIndex + 1} (${deferred.type}) still deferred - some temporary IDs remain unresolved`);
-          // Update the existing result entry
-          const resultIndex = results.findIndex(r => r.messageIndex === deferred.messageIndex);
-          if (resultIndex >= 0) {
-            results[resultIndex].result = result;
-          }
-        } else {
-          core.info(`✓ Message ${deferred.messageIndex + 1} (${deferred.type}) completed on retry`);
-
-          // If handler returned a temp ID mapping, add it to our map
-          // This ensures that sub-issues created during deferred retry have their temporary IDs
-          // registered so parent issues can reference them in synthetic updates
-          if (result && result.temporaryId && result.repo && result.number) {
-            const normalizedTempId = normalizeTemporaryId(result.temporaryId);
-            temporaryIdMap.set(normalizedTempId, {
-              repo: result.repo,
-              number: result.number,
-            });
-            core.info(`Registered temporary ID: ${result.temporaryId} -> ${result.repo}#${result.number}`);
-          }
-
-          // Check if this output was created with unresolved temporary IDs
-          // For create_issue, create_discussion - check if body has unresolved IDs
-          // This enables synthetic updates to resolve references after all items are created
-          if (result && result.number && result.repo) {
-            const contentToCheck = getContentToCheck(deferred.type, deferred.message, result);
-            if (contentToCheck && hasUnresolvedTemporaryIds(contentToCheck, temporaryIdMap, artifactUrlMap)) {
-              core.info(`Output ${result.repo}#${result.number} was created with unresolved temporary IDs - tracking for update`);
-              outputsWithUnresolvedIds.push({
-                type: deferred.type,
-                message: deferred.message,
-                result: result,
-                originalTempIdMapSize: tempIdMapSizeBefore,
-              });
-            }
-            if (result && result.temporaryId && result.temporaryIdEntry) {
-              const normalizedTempId = normalizeTemporaryId(result.temporaryId);
-              temporaryIdMap.set(normalizedTempId, result.temporaryIdEntry);
-            }
-          }
-
-          // Update the result to success
-          const resultIndex = results.findIndex(r => r.messageIndex === deferred.messageIndex);
-          if (resultIndex >= 0) {
-            results[resultIndex].success = true;
-            results[resultIndex].deferred = false;
-            results[resultIndex].result = result;
-          }
-
-          // Log to manifest after deferred retry success
-          logCreatedItemFromResult(onItemCreated, deferred.type, result);
-        }
-      } catch (error) {
-        const errorMsg = getErrorMessage(error);
-        core.error(`✗ Retry of message ${deferred.messageIndex + 1} (${deferred.type}) failed: ${errorMsg}`);
-        // Replace the deferred record so terminal retry exceptions classify as failed.
-        const resultIndex = results.findIndex(r => r.messageIndex === deferred.messageIndex);
-        if (resultIndex >= 0) {
-          results[resultIndex] = {
-            type: deferred.type,
-            messageIndex: deferred.messageIndex,
-            success: false,
-            deferred: false,
-            error: errorMsg,
-            result: { success: false, deferred: false, error: errorMsg },
-          };
+        } finally {
+          await drainWaitingMessages();
         }
       }
+
+      const waitingIndexes = new Set(stillDeferred.map(deferred => deferred.messageIndex));
+      let newlyDeferred = false;
+      for (const deferred of deferredMessages) {
+        const result = results.find(item => item.messageIndex === deferred.messageIndex);
+        if (result?.deferred && !attempted.has(deferred.messageIndex) && !waitingIndexes.has(deferred.messageIndex)) {
+          stillDeferred.push(deferred);
+          waitingIndexes.add(deferred.messageIndex);
+          newlyDeferred = true;
+        }
+      }
+      if (temporaryIdMap.size === roundStartTemporaryIdCount && !newlyDeferred) break;
+      pending = stillDeferred;
     }
+  }
+
+  await retryDeferredMessages();
+  if (finalizeBufferedOutputs) {
+    for (let pass = 0; pass <= messages.length; pass++) {
+      const pendingPublications = results.filter(record => record.success && !record.skipped && record.result?.deferred_manifest);
+      const pendingResults = new Set(pendingPublications.map(record => record.result));
+      const temporaryIdCount = temporaryIdMap.size;
+      const deferredCount = deferredMessages.length;
+      await finalizeBufferedOutputs(results, protectedReviews(), requiredReviewComments());
+      const publicationProgress = pendingPublications.some(record => classifySafeOutputResult(record) !== "deferred");
+      await drainWaitingMessages();
+      if (publicationProgress || temporaryIdMap.size !== temporaryIdCount || deferredMessages.length !== deferredCount) {
+        await retryDeferredMessages();
+      }
+      if (!(publicationProgress && protectedReviews().size > 0) && !results.some(record => record.success && !record.skipped && record.result?.deferred_manifest && !pendingResults.has(record.result))) break;
+    }
+  }
+  for (const i of waitingMessages) {
+    await processMessage(i, false);
+  }
+
+  const protectedTargets = protectedReviews();
+  for (const record of results) {
+    const key = reviewKey(record.result);
+    if (key && record.success && record.result?.deferred_manifest && protectedTargets.has(key)) {
+      record.success = false;
+      record.error = "Review was not submitted because its submit_pull_request_review output did not succeed";
+    }
+  }
+
+  for (const result of results) {
+    const outputId = messages[result.messageIndex]?.output_id;
+    if (outputId !== undefined) result.output_id = outputId;
   }
 
   // Return outputs with unresolved IDs for synthetic update processing
@@ -2008,6 +2138,15 @@ async function settleClaimDelivery(scope, messages, results, options = {}) {
   for (const result of results) result.claim_handle = handle;
   if (options.registerVerification) options.registerVerification(messages, results);
   const controls = options.controlMessages || [];
+  if (options.registerVerification !== undefined && !isStagedMode()) {
+    try {
+      const evidence = collectDeliveryEvidence({ assignment: scope.assignment, claim_handle: handle, messages, results, effects: options.effects || [], controls, config: loadConfig(), context: verificationContext });
+      if (evidence.unsupported) core.info(`Claim ${handle}: durable delivery evidence not published (${evidence.unsupported})`);
+      else await publishDeliveryEvidence({ assignment: scope.assignment, claim_handle: handle, ...evidence, github: options.queueClient || github, context: verificationContext, core });
+    } catch (error) {
+      core.error(`Claim ${handle}: durable delivery evidence publication failed: ${getErrorMessage(error)}`);
+    }
+  }
   const controlProofs = new Map();
   const outcomes = [...results, ...controls.map((message, index) => ({ messageIndex: messages.length + index, success: true, claim_handle: handle, result: null }))];
   const queueControls = require("./work_queue_control_receipts.cjs");
@@ -2104,6 +2243,19 @@ async function main(options = {}) {
             );
           },
         };
+        try {
+          const contract = validateDeliveryContract(scope.assignment.claims.find(claim => claim.handle === handle).work.effect_contract);
+          const known = new Set(contract.outputs.map(output => normalizeSafeOutputName(output.type)));
+          const undeclared = [...new Set(scopedMessages.map(message => normalizeSafeOutputName(message.type)).filter(type => !known.has(type) && !(contract.no_writes === true && NO_WRITE_TYPES.has(type))))];
+          if (undeclared.length > 0 && !isStagedMode()) {
+            core.warning(`Claim ${handle}: refusing ${scopedMessages.length} scoped output(s); undeclared type(s): ${undeclared.join(", ")}`);
+            const delivery = await withClaimExecution({ ...scope, claim_handle: handle, authorize, effects }, () => settleClaimDelivery(scope, scopedMessages, [], claimOptions));
+            settlements.push({ claim_handle: handle, success: false, error: `Undeclared output type(s) in immutable effect_contract: ${undeclared.join(", ")}`, delivery });
+            continue;
+          }
+        } catch {
+          // Delivery settlement reports invalid immutable contracts.
+        }
         const settlement = await withClaimExecution({ ...scope, claim_handle: handle, authorize, effects }, () =>
           withClaimEffectClients({ claim_handle: handle, authorize, authorizeGithub: unscopedGithub, context }, async () => {
             try {
@@ -2158,6 +2310,8 @@ async function main(options = {}) {
     if (!isStagedMode()) {
       for (const settlement of settlements) {
         const result = finalized?.claims?.[settlement.claim_handle];
+        const delivery = settlement.delivery;
+        const attestationRefused = delivery?.verification === "verified" && delivery.attestation?.recorded === false;
         if (["result", "cancelled"].includes(result?.state)) continue;
         await withClaimExecution({ ...scope, claim_handle: settlement.claim_handle, authorize: options.authorize }, () =>
           recordSafeOutputFailure(
@@ -2168,7 +2322,16 @@ async function main(options = {}) {
                 {
                   type: "claim_delivery",
                   errorCode: result?.reason || (result?.state === "delivery_failed" ? "delivery_failed" : "verification_unresolved"),
-                  error: settlement.delivery?.reason || settlement.error || "Independent delivery verification is unavailable",
+                  error:
+                    delivery?.reason ||
+                    settlement.error ||
+                    (attestationRefused
+                      ? "Verified settlement receipt was not attested"
+                      : delivery?.verification === "verified"
+                        ? "Verified settlement was not re-verified by the trusted finalizer"
+                        : "Independent delivery verification is unavailable"),
+                  ...(delivery?.diagnostics ? { diagnostics: delivery.diagnostics } : attestationRefused ? { diagnostics: { event: "delivery.receipt.not_recorded", ...delivery.attestation } } : {}),
+                  ...(result?.verifier ? { verifier: result.verifier } : {}),
                 },
               ],
             },
@@ -2254,7 +2417,13 @@ async function main(options = {}) {
 
     if (messageHandlers.size === 0) {
       const delegatedTypes = new Set([...STANDALONE_STEP_TYPES, ...loadCustomSafeOutputJobTypes()]);
-      outcomeResults = allMessages.map((message, messageIndex) => ({ type: message.type, messageIndex, skipped: true, delegated: delegatedTypes.has(message.type) }));
+      outcomeResults = allMessages.map((message, messageIndex) => ({
+        type: message.type,
+        messageIndex,
+        ...(message.output_id !== undefined ? { output_id: message.output_id } : {}),
+        skipped: true,
+        delegated: delegatedTypes.has(message.type),
+      }));
       core.info("No handlers loaded - nothing to process");
       // Ensure manifest file exists even when no handlers are loaded (skip in staged mode)
       if (!isStaged) ensureManifestExists();
@@ -2274,63 +2443,69 @@ async function main(options = {}) {
     // even if no individual write fails.  The check is best-effort – failures are non-fatal.
     await checkRateLimitHeadroom(github, "safe_outputs_pre_check");
 
-    // Process all messages in order of appearance
-    const processingResult = await processMessages(messageHandlers, allMessages, logCreatedItem);
-    outcomeResults = processingResult.results;
-    await finalizeLedgerAppend(config, messageHandlers);
-
-    // Finalize buffered PR reviews — one review submission per distinct PR
-    const registryEntries = prReviewBufferRegistry.getAllEntries();
-    for (const { repo: reviewRepo, prNumber: reviewPrNum, buffer: reviewBuffer } of registryEntries) {
-      if (reviewBuffer.hasBufferedComments() || reviewBuffer.hasReviewMetadata()) {
-        core.info(`\n=== Finalizing PR Review for ${reviewRepo}#${reviewPrNum} ===`);
-        const bufferedCount = reviewBuffer.getBufferedCount();
-        if (bufferedCount > 0) {
-          core.info(`Submitting ${bufferedCount} buffered review comment(s) for ${reviewRepo}#${reviewPrNum}`);
-        } else {
-          core.info(`Submitting PR review for ${reviewRepo}#${reviewPrNum} (body-only, no inline comments)`);
-        }
-        /** @type {any} */
-        let reviewFailureError = null;
-        try {
-          await assertClaimAuthorized({ type: "submit_pull_request_review", claim_handle: currentClaimHandle(), repo: reviewRepo, pull_request_number: reviewPrNum });
-          const stalePRReason = await getStalePullRequestReason(github, context);
-          if (stalePRReason) {
-            core.info(stalePRReason);
-            skipReviewResultsForPR(processingResult.results, reviewRepo, reviewPrNum, stalePRReason);
-            continue;
+    // Finalize buffered PR reviews before releasing their dependent outputs.
+    const finalizedReviewResults = new Set();
+    /** @param {Array<any>} results @param {Set<string>} protectedTargets @param {Map<string, any[]>} requiredComments */
+    async function finalizeBufferedReviews(results, protectedTargets, requiredComments) {
+      const registryEntries = prReviewBufferRegistry.drainEntries(protectedTargets);
+      for (const { repo: reviewRepo, prNumber: reviewPrNum, buffer: reviewBuffer } of registryEntries) {
+        const reviewResults = results.filter(record => record.result?.deferred_manifest && !finalizedReviewResults.has(record) && record.result.repo === reviewRepo && record.result.pull_request_number === reviewPrNum);
+        for (const record of reviewResults) finalizedReviewResults.add(record);
+        if (reviewBuffer.hasBufferedComments() || reviewBuffer.hasReviewMetadata()) {
+          core.info(`\n=== Finalizing PR Review for ${reviewRepo}#${reviewPrNum} ===`);
+          const bufferedCount = reviewBuffer.getBufferedCount();
+          if (bufferedCount > 0) {
+            core.info(`Submitting ${bufferedCount} buffered review comment(s) for ${reviewRepo}#${reviewPrNum}`);
+          } else {
+            core.info(`Submitting PR review for ${reviewRepo}#${reviewPrNum} (body-only, no inline comments)`);
           }
-          const reviewResult = await reviewBuffer.submitReview();
-          if (reviewResult.success && !reviewResult.skipped) {
-            finalizeBufferedReviewOutcomes(processingResult.results, reviewRepo, reviewPrNum, reviewResult);
-            logCreatedItemFromResult(logCreatedItem, "submit_pull_request_review", reviewResult);
-            logCreatedItemFromResult(
-              logCreatedItem,
-              "create_pull_request_review_comment",
-              reviewResult.review_comments?.map(comment => (comment && typeof comment === "object" ? { ...comment, success: true } : comment))
-            );
-            core.info(`✓ PR review submitted for ${reviewRepo}#${reviewPrNum}: ${reviewResult.review_url}`);
-          } else if (reviewResult.success && reviewResult.skipped) {
-            const skipReason = reviewResult.reason || `PR review for ${reviewRepo}#${reviewPrNum} skipped`;
-            core.warning(`⚠ ${skipReason}`);
-            if (reviewResult.pr_locked) {
-              core.setOutput("pr_locked", "true");
+          /** @type {any} */
+          let reviewFailureError = null;
+          try {
+            await assertClaimAuthorized({ type: "submit_pull_request_review", claim_handle: currentClaimHandle(), repo: reviewRepo, pull_request_number: reviewPrNum });
+            const stalePRReason = await getStalePullRequestReason(github, context);
+            if (stalePRReason) {
+              core.info(stalePRReason);
+              skipReviewResultsForPR(reviewResults, reviewRepo, reviewPrNum, stalePRReason);
+              continue;
             }
-            skipReviewResultsForPR(processingResult.results, reviewRepo, reviewPrNum, skipReason);
-          } else if (!reviewResult.success) {
-            reviewFailureError = reviewResult.error || `PR review finalization failed for ${reviewRepo}#${reviewPrNum}`;
-            core.error(`✗ Failed to submit PR review for ${reviewRepo}#${reviewPrNum}: ${reviewFailureError}`);
+            const reviewResult = await reviewBuffer.submitReview(requiredComments.get(`${reviewRepo}#${reviewPrNum}`));
+            if (reviewResult.success && !reviewResult.skipped) {
+              finalizeBufferedReviewExecutions(reviewResults, reviewRepo, reviewPrNum, reviewResult);
+              logCreatedItemFromResult(logCreatedItem, "submit_pull_request_review", reviewResult);
+              logCreatedItemFromResult(
+                logCreatedItem,
+                "create_pull_request_review_comment",
+                reviewResult.review_comments?.map(comment => (comment && typeof comment === "object" ? { ...comment, success: true } : comment))
+              );
+              core.info(`✓ PR review submitted for ${reviewRepo}#${reviewPrNum}: ${reviewResult.review_url}`);
+            } else if (reviewResult.success && reviewResult.skipped) {
+              const skipReason = reviewResult.reason || `PR review for ${reviewRepo}#${reviewPrNum} skipped`;
+              core.warning(`⚠ ${skipReason}`);
+              if (reviewResult.pr_locked) {
+                core.setOutput("pr_locked", "true");
+              }
+              skipReviewResultsForPR(reviewResults, reviewRepo, reviewPrNum, skipReason);
+            } else if (!reviewResult.success) {
+              reviewFailureError = reviewResult.error || `PR review finalization failed for ${reviewRepo}#${reviewPrNum}`;
+              core.error(`✗ Failed to submit PR review for ${reviewRepo}#${reviewPrNum}: ${reviewFailureError}`);
+            }
+          } catch (reviewError) {
+            reviewFailureError = getErrorMessage(reviewError);
+            core.error(`✗ Exception while submitting PR review for ${reviewRepo}#${reviewPrNum}: ${reviewFailureError}`);
           }
-        } catch (reviewError) {
-          reviewFailureError = getErrorMessage(reviewError);
-          core.error(`✗ Exception while submitting PR review for ${reviewRepo}#${reviewPrNum}: ${reviewFailureError}`);
-        }
 
-        if (reviewFailureError !== null) {
-          rollbackReviewResultsForPR(processingResult.results, reviewRepo, reviewPrNum, reviewFailureError);
+          if (reviewFailureError !== null) {
+            rollbackReviewResultsForPR(reviewResults, reviewRepo, reviewPrNum, reviewFailureError);
+          }
         }
       }
     }
+
+    // Process all messages in order of appearance
+    const processingResult = await processMessages(messageHandlers, allMessages, logCreatedItem, finalizeBufferedReviews);
+    outcomeResults = processingResult.results;
+    await finalizeLedgerAppend(config, messageHandlers);
 
     // Store collected missings in helper module for handlers to access
     if (processingResult.missings) {
@@ -2535,7 +2710,7 @@ async function main(options = {}) {
     return undefined;
   } finally {
     try {
-      writeSafeOutputOutcomes(outcomeResults, isStaged);
+      writeSafeOutputExecutions(outcomeResults, isStaged);
     } catch {
       core.warning("Safe-output application outcomes could not be persisted");
     }

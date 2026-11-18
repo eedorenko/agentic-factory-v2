@@ -6,10 +6,16 @@
  * Contains handler-specific configuration from GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG
  */
 interface HandlerConfig {
+  /** Maximum issue artifacts per issue (default: 10); non-positive values disable artifacts. */
+  max_issue_artifacts?: number;
+  /** Compiled maximum UTF-8 bytes per issue artifact body (default: 1048576). */
+  max_issue_artifact_size?: number;
   /** Maximum number of items this handler should process */
   max?: number;
   /** Strict allowlist of glob patterns for files eligible for push/create. Checked independently of protected-files; both checks must pass. */
   allowed_files?: string[];
+  /** Required scoped destination branch patterns for merge_pull_request. */
+  allowed_base_branches?: string[];
   /** List of glob patterns for files to exclude from the patch using git :(exclude) pathspecs. Matching files are stripped by git at generation time and will not appear in the commit or be subject to allowed-files or protected-files checks. */
   excluded_files?: string[];
   /** Exclude compiled .lock.yml files under .github/workflows from branch writes. */
@@ -104,6 +110,17 @@ interface HandlerErrorResult {
   [key: string]: any;
 }
 
+interface HandlerIndeterminateResult extends HandlerErrorResult {
+  /** Processing failed to confirm the outcome; the operation may already have applied. */
+  success: false;
+  /** The mutation outcome is unknown. Verify live state before retrying. */
+  operation_outcome: "indeterminate";
+}
+
+interface MergePullRequestIndeterminateResult extends HandlerIndeterminateResult {
+  merged: null;
+}
+
 /**
  * Result object returned by message handler function
  */
@@ -129,4 +146,4 @@ type MessageHandlerFunction = (message: any, resolvedTemporaryIds: ResolvedTempo
  */
 type HandlerFactoryFunction = (config?: HandlerConfig) => Promise<MessageHandlerFunction>;
 
-export { HandlerConfig, ResolvedTemporaryIds, HandlerSuccessResult, HandlerErrorResult, HandlerResult, MessageHandlerFunction, HandlerFactoryFunction };
+export { HandlerConfig, ResolvedTemporaryIds, HandlerSuccessResult, HandlerErrorResult, HandlerIndeterminateResult, MergePullRequestIndeterminateResult, HandlerResult, MessageHandlerFunction, HandlerFactoryFunction };

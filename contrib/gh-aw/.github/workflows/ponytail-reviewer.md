@@ -31,13 +31,14 @@ tools:
 features:
   gh-aw-detection: true
 imports:
+  - shared/reporting.md
   - uses: shared/pr-review-base.md
     with:
       min-integrity: approved
   - shared/otlp.md
   - shared/pr-diff-data-fetch.md
 skills:
-  - DietrichGebert/ponytail/skills/ponytail-review@09c434ab73ca43761c5d8b0c5d341926c2fba710
+  - DietrichGebert/ponytail/skills/ponytail-review@96608e078b2d5ea607c5c3b8b5a54d1c1fba6846
 cache:
   key: pr-prefetch-v2-${{ github.event.pull_request.number || github.event.issue.number || (fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_type == 'pull_request' && fromJSON(github.event.inputs.aw_context || github.event.client_payload.aw_context || '{}').item_number) }}-${{ github.event.pull_request.head.sha || 'unknown' }}-${{ github.run_id }}-${{ github.run_attempt }}
   path: /tmp/gh-aw/agent

@@ -196,6 +196,9 @@ func (c *Compiler) generateEngineExecutionSteps(yaml *strings.Builder, data *Wor
 	}
 
 	steps := engine.GetExecutionSteps(data, logFile)
+	if data.durableExecutionPlan != nil {
+		steps = data.durableExecutionPlan.ExecutionSteps
+	}
 	compilerYamlLog.Printf("Generating engine execution steps: engine=%s, steps=%d", engine.GetID(), len(steps))
 
 	for _, step := range steps {
@@ -247,7 +250,7 @@ func (c *Compiler) generateLogParsing(yaml *strings.Builder, data *WorkflowData,
 		logFileForParsing = strings.ReplaceAll(logFileForParsing, constants.TmpGhAwDir, constants.GhAwRootDir)
 	}
 	yaml.WriteString("      - name: Parse agent logs for step summary\n")
-	yaml.WriteString("        if: always()\n")
+	fmt.Fprintf(yaml, "        if: %s\n", logParsingCondition(engine)) //nolint:fprintferrorunchecked // strings.Builder writes cannot fail.
 	yaml.WriteString(protectedSessionCaptureParserID(engine))
 	fmt.Fprintf(yaml, "        uses: %s\n", getCachedActionPin("actions/github-script", data)) //nolint:fprintferrorunchecked // strings.Builder writes cannot fail.
 	yaml.WriteString("        env:\n")
@@ -291,6 +294,13 @@ func protectedSessionCaptureParserID(engine CodingAgentEngine) string {
 		return ""
 	}
 	return "        id: parse_agent_logs\n"
+}
+
+func logParsingCondition(engine CodingAgentEngine) string {
+	if protectedSessionCaptureParserID(engine) != "" {
+		return "always() && steps.agentic_execution.outcome != 'skipped'"
+	}
+	return "always()"
 }
 
 // generateMCPScriptsLogParsing generates a step that parses mcp-scripts logs and adds them to the step summary
@@ -411,7 +421,7 @@ func (c *Compiler) generateAgentStepSummaryAppend(yaml *strings.Builder, data *W
 	compilerYamlLog.Print("Generating agent step summary append step")
 
 	yaml.WriteString("      - name: Append agent step summary\n")
-	yaml.WriteString("        if: always()\n")
+	yaml.WriteString("        if: always() && " + secretMaskingSuccessCondition(data) + "\n")
 	if isArcDindTopology(data) {
 		yaml.WriteString("        env:\n")
 		yaml.WriteString("          GH_AW_TMP_DIR: ${{ runner.temp }}/gh-aw\n")
@@ -437,7 +447,11 @@ func (c *Compiler) generateTokenUsageSummary(yaml *strings.Builder, data *Workfl
 		yaml.WriteString("          GH_AW_TMP_DIR: ${{ runner.temp }}/gh-aw\n")
 	}
 	if isModelRoutingEnabled(data) {
-		yaml.WriteString("          GH_AW_MODEL_ROUTING_ENABLED: \"true\"\n")
+		if isModelRoutingRuntimeGuarded(data) {
+			yaml.WriteString("          GH_AW_MODEL_ROUTING_ENABLED: ${{ " + modelRoutingActiveDownstream + " && 'true' || 'false' }}\n")
+		} else {
+			yaml.WriteString("          GH_AW_MODEL_ROUTING_ENABLED: \"true\"\n")
+		}
 		if data.EngineConfig != nil {
 			fmt.Fprintf(yaml, "          GH_AW_ENGINE_ID: %q\n", data.EngineConfig.ID) //nolint:fprintferrorunchecked // strings.Builder writes cannot fail.
 		}
@@ -558,6 +572,20 @@ func (c *Compiler) generateEngineInstallAndPreAgentSteps(yaml *strings.Builder, 
 
 	// Add engine-specific installation steps (includes Node.js setup and secret validation for npm-based engines)
 	installSteps := engine.GetInstallationSteps(data)
+	if data.EngineConfig != nil && data.EngineConfig.Durable != nil {
+		plan, planErr := engine.GetDurableExecutionPlan(data, constants.AgentStdioLogPath)
+		if planErr != nil {
+			return nil, planErr
+		}
+		if plan == nil || len(plan.ExecutionSteps) == 0 {
+			return nil, fmt.Errorf("engine %q returned an incomplete durable execution plan", engine.GetID())
+		}
+		if err := validateDurableFiles(plan.Files); err != nil {
+			return nil, err
+		}
+		data.durableExecutionPlan = plan
+		installSteps = append(installSteps, plan.InstallationSteps...)
+	}
 	compilerYamlLog.Printf("Adding %d engine installation steps for %s", len(installSteps), engine.GetID())
 	for _, step := range installSteps {
 		for _, line := range step {
@@ -712,6 +740,7 @@ func (c *Compiler) generateAgentRunSteps(yaml *strings.Builder, data *WorkflowDa
 	artifactPaths = append(artifactPaths, constants.AwPromptsFile)
 
 	logFileFull := constants.AgentStdioLogPath
+	c.generateDurableArtifactRestore(yaml, data)
 
 	// Clean credentials before executing the agentic engine.
 	// This removes git credentials from .git/config and, when known credential-leaking
@@ -837,12 +866,14 @@ func (c *Compiler) generateAgentRunSteps(yaml *strings.Builder, data *WorkflowDa
 
 	// Add secret redaction step BEFORE any artifact uploads
 	// This ensures all artifacts are scanned for secrets before being uploaded
+	c.generateDurableFileStage(yaml, data)
 	c.generateTrackedSecretRedactionStep(yaml, yaml.String(), data)
+	c.generateDurableArtifactUpload(yaml, data)
 
 	// Append the agent step summary to the real $GITHUB_STEP_SUMMARY after secrets are redacted.
 	// The agent writes its GITHUB_STEP_SUMMARY content to AgentStepSummaryPath (a file inside
 	// /tmp/gh-aw/ that is reachable in both AWF sandbox and non-sandbox modes).
-	// secret redaction already scanned this file, so it is safe to append.
+	// Publication requires successful redaction and a symlink-safe regular-file read.
 	c.generateAgentStepSummaryAppend(yaml, data)
 
 	// Add output collection step only if safe-outputs feature is used (GH_AW_SAFE_OUTPUTS functionality)

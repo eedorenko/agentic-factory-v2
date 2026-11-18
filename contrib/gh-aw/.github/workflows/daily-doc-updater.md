@@ -14,14 +14,14 @@ network:
   - defaults
   - github
 imports:
+- shared/pr-safe-output-defaults.md
 - shared/github-guard-policy.md
 - shared/ai-coding-dictionary.md
+- shared/pageindex.md
 - shared/otlp.md
 safe-outputs:
-  steer: true
   create-pull-request:
     auto-merge: true
-    draft: false
     expires: 1d
     labels:
     - documentation
@@ -36,10 +36,12 @@ safe-outputs:
   noop: null
 description: Automatically reviews and updates documentation to ensure accuracy and completeness
 emoji: 📝
-model: copilot/gpt-6-astra
 engine:
   id: codex
   model-provider: github
+  model-routing:
+    goal: cost
+    mode: balanced
 name: Daily Documentation Updater
 strict: true
 experiments:
@@ -64,7 +66,6 @@ sandbox:
 tools:
   bash:
   - "*"
-  cache-memory: true
   cli-proxy: true
   edit: null
   github:
@@ -101,6 +102,7 @@ Do not modify the top-level `README.md` or `docs/src/content/docs/index.mdx`. Th
 - **Do NOT** use `mcpscripts` for any GitHub reads — use `gh` CLI or GitHub MCP tools directly
 - **Documentation editing**: use the `Edit` tool, not bash `sed`
 - **AI terminology normalization**: use the shared AI Coding Dictionary reference to keep AI-coding terms consistent
+- **Documentation discovery**: use the local PageIndex catalog and tree-guided search to locate sections affected by recent changes; verify each proposed update against the source file
 
 ## Pre-flight: Batch Data Fetch (do this first, before any analysis)
 

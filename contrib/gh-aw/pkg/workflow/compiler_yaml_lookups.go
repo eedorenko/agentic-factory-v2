@@ -110,6 +110,8 @@ func getInstallationVersion(data *WorkflowData, engine CodingAgentEngine, regist
 		return string(constants.DefaultClaudeCodeVersion)
 	case string(constants.CodexEngine):
 		return string(constants.DefaultCodexVersion)
+	case string(constants.GeminiEngine):
+		return string(constants.DefaultGeminiVersion)
 	case string(constants.PiEngine):
 		return string(constants.DefaultPiVersion)
 	case string(constants.AgyEngine):
@@ -154,6 +156,22 @@ func getDefaultModelOverrideVar(engineID string) string {
 		return compilerenv.DefaultModelClaude
 	case string(constants.CodexEngine):
 		return compilerenv.DefaultModelCodex
+	default:
+		return ""
+	}
+}
+
+// mainAgentModelFallbackExpression returns the GH_AW_MODEL_FALLBACK expression the
+// engine's main-agent step uses when the configured model is an expression that
+// resolves empty, or "" for engines without model variables.
+func mainAgentModelFallbackExpression(engineID string) string {
+	switch engineID {
+	case string(constants.CopilotEngine):
+		return compilerenv.BuildModelOverrideExpression(constants.EnvVarModelAgentCopilot, compilerenv.DefaultModelCopilot, constants.CopilotBYOKDefaultModel)
+	case string(constants.ClaudeEngine):
+		return compilerenv.BuildModelOverrideExpression(constants.EnvVarModelAgentClaude, compilerenv.DefaultModelClaude, constants.SonnetDefaultModel)
+	case string(constants.CodexEngine):
+		return compilerenv.BuildModelOverrideExpressionEmptyFallback(constants.EnvVarModelAgentCodex, compilerenv.DefaultModelCodex)
 	default:
 		return ""
 	}

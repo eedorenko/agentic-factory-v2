@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 
@@ -89,10 +90,15 @@ type EngineConfig struct {
 
 	// Extensions is a list of engine-specific plugin names to install before launching the engine.
 	// Currently used by the Pi engine: each entry is passed to `pi install <extension>`.
-	Extensions []string
+	Extensions   []string
+	Durable      *DurableConfig
+	durableError error
 
-	ModelRouting   *CopilotModelRoutingConfig
-	FallbackModels []string
+	ModelRouting *CopilotModelRoutingConfig
+	// ModelRoutingDisabled records an explicit `engine.model-routing: false`,
+	// which opts out of the implicit cost/auto routing default.
+	ModelRoutingDisabled bool
+	FallbackModels       []string
 
 	// CopilotSDK enables the GitHub Copilot SDK integration.
 	// When true the compiler enables a harness-managed Copilot CLI headless sidecar
@@ -131,7 +137,7 @@ type InlineEngineDriver struct {
 type EngineAuthConfig struct {
 	Type     string `json:"type"`
 	Audience string `json:"audience"`
-	Provider string `json:"provider"` // "azure", "anthropic", or "gcp"
+	Provider string `json:"provider"` // "azure", "anthropic", "gcp", or "openai"
 	// Azure WIF fields
 	AzureTenantID string `json:"azure-tenant-id"`
 	AzureClientID string `json:"azure-client-id"`
@@ -140,13 +146,15 @@ type EngineAuthConfig struct {
 	// Anthropic WIF fields
 	AnthropicFederationRuleID string `json:"federation-rule-id"`
 	AnthropicOrganizationID   string `json:"organization-id"`
-	AnthropicServiceAccountID string `json:"service-account-id"`
+	ServiceAccountID          string `json:"service-account-id"`
 	AnthropicWorkspaceID      string `json:"workspace-id"`
 	// Google / Vertex AI WIF fields
 	GoogleWorkloadIdentityProvider string `json:"workload-identity-provider"`
 	GoogleServiceAccount           string `json:"service-account"`
 	GoogleProject                  string `json:"project"`
 	GoogleLocation                 string `json:"location"`
+	// OpenAI WIF fields
+	OpenAIIdentityProviderID string `json:"identity-provider-id"`
 }
 
 // NetworkPermissions represents network access permissions for workflow execution
@@ -365,6 +373,12 @@ func extractStringEngineConfig(engineStr string, topLevel engineTopLevelConfig) 
 
 func extractObjectEngineConfig(engineObj map[string]any, topLevel engineTopLevelConfig) (string, *EngineConfig, string) {
 	engineLog.Print("Found engine in object format, parsing configuration")
+	if pi, ok := engineObj["pi"].(map[string]any); ok {
+		options := make(map[string]any, len(pi)+1)
+		maps.Copy(options, pi)
+		options["id"] = "pi"
+		return extractReferencedEngineConfig(options, topLevel)
+	}
 	if runtime, hasRuntime := engineObj["runtime"]; hasRuntime {
 		return extractInlineEngineConfig(runtime, engineObj, topLevel)
 	}
@@ -426,6 +440,7 @@ func parseNonEmptyAuthDefinition(authObj map[string]any) *AuthDefinition {
 }
 
 func applyInlineEngineFields(config *EngineConfig, engineObj map[string]any, topLevel engineTopLevelConfig) {
+	applyEngineDurableField(config, engineObj)
 	applyEngineCooldownField(config, engineObj)
 	applyEngineBareField(config, engineObj)
 	applyEnginePermissionMode(config, engineObj)
@@ -456,6 +471,7 @@ func extractReferencedEngineConfig(engineObj map[string]any, topLevel engineTopL
 }
 
 func applyReferencedEngineFields(config *EngineConfig, engineObj map[string]any, topLevel engineTopLevelConfig) {
+	applyEngineDurableField(config, engineObj)
 	applyEngineCooldownField(config, engineObj)
 	applyEngineProviderFields(config, engineObj)
 	applyEnginePermissionMode(config, engineObj)
@@ -482,6 +498,11 @@ func applyReferencedEngineFields(config *EngineConfig, engineObj map[string]any,
 }
 
 func applyEngineModelRoutingField(config *EngineConfig, engineObj map[string]any) {
+	if disabled, ok := engineObj["model-routing"].(bool); ok && !disabled {
+		config.ModelRouting = nil
+		config.ModelRoutingDisabled = true
+		return
+	}
 	routing, ok := engineObj["model-routing"].(map[string]any)
 	if !ok {
 		return
@@ -904,7 +925,12 @@ func applyEngineAuthEnv(config *EngineConfig) {
 	setEngineAuthEnv(config.Env, "AWF_AUTH_PROVIDER", config.Auth.Provider)
 	setEngineAuthEnv(config.Env, "AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID", config.Auth.AnthropicFederationRuleID)
 	setEngineAuthEnv(config.Env, "AWF_AUTH_ANTHROPIC_ORGANIZATION_ID", config.Auth.AnthropicOrganizationID)
-	setEngineAuthEnv(config.Env, "AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID", config.Auth.AnthropicServiceAccountID)
+	if config.Auth.Provider == "openai" {
+		setEngineAuthEnv(config.Env, "AWF_AUTH_OPENAI_IDENTITY_PROVIDER_ID", config.Auth.OpenAIIdentityProviderID)
+		setEngineAuthEnv(config.Env, "AWF_AUTH_OPENAI_SERVICE_ACCOUNT_ID", config.Auth.ServiceAccountID)
+	} else {
+		setEngineAuthEnv(config.Env, "AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID", config.Auth.ServiceAccountID)
+	}
 	setEngineAuthEnv(config.Env, "AWF_AUTH_ANTHROPIC_WORKSPACE_ID", config.Auth.AnthropicWorkspaceID)
 	setEngineAuthEnv(config.Env, "AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER", config.Auth.GoogleWorkloadIdentityProvider)
 	setEngineAuthEnv(config.Env, "AWF_AUTH_GCP_SERVICE_ACCOUNT", config.Auth.GoogleServiceAccount)

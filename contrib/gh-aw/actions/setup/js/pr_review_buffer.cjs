@@ -290,9 +290,10 @@ function createReviewBuffer() {
    * Supports body-only reviews (no inline comments) when metadata is set.
    * If no submit_pull_request_review message was provided, defaults to event: "COMMENT".
    *
+   * @param {Array<any>} [requiredComments] Inline prerequisites that must be published with this review
    * @returns {Promise<Object>} Result with success status and review details
    */
-  async function submitReview() {
+  async function submitReview(requiredComments = []) {
     if (bufferedComments.length === 0 && !reviewMetadata) {
       core.info("No buffered review comments or review metadata to submit");
       return { success: true, skipped: true };
@@ -468,6 +469,11 @@ function createReviewBuffer() {
       } catch (pathValidationError) {
         core.warning(`Failed to validate comment paths against PR diff: ${getErrorMessage(pathValidationError)}. Proceeding without path validation.`);
       }
+    }
+
+    const includesRequiredComments = candidates => requiredComments.every(required => required && candidates.some(comment => ["path", "line", "start_line", "side"].every(key => comment[key] === required[key])));
+    if (!includesRequiredComments(comments)) {
+      return { success: false, error: "A required review comment cannot be included in the PR review" };
     }
 
     // Sub-pattern A: Guard against empty review submission (no body and no inline comments).
@@ -646,20 +652,25 @@ function createReviewBuffer() {
             per_page: 100,
           });
           if (Array.isArray(data) && data.length > 0) {
-            reviewComments = data.map(comment => ({
-              id: comment.id,
-              url: comment.html_url,
-              repo,
-              pull_request_number: pullRequestNumber,
-              metadata: {
-                review_id: review.id,
-                ...(comment.node_id ? { node_id: comment.node_id } : {}),
-                ...(comment.path ? { path: comment.path } : {}),
-                ...(comment.line != null ? { line: comment.line } : {}),
-                ...(comment.start_line != null ? { start_line: comment.start_line } : {}),
-                ...(comment.side ? { side: comment.side } : {}),
-              },
-            }));
+            // Identity lookup is optional enrichment, not evidence that a submitted
+            // anchor disappeared. GitHub can return null coordinates after publication.
+            const sideOrDefault = side => (side === undefined ? "RIGHT" : side);
+            const sameAnchor = (comment, submitted) =>
+              comment.path === submitted.path && comment.line === submitted.line && (comment.start_line ?? undefined) === submitted.start_line && sideOrDefault(comment.side) === sideOrDefault(submitted.side);
+            reviewComments = reviewComments.map(submitted => {
+              const matches = data.filter(comment => sameAnchor(comment, submitted.metadata));
+              if (matches.length !== 1 || reviewComments.filter(candidate => sameAnchor(matches[0], candidate.metadata)).length !== 1) {
+                core.warning(`Could not uniquely resolve review comment identity at ${submitted.metadata.path}:${submitted.metadata.line}; retaining submitted anchor`);
+                return submitted;
+              }
+              const comment = matches[0];
+              return {
+                ...submitted,
+                id: comment.id,
+                url: comment.html_url,
+                metadata: { ...submitted.metadata, ...(comment.node_id ? { node_id: comment.node_id } : {}) },
+              };
+            });
           }
         } catch (error) {
           core.warning(`Could not resolve IDs for review comments on ${repo}#${pullRequestNumber}: ${getErrorMessage(error)}`);
@@ -715,7 +726,7 @@ function createReviewBuffer() {
         } catch (retryError) {
           const retryErrorMsg = getErrorMessage(retryError);
           // If the COMMENT retry still fails due to unresolvable line(s), fall back to body-only COMMENT.
-          if (retryErrorMsg.includes("Line could not be resolved") || retryErrorMsg.includes("Path could not be resolved")) {
+          if (requiredComments.length === 0 && (retryErrorMsg.includes("Line could not be resolved") || retryErrorMsg.includes("Path could not be resolved"))) {
             core.warning(`COMMENT retry on own PR failed with unresolvable line(s): ${retryErrorMsg}. Falling back to body-only COMMENT.`);
             try {
               const ownPrBodyOnlyParams = { ...requestParams };
@@ -781,27 +792,30 @@ function createReviewBuffer() {
           const unresolvableCommentIndexSet = new Set(unresolvableCommentIndices);
           const resolvableComments = comments.filter((_, index) => !unresolvableCommentIndexSet.has(index));
           const unresolvableComments = comments.filter((_, index) => unresolvableCommentIndexSet.has(index));
-          core.warning(
-            `PR review submission failed due to unresolvable comment line(s): ${errorMessage}. ` +
-              `Retrying with ${resolvableComments.length} resolvable inline comment(s); ` +
-              `${unresolvableComments.length} comment(s) will be appended to the review body.`
-          );
-          try {
-            const partialParams = {
-              ...requestParams,
-              comments: resolvableComments,
-              body: appendFallbackComments(unresolvableComments),
-            };
-            const { data: review } = await createReviewWithRetry(partialParams);
-            await maybeSupersedeOlderReviews(review.id);
-            const afterState = await fetchAfterStateIfAvailable();
-            core.info(`Created PR review #${review.id} (partial-anchor fallback): ${review.html_url}`);
-            return await buildReviewSuccessResult(review, event, resolvableComments, afterState);
-          } catch (partialRetryError) {
-            core.warning(`Failed to submit partially anchored PR review: ${getErrorMessage(partialRetryError)}. Falling back to body-only review.`);
+          if (includesRequiredComments(resolvableComments)) {
+            core.warning(
+              `PR review submission failed due to unresolvable comment line(s): ${errorMessage}. ` +
+                `Retrying with ${resolvableComments.length} resolvable inline comment(s); ` +
+                `${unresolvableComments.length} comment(s) will be appended to the review body.`
+            );
+            try {
+              const partialParams = {
+                ...requestParams,
+                comments: resolvableComments,
+                body: appendFallbackComments(unresolvableComments),
+              };
+              const { data: review } = await createReviewWithRetry(partialParams);
+              await maybeSupersedeOlderReviews(review.id);
+              const afterState = await fetchAfterStateIfAvailable();
+              core.info(`Created PR review #${review.id} (partial-anchor fallback): ${review.html_url}`);
+              return await buildReviewSuccessResult(review, event, resolvableComments, afterState);
+            } catch (partialRetryError) {
+              core.warning(`Failed to submit partially anchored PR review: ${getErrorMessage(partialRetryError)}. Falling back to body-only review.`);
+            }
           }
         }
 
+        if (requiredComments.length > 0) return { success: false, error: errorMessage };
         core.warning(`PR review submission failed due to unresolvable comment line(s): ${errorMessage}. Retrying as body-only review.`);
         const bodyOnlyParams = { ...requestParams };
         delete bodyOnlyParams.comments;
@@ -946,6 +960,26 @@ function createPrReviewBufferRegistry() {
   }
 
   /**
+   * Consume the current batch so dependent outputs can buffer a fresh review.
+   * @param {Set<string>} [excluded] Review targets that must remain buffered
+   * @returns {{repo: string, prNumber: number, buffer: Object}[]}
+   */
+  function drainEntries(excluded = new Set()) {
+    const drained = [];
+    for (let i = 0; i < insertionOrder.length;) {
+      const entry = insertionOrder[i];
+      const key = `${entry.repo}#${entry.prNumber}`;
+      if (excluded.has(key)) {
+        i++;
+      } else {
+        bufferMap.delete(key);
+        drained.push(...insertionOrder.splice(i, 1));
+      }
+    }
+    return drained;
+  }
+
+  /**
    * Returns true if any buffer has buffered comments or review metadata.
    * @returns {boolean}
    */
@@ -983,6 +1017,7 @@ function createPrReviewBufferRegistry() {
   return {
     getOrCreate,
     getAllEntries,
+    drainEntries,
     hasAnyContent,
     setDefaultFooterMode,
     setDefaultFooterContext,

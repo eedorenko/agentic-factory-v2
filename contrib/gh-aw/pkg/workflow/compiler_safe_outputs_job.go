@@ -10,6 +10,7 @@ import (
 	"github.com/github/gh-aw/pkg/constants"
 	"github.com/github/gh-aw/pkg/logger"
 	"github.com/github/gh-aw/pkg/setutil"
+	"github.com/github/gh-aw/pkg/sliceutil"
 	"github.com/github/gh-aw/pkg/stringutil"
 )
 
@@ -20,9 +21,9 @@ var consolidatedSafeOutputsJobLog = logger.New("workflow:compiler_safe_outputs_j
 const stepNameLinePrefix = "      - name: "
 
 // uploadArtifactStagingDownloadStepCount is the number of YAML string entries emitted by the
-// upload-artifact staging download step block (name, continue-on-error, uses, with, name, path).
+// upload-artifact staging download step block (name, if, continue-on-error, uses, with, name, path).
 // It must match the literal slice appended in buildPreambleTokenSteps.
-const uploadArtifactStagingDownloadStepCount = 6
+const uploadArtifactStagingDownloadStepCount = 7
 
 // getSafeOutputsHeadApp returns the first non-nil HeadGitHubApp config from
 // create-pull-request or push-to-pull-request-branch handlers, used to generate
@@ -209,6 +210,10 @@ func (c *Compiler) buildSafeOutputsSetupAndDownloadSteps(data *WorkflowData, age
 		return nil, err
 	}
 	steps = append(steps, controls...)
+	if isWorkQueueEnabled(data) && usesPatchesAndCheckouts(data.SafeOutputs) {
+		consolidatedSafeOutputsJobLog.Print("Adding shared checkout step for PR operations after claim reconciliation")
+		steps = append(steps, c.buildSharedPRCheckoutSteps(data)...)
+	}
 
 	// Configure GH_HOST for GHES/GHEC compatibility.
 	// The safe-outputs job runs as an independent GitHub Actions job and does not
@@ -280,8 +285,11 @@ func (c *Compiler) buildSafeOutputsDownloadSteps(data *WorkflowData, agentArtifa
 			SetupEnvStep: false,
 			StepName:     "Download patch artifact",
 		}, c.getActionPin)...)
-		consolidatedSafeOutputsJobLog.Print("Adding shared checkout step for PR operations")
-		steps = append(steps, c.buildSharedPRCheckoutSteps(data)...)
+		// Work-queue jobs add the checkout after claim reconciliation and App token minting.
+		if !isWorkQueueEnabled(data) {
+			consolidatedSafeOutputsJobLog.Print("Adding shared checkout step for PR operations")
+			steps = append(steps, c.buildSharedPRCheckoutSteps(data)...)
+		}
 	}
 	return steps
 }
@@ -508,7 +516,9 @@ func (c *Compiler) buildSafeOutputsHandlerOutputsAndActionSteps(data *WorkflowDa
 	}
 	c.appendLedgerTransactionsArtifactUpload(data, &state)
 	c.appendSarifArtifactUploadStep(data, agentArtifactPrefix, &state)
-	c.appendCustomActionSteps(data, markdownPath, &state)
+	if err := c.appendCustomActionSteps(data, markdownPath, &state); err != nil {
+		return nil, nil, nil, err
+	}
 	addNamedSafeOutputHandlerOutputs(data, state.outputs)
 
 	return state.steps, state.outputs, state.safeOutputStepNames, nil
@@ -524,16 +534,9 @@ type safeOutputsHandlerOutputsAndActionState struct {
 // processed by the consolidated handler manager step (as opposed to a dedicated job/step).
 func hasHandlerManagerTypes(data *WorkflowData) bool {
 	return isWorkQueueParticipant(data) ||
+		data.SafeOutputs.CreateSecurityAdvisory != nil ||
+		data.SafeOutputs.AddSecurityAdvisoryComment != nil ||
 		data.SafeOutputs.CreateIssues != nil ||
-		data.SafeOutputs.CreateWorkItems != nil ||
-		data.SafeOutputs.UpdateWorkItems != nil ||
-		data.SafeOutputs.CommentOnWorkItems != nil ||
-		data.SafeOutputs.AssignWorkItems != nil ||
-		data.SafeOutputs.LinkWorkItems != nil ||
-		data.SafeOutputs.UploadWorkItemAttachments != nil ||
-		data.SafeOutputs.LinearCreateIssue != nil ||
-		data.SafeOutputs.LinearAddComment != nil ||
-		data.SafeOutputs.LinearUpdateIssue != nil ||
 		data.SafeOutputs.AddComments != nil ||
 		data.SafeOutputs.CreateDiscussions != nil ||
 		data.SafeOutputs.CreateProjectStatusUpdates != nil ||
@@ -584,7 +587,7 @@ func (c *Compiler) appendLedgerTransactionsArtifactUpload(data *WorkflowData, st
 		fmt.Sprintf("        uses: %s\n", c.getActionPin("actions/upload-artifact")),
 		"        with:\n",
 		fmt.Sprintf("          name: %s\n", ledgerTransactionsArtifactName),
-		"          path: ${{ runner.temp }}/gh-aw/ledger-transactions.json\n",
+		fmt.Sprintf("          path: %s\n", ledgerTransactionsArtifactPath),
 		"          if-no-files-found: error\n",
 		"          retention-days: 1\n",
 	)
@@ -593,6 +596,14 @@ func (c *Compiler) appendLedgerTransactionsArtifactUpload(data *WorkflowData, st
 // appendCustomScriptFilesStep appends the setup step(s) for writing custom safe-output scripts to
 // disk, when the workflow declares any, to the accumulated job state.
 func (c *Compiler) appendCustomScriptFilesStep(data *WorkflowData, state *safeOutputsHandlerOutputsAndActionState) error {
+	for _, alias := range sliceutil.SortedKeys(data.Connectors) {
+		if data.Connectors[alias].SafeOutputs != nil {
+			if isWorkQueueParticipant(data) {
+				return fmt.Errorf("connectors.%s.safe-outputs is not supported for work-queue participants; independent connector effect verification is required", alias)
+			}
+		}
+	}
+	state.steps = append(state.steps, c.connectorGitHubAppSteps(data, "safe-output")...)
 	if !isWorkQueueParticipant(data) && len(data.SafeOutputs.Scripts) > 0 {
 		consolidatedSafeOutputsJobLog.Printf("Adding setup step for %d custom safe-output script(s)", len(data.SafeOutputs.Scripts))
 		scriptSetupSteps, err := buildCustomScriptFilesStep(data.SafeOutputs.Scripts)
@@ -608,11 +619,17 @@ func (c *Compiler) appendCustomScriptFilesStep(data *WorkflowData, state *safeOu
 // staging artifact produced by the agent job, when the workflow uses the upload_artifact safe
 // output, so the handler manager can process staged files.
 func (c *Compiler) appendUploadArtifactStagingDownloadStep(data *WorkflowData, agentArtifactPrefix string, state *safeOutputsHandlerOutputsAndActionState) {
-	if usesSafeOutputsArtifactStaging(data.SafeOutputs) {
+	types := safeOutputsArtifactStagingTypes(data.SafeOutputs)
+	if len(types) != 0 {
 		consolidatedSafeOutputsJobLog.Print("Adding upload-artifact staging download step")
+		condition := BuildSafeOutputType(types[0])
+		for _, outputType := range types[1:] {
+			condition = BuildOr(condition, BuildSafeOutputType(outputType))
+		}
 		stagingArtifactName := agentArtifactPrefix + SafeOutputsUploadArtifactStagingArtifactName
 		state.steps = append(state.steps,
 			"      - name: Download upload-artifact staging\n",
+			fmt.Sprintf("        if: %s\n", RenderCondition(condition)),
 			"        continue-on-error: true\n",
 			fmt.Sprintf("        uses: %s\n", c.getActionPin("actions/download-artifact")),
 			"        with:\n",
@@ -631,9 +648,6 @@ func (c *Compiler) appendHandlerManagerStep(data *WorkflowData, state *safeOutpu
 		if err != nil {
 			return err
 		}
-		handlerManagerSteps = injectLinearCredentialsIntoProcessorStep(handlerManagerSteps, data.SafeOutputs)
-		handlerManagerSteps = injectJiraCredentialsIntoProcessorStep(handlerManagerSteps, data.SafeOutputs)
-		handlerManagerSteps = injectAzureDevOpsCredentialsIntoProcessorStep(handlerManagerSteps, data.SafeOutputs)
 		state.steps = append(state.steps, handlerManagerSteps...)
 		state.safeOutputStepNames = append(state.safeOutputStepNames, "process_safe_outputs")
 		addHandlerManagerOutputs(data, state.outputs)
@@ -654,12 +668,14 @@ func (c *Compiler) appendSarifArtifactUploadStep(data *WorkflowData, agentArtifa
 
 // appendCustomActionSteps resolves and appends the steps for any custom safe-output actions
 // declared by the workflow, recording a step name for each so later steps can depend on it.
-func (c *Compiler) appendCustomActionSteps(data *WorkflowData, markdownPath string, state *safeOutputsHandlerOutputsAndActionState) {
+func (c *Compiler) appendCustomActionSteps(data *WorkflowData, markdownPath string, state *safeOutputsHandlerOutputsAndActionState) error {
 	if isWorkQueueParticipant(data) {
-		return
+		return nil
 	}
 	if len(data.SafeOutputs.Actions) > 0 {
-		c.resolveAllActions(data, markdownPath)
+		if err := c.resolveAllActions(data, markdownPath); err != nil {
+			return err
+		}
 		actionStepYAML := c.buildActionSteps(data)
 		state.steps = append(state.steps, actionStepYAML...)
 		for actionName := range data.SafeOutputs.Actions {
@@ -667,6 +683,7 @@ func (c *Compiler) appendCustomActionSteps(data *WorkflowData, markdownPath stri
 			state.safeOutputStepNames = append(state.safeOutputStepNames, "action_"+normalizedName)
 		}
 	}
+	return nil
 }
 
 // addHandlerManagerOutputs populates the job outputs map with the common outputs exposed by the
@@ -824,11 +841,11 @@ func (c *Compiler) buildSafeOutputsJobFromParts(
 	workflowID := GetWorkflowIDFromPath(markdownPath)
 	jobEnv := c.buildJobLevelSafeOutputEnvVars(data, workflowID)
 
-	var concurrency string
-	if data.SafeOutputs.ConcurrencyGroup != "" {
-		concurrency = c.indentYAMLLines(fmt.Sprintf("concurrency:\n  group: %q\n  cancel-in-progress: false", data.SafeOutputs.ConcurrencyGroup), "    ")
-		consolidatedSafeOutputsJobLog.Printf("Configuring safe_outputs job concurrency group: %s", data.SafeOutputs.ConcurrencyGroup)
+	concurrencyConfig, err := generateSafeOutputsConcurrencyConfig(data)
+	if err != nil {
+		return nil, nil, err
 	}
+	concurrency := c.indentYAMLLines(concurrencyConfig, "    ")
 
 	const defaultSafeOutputsTimeoutMinutes = 45
 	timeoutMinutes := defaultSafeOutputsTimeoutMinutes
@@ -862,7 +879,7 @@ func (c *Compiler) buildPreambleTokenSteps(data *WorkflowData, outputs map[strin
 	if data.SafeOutputs.GitHubApp != nil {
 		appPermissions := computePermissionsForSafeOutputs(data.SafeOutputs, true)
 		if !globalAppTokenNeededForPermissions(appPermissions) {
-			// No enabled handler (e.g. a Linear-only configuration) consumes GitHub
+			// No enabled handler (e.g. a connector-only configuration) consumes GitHub
 			// permissions from this global app, so skip minting an unrelated
 			// installation token purely because a top-level github-app was
 			// configured or auto-copied via applyTopLevelGitHubAppFallbacks.
@@ -1005,6 +1022,7 @@ func buildSafeOutputsJobCondition(data *WorkflowData, threatDetectionEnabled boo
 			BuildStringLiteral("skipped"),
 		),
 	)
+	agentNotSkipped = requireSafeOutputsAgentSuccess(agentNotSkipped, data.SafeOutputs)
 	if IsConditionalDetection(data.SafeOutputs) {
 		// When detection is expression-controlled, the detection job may be skipped at runtime
 		// (expression evaluated to false). Use always() to prevent safe_outputs from being

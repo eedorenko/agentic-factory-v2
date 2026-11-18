@@ -32,7 +32,7 @@ func (v Version) IsValid() bool {
 type ModelName string
 
 // DefaultClaudeCodeVersion is the default version of the Claude Code CLI.
-const DefaultClaudeCodeVersion Version = "2.1.312"
+const DefaultClaudeCodeVersion Version = "2.1.325"
 
 // DefaultCopilotVersion is the default version of the GitHub Copilot CLI.
 //
@@ -55,7 +55,7 @@ const CopilotSessionIDMinVersion Version = "1.0.35"
 const DefaultCopilotSDKVersion Version = "1.0.16"
 
 // DefaultCodexVersion is the default version of the OpenAI Codex CLI
-const DefaultCodexVersion Version = "0.165.0"
+const DefaultCodexVersion Version = "0.169.0"
 
 // DefaultGeminiVersion is the default version of the Google Gemini CLI
 const DefaultGeminiVersion Version = "0.64.0"
@@ -65,10 +65,10 @@ const DefaultAgyVersion Version = "1.3.6"
 const AgyDefaultModel = "gemini-3.8-flash-medium"
 
 // DefaultPiVersion is the default version of the Pi CLI
-const DefaultPiVersion Version = "1.4.0"
+const DefaultPiVersion Version = "1.5.2"
 
 // DefaultGitHubMCPServerVersion is the default version of the GitHub MCP server Docker image
-const DefaultGitHubMCPServerVersion Version = "v2.0.3"
+const DefaultGitHubMCPServerVersion Version = "v2.1.0"
 
 // DefaultFirewallVersion is the default version of the gh-aw-firewall (AWF) binary
 //
@@ -78,7 +78,11 @@ const DefaultGitHubMCPServerVersion Version = "v2.0.3"
 //
 // The first recompile regenerates all lock files using the new version; the second recompile
 // refreshes the container SHA pins that were resolved during the first pass.
-const DefaultFirewallVersion Version = "v0.29.6"
+const DefaultFirewallVersion Version = "v0.29.14"
+
+// AWFOpenAIWIFMinVersion is the first AWF release whose API proxy supports
+// OpenAI Workload Identity Federation.
+const AWFOpenAIWIFMinVersion Version = "v0.29.11"
 
 // AWFDockerEnclaveSetupMinVersion includes the sealed Copilot native runtime and
 // the maintained public Docker enclave diagnostic collector.
@@ -97,6 +101,10 @@ const DefaultRouterVersion Version = "0.1.3"
 // AWFModelRoutingMinVersion is the first AWF version that exposes task routing
 // selections through /reflect and accepts apiProxy.routing.
 const AWFModelRoutingMinVersion Version = "v0.28.29"
+
+// AWFCloudHypervisorModelRoutingMinVersion is the first AWF release whose
+// primary-agent model routing supports the cloud-hypervisor runtime.
+const AWFCloudHypervisorModelRoutingMinVersion Version = "v0.29.12"
 
 // AWFRoutingCandidateModelsMinVersion separates router candidates from request policy.
 const AWFRoutingCandidateModelsMinVersion Version = "v0.28.33"
@@ -270,7 +278,7 @@ const CopilotNoAskUserMinVersion Version = "1.0.19"
 //
 // The first recompile regenerates all lock files using the new version; the second recompile
 // refreshes the container SHA pins that were resolved during the first pass.
-const DefaultMCPGatewayVersion Version = "v0.5.2"
+const DefaultMCPGatewayVersion Version = "v0.5.10"
 
 // MCPGIntegrityReactionsMinVersion is the minimum MCPG version that supports
 // endorsement-reactions and disapproval-reactions in the allow-only policy.
@@ -311,7 +319,7 @@ const MCPGDynamicRepositoryDelegationMinVersion Version = "v0.4.19"
 // Used when tools.playwright is enabled.
 // Keep this version outside the default 3-day npm release-age cooldown window enforced by
 // generated Playwright CLI install steps. See TestDefaultPlaywrightCLIVersionOutsideCooldownWindow.
-const DefaultPlaywrightCLIVersion Version = "0.1.22"
+const DefaultPlaywrightCLIVersion Version = "0.1.24"
 
 // DefaultMCPSDKVersion is the default version of the @modelcontextprotocol/sdk package
 const DefaultMCPSDKVersion Version = "1.30.0"
@@ -362,7 +370,7 @@ const DefaultJavaVersion Version = "21"
 const DefaultElixirVersion Version = "1.17"
 
 // DefaultGoVersion is the default version of Go for runtime setup
-const DefaultGoVersion Version = "1.27.3"
+const DefaultGoVersion Version = "1.27.4"
 
 // DefaultHaskellVersion is the default version of GHC for runtime setup
 const DefaultHaskellVersion Version = "9.10"

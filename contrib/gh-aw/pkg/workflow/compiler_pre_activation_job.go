@@ -112,6 +112,14 @@ func (c *Compiler) buildPreActivationPermissions(data *WorkflowData, setupAction
 		}
 		perms.Set(PermissionPullRequests, PermissionRead)
 	}
+	// Search gates need read access to issues and pull requests in private/internal repositories.
+	if data.SkipIfMatch != nil || data.SkipIfNoMatch != nil {
+		if perms == nil {
+			perms = NewPermissions()
+		}
+		perms.Set(PermissionIssues, PermissionRead)
+		perms.Set(PermissionPullRequests, PermissionRead)
+	}
 	// Merge on.permissions into the pre-activation job permissions.
 	// on.permissions lets users declare extra scopes required by their on.steps steps.
 	if data.OnPermissions != nil {
@@ -274,7 +282,7 @@ func (c *Compiler) buildPreActivationMemoryRestoreSteps(data *WorkflowData, step
 	}
 
 	var repoMemorySteps strings.Builder
-	generateRepoMemorySteps(&repoMemorySteps, data)
+	c.generateRepoMemorySteps(&repoMemorySteps, data, string(constants.PreActivationJobName))
 	if repoMemorySteps.Len() > 0 {
 		steps = append(steps, repoMemorySteps.String())
 	}

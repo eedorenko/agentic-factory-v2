@@ -71,7 +71,7 @@ func (c *Compiler) generateRuntimeAndWorkspaceSetupSteps(yaml *strings.Builder, 
 	// Add repo-memory clone steps before custom steps so that user steps: code can read
 	// /tmp/gh-aw/repo-memory/<name>/ without an LLM turn.
 	compilerYamlLog.Printf("Generating repo-memory steps for workflow")
-	generateRepoMemoryStepsForAgent(yaml, data)
+	c.generateRepoMemoryStepsForAgent(yaml, data)
 
 	c.emitCustomSteps(yaml, data, customStepsContainCheckout, runtimeSetupSteps)
 
@@ -80,7 +80,7 @@ func (c *Compiler) generateRuntimeAndWorkspaceSetupSteps(yaml *strings.Builder, 
 	compilerYamlLog.Printf("Generating cache steps for workflow")
 	generateCacheSteps(yaml, data, c.verbose)
 
-	return customStepsContainCheckout, nil
+	return customStepsContainCheckout, c.generateAgentConnectorSteps(yaml, data)
 }
 
 func (c *Compiler) generateWorkQueueIntentOriginStep(yaml *strings.Builder, data *WorkflowData) {
@@ -315,8 +315,8 @@ func (c *Compiler) generateActivationArtifactAndCommentMemorySteps(yaml *strings
 
 	// Write a minimal comment-memory config so setup_comment_memory_files.cjs can locate the
 	// comment_memory section. The full safeoutputs config (generated in MCP setup) is written
-	// later; this early write provides only what the read step needs.
-	if !c.generateCommentMemoryEarlyConfigStep(yaml, data) {
+	// later; comment-backed ledger projections already wrote this shared config.
+	if !data.LedgerConfig.hasCommentStorage() && !c.generateCommentMemoryEarlyConfigStep(yaml, data) {
 		return
 	}
 
@@ -379,21 +379,15 @@ func (c *Compiler) generateCommentMemoryEarlyConfigLines(data *WorkflowData) ([]
 		return nil, false
 	}
 	configJSON := string(jsonBytes)
-	delimiter := GenerateHeredocDelimiterFromContent("COMMENT_MEMORY_CONFIG", configJSON)
-	if err := ValidateHeredocContent(configJSON, delimiter); err != nil {
-		compilerYamlLog.Printf("Warning: comment-memory config contains heredoc delimiter; skipping early config write: %v", err)
-		return nil, false
-	}
 	var lines []string
 	lines = append(lines, "      - name: Write comment-memory configuration\n")
-	lines = append(lines, "        run: |\n")
-	lines = append(lines, "          mkdir -p \"${RUNNER_TEMP}/gh-aw/safeoutputs\"\n")
-	lines = append(lines, fmt.Sprintf("          cat > \"${RUNNER_TEMP}/gh-aw/safeoutputs/config.json\" << '%s'\n", delimiter)) //nolint:generatedyamlheredoc // Early config rendering runs before the reusable JavaScript step is available.
-	// The 10-space YAML block-scalar indentation is stripped by the YAML parser before the
-	// shell script is executed, so the JSON content lands at column 0 inside the heredoc.
-	// This matches the pattern used by mcp_setup_generator.go for the full config write.
-	lines = append(lines, fmt.Sprintf("          %s\n", configJSON))
-	lines = append(lines, fmt.Sprintf("          %s\n", delimiter))
+	lines = append(lines, "        env:\n")
+	lines = append(lines, fmt.Sprintf("          GH_AW_EARLY_COMMENT_MEMORY_CONFIG: %q\n", configJSON))
+	lines = append(lines, fmt.Sprintf("        uses: %s\n", getCachedActionPin("actions/github-script", data)))
+	lines = append(lines, "        with:\n")
+	lines = append(lines, "          script: |\n")
+	lines = append(lines, "            const { renderFiles } = require('${{ runner.temp }}/gh-aw/actions/create_files.cjs');\n")
+	lines = append(lines, "            renderFiles({ files: [{ path: \"gh-aw/safeoutputs/config.json\", content_env: \"GH_AW_EARLY_COMMENT_MEMORY_CONFIG\" }] }, process.env, process.env.RUNNER_TEMP);\n")
 	return lines, true
 }
 

@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { buildSafeOutputOutcomes } from "./safe_output_outcomes.cjs";
+import { buildSafeOutputExecutions } from "./safe_output_execution.cjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -205,6 +205,15 @@ describe("upload_artifact.cjs", () => {
       expect(mockArtifactClient.uploadArtifact).not.toHaveBeenCalled();
     });
 
+    it("rejects a staged file with a leading-dash filename", async () => {
+      writeStaging("-T");
+
+      await runHandler(buildConfig(), [{ type: "upload_artifact", path: "-T" }]);
+
+      expect(mockCore.setFailed).toHaveBeenCalledWith(expect.stringContaining('filenames beginning with "-" are not allowed'));
+      expect(mockArtifactClient.uploadArtifact).not.toHaveBeenCalled();
+    });
+
     it("fails when max-uploads is exceeded", async () => {
       writeStaging("a.json");
       writeStaging("b.json");
@@ -367,6 +376,21 @@ describe("upload_artifact.cjs", () => {
   });
 
   describe("allowed-paths policy", () => {
+    it("publishes Daily Cracktro screenshots using its staging-relative policy", async () => {
+      const source = fs.readFileSync(path.join(__dirname, "../../../.github/workflows/daily-cracktro-maintainer.md"), "utf8");
+      const policy = source.match(/allowed-paths: \[("[^"]+")\]/);
+      if (!policy) throw new Error("Daily Cracktro must declare an artifact path policy");
+      const allowedPaths = [JSON.parse(policy[1])];
+      writeStaging("cracktro-review/slide.png");
+      writeStaging("unrelated/secret.env");
+
+      const results = await runHandler(buildConfig({ "allowed-paths": allowedPaths }), [{ type: "upload_artifact", path: "cracktro-review" }]);
+
+      expect(results[0].success).toBe(true);
+      expect(mockCore.setFailed).not.toHaveBeenCalled();
+      expect(mockArtifactClient.uploadArtifact.mock.calls[0][1]).toEqual([path.join(STAGING_DIR, "cracktro-review/slide.png")]);
+    });
+
     it("filters out files not in allowed-paths", async () => {
       writeStaging("dist/app.js");
       writeStaging("secret.env");
@@ -416,7 +440,7 @@ describe("upload_artifact.cjs", () => {
       expect(results[0].success).toBe(true);
       expect(results[0].staged).toBe(true);
       expect(mockArtifactClient.uploadArtifact).not.toHaveBeenCalled();
-      const [outcome] = buildSafeOutputOutcomes([{ type: "upload_artifact", messageIndex: 0, success: true, result: results[0] }], false);
+      const [outcome] = buildSafeOutputExecutions([{ type: "upload_artifact", messageIndex: 0, success: true, result: results[0] }], false);
       expect(outcome).toMatchObject({ type: "upload_artifact", status: "staged", staged: true });
       expect(outcome).not.toHaveProperty("url");
     });
@@ -663,6 +687,18 @@ describe("upload_artifact.cjs", () => {
       // The file should have been copied into the staging directory.
       expect(fs.existsSync(path.join(STAGING_DIR, "report.json"))).toBe(true);
       expect(mockCore.info).toHaveBeenCalledWith(expect.stringContaining("Auto-copied file"));
+    });
+
+    it("rejects leading-dash filenames before copying them into staging", async () => {
+      const absFile = path.join(WORKSPACE_DIR, "-T");
+      writeWorkspace("-T");
+
+      const results = await runHandler(buildConfig(), [{ type: "upload_artifact", path: absFile }]);
+
+      expect(results[0].success).toBe(false);
+      expect(results[0].error).toContain('filenames beginning with "-" are not allowed');
+      expect(fs.existsSync(path.join(STAGING_DIR, "-T"))).toBe(false);
+      expect(mockArtifactClient.uploadArtifact).not.toHaveBeenCalled();
     });
 
     it("auto-copies a directory from an absolute path", async () => {

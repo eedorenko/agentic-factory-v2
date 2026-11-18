@@ -226,7 +226,7 @@ function normalizeDefaultRuntimeVersions(content) {
     .replace(new RegExp(`GH_AW_INFO_AWF_VERSION: "${escapeRegex(awfVersion)}"`, "g"), 'GH_AW_INFO_AWF_VERSION: "vAWF_VERSION"')
     .replace(new RegExp(`GH_AW_INFO_AWMG_VERSION: "${escapeRegex(mcpgVersion)}"`, "g"), 'GH_AW_INFO_AWMG_VERSION: "vMCPG_VERSION"')
     .replace(new RegExp(`(install_awf_binary\\.sh"\\s+)${escapeRegex(awfVersion)}\\b`, "g"), "$1vAWF_VERSION")
-    .replace(new RegExp(`(ghcr\\.io/github/gh-aw-firewall/(?:agent|api-proxy|cli-proxy|squid):)${escapeRegex(awfImageTag)}\\b`, "g"), "$1AWF_VERSION")
+    .replace(new RegExp(`(ghcr\\.io/github/gh-aw-firewall/(?:agent|api-proxy|cli-proxy|router|squid):)${escapeRegex(awfImageTag)}\\b`, "g"), "$1AWF_VERSION")
     .replace(new RegExp(`(releases/download/)${escapeRegex(awfVersion)}(/awf-config\\.schema\\.json)`, "g"), "$1vAWF_VERSION$2")
     .replace(new RegExp(`("imageTag"\\s*:\\s*")(?:v)?${escapeRegex(awfImageTag)}"`, "g"), '$1AWF_VERSION"')
     .replace(new RegExp(`(ghcr\\.io/github/gh-aw-mcpg:)${escapeRegex(mcpgVersion)}\\b`, "g"), "$1MCPG_VERSION")
@@ -248,7 +248,14 @@ function normalizeDefaultRuntimeVersions(content) {
 // new normalization steps only need to be added in one place.
 // Mirrors normalizeOutput() in pkg/workflow/wasm_golden_test.go.
 function normalize(content) {
-  return normalizeAWFConfigPayload(normalizeCheckoutPin(normalizeDefaultRuntimeVersions(normalizeCopilotDefaultModel(normalizeProjectUTC(normalizeAWFImageTagDigests(normalizeContainerPins(normalizeHeredocDelimiters(content))))))));
+  const heredocNormalized = normalizeHeredocDelimiters(content);
+  const containerNormalized = normalizeContainerPins(heredocNormalized);
+  const imageTagsNormalized = normalizeAWFImageTagDigests(containerNormalized);
+  const projectUTCNormalized = normalizeProjectUTC(imageTagsNormalized);
+  const modelNormalized = normalizeCopilotDefaultModel(projectUTCNormalized);
+  const runtimeNormalized = normalizeDefaultRuntimeVersions(modelNormalized);
+  const checkoutNormalized = normalizeCheckoutPin(runtimeNormalized);
+  return normalizeAWFConfigPayload(checkoutNormalized);
 }
 
 // ── Load golden file ─────────────────────────────────────────────────

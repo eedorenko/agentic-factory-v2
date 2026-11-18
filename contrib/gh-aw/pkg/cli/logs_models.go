@@ -155,6 +155,11 @@ type GatewaySteeringEvent struct {
 	Timestamp string `json:"timestamp,omitempty" console:"header:Timestamp,omitempty"`
 	Threshold int    `json:"threshold,omitempty" console:"header:Threshold,omitempty"`
 	RequestID string `json:"request_id,omitempty" console:"header:Request ID,omitempty"`
+	// Trigger is "threshold" or "little_left" on events from AWF releases after
+	// v0.29.11; a little_left notice has no threshold.
+	Trigger string `json:"trigger,omitempty" console:"header:Trigger,omitempty"`
+	// Conversation is the opaque per-run conversation key the notice went to.
+	Conversation string `json:"conversation,omitempty" console:"header:Conversation,omitempty"`
 }
 
 // ReportProvenance holds the shared provenance fields common to all report record types.
@@ -456,6 +461,7 @@ type AwInfo struct {
 	FallbackModel   string                `json:"fallback_model,omitempty"`
 	ModelRouting    *AwInfoModelRouting   `json:"model_routing,omitempty"`
 	ModelSelection  *AwInfoModelSelection `json:"model_selection,omitempty"`
+	ModelConfig     *AwInfoModelConfig    `json:"model_config,omitempty"`
 	Version         string                `json:"version"`
 	CLIVersion      string                `json:"cli_version,omitempty"` // gh-aw CLI version
 	WorkflowName    string                `json:"workflow_name"`
@@ -480,6 +486,29 @@ type AwInfo struct {
 	Actor      string    `json:"actor,omitempty"`
 	EventName  string    `json:"event_name,omitempty"`
 	TargetRepo string    `json:"target_repo,omitempty"`
+}
+
+// AwInfoModelConfig is the compiled model configuration recorded in aw_info.json.
+type AwInfoModelConfig struct {
+	Routing *AwInfoModelConfigRouting `json:"routing,omitempty"`
+}
+
+// AwInfoModelConfigRouting is the configured routing policy in aw_info.model_config.
+type AwInfoModelConfigRouting struct {
+	Enabled bool   `json:"enabled"`
+	Goal    string `json:"goal,omitempty"`
+	Mode    string `json:"mode,omitempty"`
+	// Requested is the router value the workflow set as its model, such as router/economy.
+	Requested string `json:"requested,omitempty"`
+}
+
+// requestedRouterValue returns the router value (router, router/economy, ...) that
+// configured routing for this run, or "" when routing came from engine.model-routing.
+func (a *AwInfo) requestedRouterValue() string {
+	if a == nil || a.ModelConfig == nil || a.ModelConfig.Routing == nil || !a.ModelConfig.Routing.Enabled {
+		return ""
+	}
+	return a.ModelConfig.Routing.Requested
 }
 
 type AwInfoModelSelection struct {

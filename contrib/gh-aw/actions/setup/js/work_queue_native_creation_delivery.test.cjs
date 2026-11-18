@@ -7,12 +7,13 @@ import { spawnSync } from "node:child_process";
 
 const require = createRequire(import.meta.url);
 const { queueFixture, REPOSITORY, WORKFLOW, REF } = require("./work_queue_lifecycle.test_helpers.cjs");
-const { withClaimExecution, closeClaimEffectChannel, recordClaimEffect } = require("./work_queue_claim_scope.cjs");
+const { withClaimExecution, closeClaimEffectChannel, recordClaimEffect, createClaimEffectBatch, withClaimEffectBatch, discardClaimEffectBatch } = require("./work_queue_claim_scope.cjs");
 const { authorizeWorkerClaim, finalizeWorkerResults } = require("./finish_work_queue_claim.cjs");
 const { readDeliveryControlInventory, createClaimDeliveryVerifier, verifyBuiltinDeliveryOutput } = require("./work_queue_delivery.cjs");
-const { captureDiscussionDelivery, preparePullRequestDelivery, capturePullRequestDelivery } = require("./work_queue_native_creation_delivery.cjs");
+const { captureDiscussionDelivery, preparePullRequestDelivery, capturePullRequestDelivery, durableNativeCreationReceipt, verifyNativeCreationDelivery } = require("./work_queue_native_creation_delivery.cjs");
 const { settleClaimDelivery } = require("./safe_output_handler_manager.cjs");
 const { wrapClaimEffectClient } = require("./work_queue_effect_client.cjs");
+const { withGitClaimEffects } = require("./work_queue_git_effects.cjs");
 const { addDiscussionComment, closeDiscussionAsOutdated } = require("./close_older_discussions.cjs");
 const { MAX_CLOSE_COUNT } = require("./close_older_entities.cjs");
 
@@ -61,7 +62,7 @@ function fixture(type) {
   const member = assignment.claims[0];
   queue.append("finish", { dispatch_id: assignment.dispatch_id, claim_handle: member.handle, outcome: "completed" }, { ...queue.workerActor, dispatch_id: assignment.dispatch_id, claim_handle: member.handle });
   const runtime = { assignment, context: queue.workerContext, githubClient: queue.githubClient, workflowRef: `${REPOSITORY}/${WORKFLOW}@${REF}`, readWorkQueueLog: queue.readWorkQueueLog };
-  const authorize = vi.fn(request => authorizeWorkerClaim({ ...runtime, ...request, githubClient: queue.githubClient }));
+  const authorize = vi.fn(request => authorizeWorkerClaim({ ...runtime, ...request, context: runtime.context, githubClient: queue.githubClient }));
   process.env.GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG = JSON.stringify({ [type]: {} });
   const effects = [];
   const message = { type, claim_handle: member.handle, title: "Requested title", body: "Requested body", ...(type === "create_pull_request" ? { branch: "approved" } : {}) };
@@ -153,6 +154,75 @@ function fixture(type) {
 }
 
 describe("native creation Claim delivery", () => {
+  it.each(["create_discussion", "create_pull_request"])("rechecks serialized %s receipts without the original result or message", async type => {
+    const f = fixture(type);
+    let receipt;
+    if (type === "create_pull_request") Object.assign(f.message, { head_repo: REPOSITORY, base_branch: "main", base_commit: BASE });
+    await f.execute(async () => {
+      await f.capture();
+      receipt = JSON.parse(JSON.stringify(durableNativeCreationReceipt(f.result, f.message, f.member)));
+    });
+    expect(receipt).not.toBeNull();
+    for (const key of ["message", "title", "body", "dispatch_id", "claim_id", "work_id", "claim_handle"]) expect(receipt).not.toHaveProperty(key);
+    expect(JSON.stringify(receipt)).not.toContain("Requested title");
+    expect(JSON.stringify(receipt)).not.toContain("Final body");
+    if (type === "create_pull_request") expect(receipt.transport).toEqual({ head_repo: REPOSITORY, base_branch: "main", base_commit: BASE });
+    const options = { claim: f.member, message: { type, claim_handle: f.member.handle }, result: { entry: { verifier: "native_creation", receipt } }, github: f.client, effects: f.effects, durable: true };
+    await f.execute(async () => {
+      expect((await verifyNativeCreationDelivery(options)).verified).toBe(true);
+      expect((await verifyNativeCreationDelivery({ ...options, durable: false })).verified).toBe(false);
+      const observed = type === "create_discussion" ? f.discussion : f.pull;
+      observed.body = "Changed after creation";
+      expect((await verifyNativeCreationDelivery(options)).verified).toBe(false);
+      observed.body = "Final body";
+      for (const key of ["title_digest", "body_digest", "number", ...(type === "create_pull_request" ? ["commit", "transport", "draft"] : ["category", "repositoryNodeId", "effectIds"])]) {
+        const incomplete = { ...receipt };
+        delete incomplete[key];
+        expect((await verifyNativeCreationDelivery({ ...options, result: { entry: { verifier: "native_creation", receipt: incomplete } } })).verified).toBe(false);
+      }
+      if (type === "create_pull_request") {
+        f.client.rest.git.getRef.mockResolvedValue({ data: { ref: "refs/heads/approved", object: { type: "commit", sha: "a".repeat(40) } } });
+        expect((await verifyNativeCreationDelivery(options)).verified).toBe(false);
+      }
+    });
+  });
+
+  it("keeps native durable export bound to the original message and result", async () => {
+    const f = fixture("create_discussion");
+    await f.execute(async () => {
+      await f.capture();
+      expect(durableNativeCreationReceipt({ ...f.result }, f.message, f.member)).toBeNull();
+      expect(durableNativeCreationReceipt(f.result, { ...f.message, title: "Changed" }, f.member)).toBeNull();
+      f.result.staged = true;
+      expect(durableNativeCreationReceipt(f.result, f.message, f.member)).toBeNull();
+      delete f.result.staged;
+      f.result.fallback_used = true;
+      expect(durableNativeCreationReceipt(f.result, f.message, f.member)).toBeNull();
+    });
+  });
+
+  it("rechecks serialized discussion cleanup body digests", async () => {
+    const f = fixture("create_discussion");
+    const discussion = { id: "D_old", number: 18, repository: f.discussion.repository };
+    const comment = { __typename: "DiscussionComment", id: "DC_old", body: "Cleanup content", discussion };
+    f.client.graphql.mockImplementation(async (_query, variables) => ({ node: variables.id === comment.id ? comment : f.discussion }));
+    let receipt;
+    await f.execute(async () => {
+      await f.capture({ cleanup: [{ type: "comment", id: comment.id, discussionId: discussion.id, effectId: "a".repeat(64), body: comment.body }] });
+      receipt = JSON.parse(JSON.stringify(durableNativeCreationReceipt(f.result, f.message, f.member)));
+    });
+    expect(receipt.cleanup[0]).not.toHaveProperty("body");
+    expect(receipt.cleanup[0].body_digest).toMatch(/^[a-f0-9]{64}$/);
+    const options = { claim: f.member, message: { type: "create_discussion" }, result: { entry: { verifier: "native_creation", receipt } }, github: f.client, effects: f.effects, durable: true };
+    await f.execute(async () => {
+      expect((await verifyNativeCreationDelivery(options)).verified).toBe(true);
+      comment.body = "Changed cleanup";
+      expect((await verifyNativeCreationDelivery(options)).verified).toBe(false);
+      delete receipt.cleanup[0].body_digest;
+      expect((await verifyNativeCreationDelivery(options)).verified).toBe(false);
+    });
+  });
+
   it.each([2 * MAX_CLOSE_COUNT, 2 * MAX_CLOSE_COUNT + 1])("bounds cleanup readbacks for %i receipts from older discussions", async receiptCount => {
     const f = fixture("create_discussion");
     const count = Math.ceil(receiptCount / 2);
@@ -212,6 +282,148 @@ describe("native creation Claim delivery", () => {
       expect((await f.settle()).verification).toBe("unknown");
     });
     expect(f.client.graphql).not.toHaveBeenCalled();
+  });
+
+  it.each(["single", "later", "deletion", "empty"])("settles staged signed PR objects (%s) without replaying writes", async mode => {
+    const f = fixture("create_pull_request");
+    const initialCommit = mode === "later" ? "f".repeat(40) : COMMIT;
+    const initialTree = mode === "later" ? "a".repeat(40) : TREE;
+    const blob = "1".repeat(40);
+    Object.assign(f.client.rest.git, {
+      createBlob: vi.fn(async () => ({ data: { sha: blob } })),
+      createTree: vi.fn(async () => ({ data: { sha: initialTree } })),
+      createCommit: vi.fn(async () => ({ data: { sha: initialCommit, verification: { verified: true } } })),
+      createRef: vi.fn(async () => ({ data: { ref: "refs/heads/approved", object: { type: "commit", sha: initialCommit } } })),
+      getCommit: vi.fn(async ({ commit_sha }) => ({ data: { sha: commit_sha, tree: { sha: commit_sha === initialCommit ? initialTree : TREE }, parents: [{ sha: BASE }] } })),
+      getTree: vi.fn(async ({ tree_sha }) => ({ data: { sha: tree_sha, truncated: false, tree: tree_sha === initialTree ? [{ path: "new.txt", type: "blob", sha: blob }] : [] } })),
+    });
+    f.client.rest.repos.compareCommits.mockImplementation(async ({ base }) => ({
+      data: { base_commit: { sha: base }, merge_base_commit: { sha: base }, status: "ahead", ahead_by: 1, behind_by: 0 },
+    }));
+    await f.execute(async () => {
+      const wrapped = wrapClaimEffectClient(f.client, { claim_handle: f.member.handle, authorize: f.authorize, context: f.context });
+      await withGitClaimEffects({ github: wrapped, repository: REPOSITORY, branch: "approved", paths: mode === "empty" ? [] : ["new.txt"] }, async () => {
+        if (!["deletion", "empty"].includes(mode)) await wrapped.rest.git.createBlob({ owner: "owner", repo: "repo", content: "new\n", encoding: "utf-8" });
+        if (mode !== "empty") await wrapped.rest.git.createTree({ owner: "owner", repo: "repo", base_tree: BASE, tree: [{ path: "new.txt", mode: "100644", type: "blob", sha: mode === "deletion" ? null : blob }] });
+        await wrapped.rest.git.createCommit({ owner: "owner", repo: "repo", message: "Initial change", tree: initialTree, parents: [BASE] });
+        await wrapped.rest.git.createRef({ owner: "owner", repo: "repo", ref: "refs/heads/approved", sha: initialCommit });
+      });
+      if (mode === "later") {
+        f.client.graphql.mockResolvedValue({ createCommitOnBranch: { commit: { oid: COMMIT } } });
+        await wrapped.graphql("mutation NativeCommit($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }", {
+          input: { branch: { repositoryNameWithOwner: REPOSITORY, branchName: "approved" }, expectedHeadOid: initialCommit, message: { headline: "Overwrite initial file" }, fileChanges: {} },
+        });
+      }
+      await f.capture();
+      expect(closeClaimEffectChannel()).toBeDefined();
+      const delivery = await f.settle();
+      expect(delivery.verification, delivery.reason).toBe("verified");
+    });
+    expect((await f.finalize()).claims.h1.state).toBe("result");
+    expect(f.queue.state.works.get(f.member.work_id).barrier).toBe("verified");
+    expect(f.client.rest.git.createCommit).toHaveBeenCalledOnce();
+    expect(f.client.rest.git.createRef).toHaveBeenCalledOnce();
+    expect(f.client.rest.pulls.create).toHaveBeenCalledOnce();
+  });
+
+  it.each(["blob", "tree", "commit", "base_commit", "foreign_claim", "foreign_repository", "truncated", "unavailable"])("keeps staged signed PR objects unverified for %s", async mismatch => {
+    const f = fixture("create_pull_request");
+    const blob = "1".repeat(40);
+    await f.execute(async () => {
+      await f.capture();
+      const commit = recordClaimEffect({ repository: REPOSITORY, kind: "git_commit", id: COMMIT, outcome: "succeeded" });
+      recordClaimEffect({ repository: REPOSITORY, kind: "git_tree", id: mismatch === "tree" ? BASE : TREE, outcome: "succeeded" });
+      const effect = recordClaimEffect({ repository: REPOSITORY, kind: "git_blob", id: mismatch === "blob" ? BASE : blob, outcome: "succeeded" });
+      f.client.rest.git.getTree.mockImplementation(async ({ tree_sha, recursive }) => ({
+        data: { sha: tree_sha, truncated: mismatch === "truncated" && (recursive === "1" || recursive === undefined), tree: mismatch === "truncated" ? [] : [{ path: "new.txt", type: "blob", sha: blob }] },
+      }));
+      if (mismatch === "commit") commit.id = REF;
+      if (mismatch === "base_commit") commit.id = BASE;
+      if (mismatch === "foreign_claim") effect.claim_id = "foreign";
+      if (mismatch === "foreign_repository") effect.repository = "other/repo";
+      if (mismatch === "unavailable") f.client.rest.git.getTree.mockRejectedValue(new Error("Unavailable"));
+      expect((await f.settle()).verification).toBe("unknown");
+    });
+    expect(f.queue.state.works.get(f.member.work_id).barrier).toBe("pending");
+  });
+
+  it("settles staged signed PR blobs after a truncated recursive listing using complete subtree reads", async () => {
+    const f = fixture("create_pull_request");
+    const blob = "1".repeat(40);
+    const subtree = "4".repeat(40);
+    f.client.rest.git.getTree.mockImplementation(async ({ tree_sha, recursive }) => {
+      if (recursive === "1") return { data: { sha: tree_sha, truncated: true, tree: [] } };
+      return {
+        data: {
+          sha: tree_sha,
+          truncated: false,
+          tree: tree_sha === TREE ? [{ path: "src", type: "tree", sha: subtree }] : [{ path: "new.txt", type: "blob", sha: blob }],
+        },
+      };
+    });
+    await f.execute(async () => {
+      recordClaimEffect({ repository: REPOSITORY, kind: "git_commit", id: COMMIT, outcome: "succeeded" });
+      recordClaimEffect({ repository: REPOSITORY, kind: "git_blob", id: blob, outcome: "succeeded" });
+      await f.capture();
+      expect((await f.settle()).verification).toBe("verified");
+    });
+  });
+
+  it("continues tree traversal when content-identical subtrees share a SHA", async () => {
+    const f = fixture("create_pull_request");
+    const firstBlob = "1".repeat(40);
+    const secondBlob = "2".repeat(40);
+    const duplicateSubtree = "4".repeat(40);
+    const otherSubtree = "5".repeat(40);
+    f.client.rest.git.getTree.mockImplementation(async ({ tree_sha, recursive }) => {
+      if (recursive === "1") return { data: { sha: tree_sha, truncated: true, tree: [] } };
+      if (tree_sha === TREE)
+        return {
+          data: {
+            sha: tree_sha,
+            truncated: false,
+            tree: [
+              { path: "other", type: "tree", sha: otherSubtree },
+              { path: "one", type: "tree", sha: duplicateSubtree },
+              { path: "two", type: "tree", sha: duplicateSubtree },
+            ],
+          },
+        };
+      return {
+        data: {
+          sha: tree_sha,
+          truncated: false,
+          tree: [{ path: "new.txt", type: "blob", sha: tree_sha === duplicateSubtree ? firstBlob : secondBlob }],
+        },
+      };
+    });
+    await f.execute(async () => {
+      recordClaimEffect({ repository: REPOSITORY, kind: "git_commit", id: COMMIT, outcome: "succeeded" });
+      recordClaimEffect({ repository: REPOSITORY, kind: "git_blob", id: firstBlob, outcome: "succeeded" });
+      recordClaimEffect({ repository: REPOSITORY, kind: "git_blob", id: secondBlob, outcome: "succeeded" });
+      await f.capture();
+      expect((await f.settle()).verification).toBe("verified");
+    });
+  });
+
+  it("settles a concurrent branch-creation race after discarding orphaned REST objects", async () => {
+    const f = fixture("create_pull_request");
+    await f.execute(async () => {
+      const batch = createClaimEffectBatch();
+      await withClaimEffectBatch(batch, async () => {
+        recordClaimEffect({ repository: REPOSITORY, kind: "git_blob", id: "1".repeat(40), outcome: "succeeded" });
+        recordClaimEffect({ repository: REPOSITORY, kind: "git_tree", id: TREE, outcome: "succeeded" });
+        recordClaimEffect({ repository: REPOSITORY, kind: "git_commit", id: "2".repeat(40), outcome: "succeeded" });
+      });
+      expect(discardClaimEffectBatch(batch)).toBe(3);
+      recordClaimEffect({ repository: REPOSITORY, kind: "graphql", id: "final-commit", commit: COMMIT, outcome: "succeeded" });
+      await f.capture();
+      const delivery = await f.settle();
+      expect(delivery.verification, delivery.reason).toBe("verified");
+    });
+    expect(f.effects.filter(effect => ["git_blob", "git_tree", "git_commit"].includes(effect.kind))).toEqual([]);
+    expect((await f.finalize()).claims.h1.state).toBe("result");
+    expect(f.queue.state.works.get(f.member.work_id).barrier).toBe("verified");
   });
 
   it.each([
@@ -424,6 +636,22 @@ describe("native creation Claim delivery", () => {
     }
   });
 
+  it("returns field-level pull request mismatch diagnostics", async () => {
+    const labels = fixture("create_pull_request");
+    await labels.execute(async () => {
+      await labels.capture();
+      labels.pull.labels = [{ name: "changed" }];
+      expect((await labels.settle()).diagnostics).toMatchObject({ event: "pull_request.readback.mismatch", labels_matches: false, title_matches: true });
+    });
+
+    const base = fixture("create_pull_request");
+    await base.execute(async () => {
+      await base.capture();
+      base.pull.base.sha = "f".repeat(40);
+      expect((await base.settle()).diagnostics).toMatchObject({ event: "pull_request.readback.mismatch", base_matches: false });
+    });
+  });
+
   describe.each([
     ["create_discussion", "labels", "labels_matches"],
     ["create_pull_request", "labels", "labels_matches"],
@@ -610,8 +838,13 @@ describe("native creation Claim delivery", () => {
     }
   });
 
-  it.each(["create_discussion", "create_pull_request"])("settles %s through the actual manager verifier and publishes a protected Result", async type => {
+  it.each(
+    ["create_discussion", "create_pull_request"].flatMap(type =>
+      [{}, { output_id: "so_xbzi2dhGSY-3" }, { "depends-on": "so_priorOutput1" }, { output_id: "so_xbzi2dhGSY-3", "depends-on": "so_priorOutput1" }].map(metadata => ({ type, metadata }))
+    )
+  )("settles $type with submission metadata $metadata through the actual manager verifier and publishes a protected Result", async ({ type, metadata }) => {
     const f = fixture(type);
+    Object.assign(f.message, metadata);
     await f.execute(async () => {
       await f.capture();
       expect(closeClaimEffectChannel()).toBeDefined();
@@ -622,6 +855,18 @@ describe("native creation Claim delivery", () => {
     const finalized = await f.finalize();
     expect(finalized.claims.h1.state).toBe("result");
     expect(f.queue.state.works.get(f.member.work_id).barrier).toBe("verified");
+  });
+
+  it.each(["create_discussion", "create_pull_request"])("rejects undeclared %s fields even with submission metadata", async type => {
+    const f = fixture(type);
+    Object.assign(f.message, { output_id: "so_xbzi2dhGSY-3", "depends-on": "so_priorOutput1", unexpected_transport_field: "untrusted" });
+    await f.execute(async () => {
+      await f.capture();
+      expect((await f.settle()).verification).toBe("unknown");
+    });
+    expect(f.client.graphql).not.toHaveBeenCalled();
+    expect(f.client.rest.pulls.get).not.toHaveBeenCalled();
+    expect(f.queue.state.works.get(f.member.work_id).barrier).toBe("pending");
   });
 
   it("settles the enriched PR message emitted by the safe-output transport", async () => {

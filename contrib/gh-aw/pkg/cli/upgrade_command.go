@@ -11,6 +11,7 @@ import (
 
 	"github.com/github/gh-aw/pkg/console"
 	"github.com/github/gh-aw/pkg/constants"
+	"github.com/github/gh-aw/pkg/ctxutil"
 	"github.com/github/gh-aw/pkg/fileutil"
 	"github.com/github/gh-aw/pkg/gitutil"
 	"github.com/github/gh-aw/pkg/logger"
@@ -69,13 +70,13 @@ This command always upgrades all Markdown files in .github/workflows.`,
   ` + string(constants.CLIExtensionPrefix) + ` upgrade --no-actions                # Skip updating GitHub Actions versions
   ` + string(constants.CLIExtensionPrefix) + ` upgrade --no-compile                # Skip recompiling workflows (do not modify lock files)
   ` + string(constants.CLIExtensionPrefix) + ` upgrade --create-pull-request       # Upgrade and open a pull request
-  ` + string(constants.CLIExtensionPrefix) + ` upgrade --pr --auto-merge           # Open a pull request and enable auto-merge
-  ` + string(constants.CLIExtensionPrefix) + ` upgrade --org my-org --pr --auto-merge --yes  # Enable auto-merge for org upgrade pull requests
+  ` + string(constants.CLIExtensionPrefix) + ` upgrade --create-pull-request --auto-merge           # Open a pull request and enable auto-merge
+  ` + string(constants.CLIExtensionPrefix) + ` upgrade --org my-org --create-pull-request --auto-merge --yes  # Enable auto-merge for org upgrade pull requests
   ` + string(constants.CLIExtensionPrefix) + ` upgrade --dir custom/workflows      # Upgrade workflows in custom directory
   ` + string(constants.CLIExtensionPrefix) + ` upgrade --engine claude             # Override AI engine for compilation
   ` + string(constants.CLIExtensionPrefix) + ` upgrade --repo owner/repo           # Upgrade workflows in another repository
   ` + string(constants.CLIExtensionPrefix) + ` upgrade --org my-org                # Preview upgrade pull requests across an organization
-  ` + string(constants.CLIExtensionPrefix) + ` upgrade --org my-org --interactive --pr  # Select repositories and watch PR creation
+  ` + string(constants.CLIExtensionPrefix) + ` upgrade --org my-org --interactive --create-pull-request  # Select repositories and watch PR creation
   ` + string(constants.CLIExtensionPrefix) + ` upgrade --enterprise my-enterprise --dry-run  # Preview accessible enterprise organizations
   ` + string(constants.CLIExtensionPrefix) + ` upgrade --org my-org --repos '*-service'  # Limit org mode to matching repositories
   ` + string(constants.CLIExtensionPrefix) + ` upgrade --org my-org --create-pull-request  # Open upgrade pull requests in org repositories
@@ -218,7 +219,7 @@ This command always upgrades all Markdown files in .github/workflows.`,
 	cmd.Flags().StringSlice("disable-codemod", nil, "Disable specific codemod IDs during the fix step (repeatable)")
 	cmd.Flags().Bool("create-pull-request", false, "Create a pull request with the upgrade changes")
 	cmd.Flags().Bool("pr", false, "Alias for --create-pull-request")
-	cmd.Flags().Bool("auto-merge", false, "Enable auto-merge on the created pull request (requires --pr or --create-pull-request)")
+	cmd.Flags().Bool("auto-merge", false, "Enable auto-merge on the created pull request (requires --create-pull-request)")
 	addPRMessageFlag(cmd)
 	_ = cmd.Flags().MarkHidden("pr") // Hide the short alias from help output
 	cmd.Flags().Bool("create-issue", false, "Open a GitHub issue in each org repository with agentic workflows (requires --org)")
@@ -338,6 +339,7 @@ func runUpgradeCommand(opts upgradeOptions) error {
 		upgradeLog.Print("Applying codemods to all workflows")
 
 		fixConfig := FixConfig{
+			Ctx:                        opts.ctx,
 			WorkflowIDs:                nil, // nil means all workflows
 			Write:                      true,
 			Verbose:                    opts.verbose,
@@ -462,7 +464,7 @@ func runUpgradeCommand(opts upgradeOptions) error {
 // updateCopilotArtifacts updates the dispatcher skill and related Copilot setup artifacts.
 func updateCopilotArtifacts(opts upgradeOptions, workflowDir string) error {
 	// Update dispatcher skill
-	if err := ensureAgenticWorkflowsDispatcher(opts.verbose, opts.noSkill, true); err != nil {
+	if err := ensureAgenticWorkflowsDispatcher(ctxutil.OrBackground(opts.ctx), opts.verbose, opts.noSkill, true); err != nil {
 		upgradeLog.Printf("Failed to update dispatcher skill: %v", err)
 		return fmt.Errorf("failed to update dispatcher skill: %w", err)
 	}

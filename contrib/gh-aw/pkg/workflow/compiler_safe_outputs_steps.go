@@ -3,7 +3,7 @@ package workflow
 import (
 	"fmt"
 	"path"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/github/gh-aw/pkg/constants"
@@ -34,19 +34,49 @@ func (c *Compiler) buildSharedPRCheckoutSteps(data *WorkflowData) []string {
 	consolidatedSafeOutputsStepsLog.Print("Building shared PR checkout steps (mirroring agent job layout)")
 	checkoutMgr, prCheckoutToken := prepareSharedPRCheckout(data)
 	steps, condition := c.buildSharedPRCheckoutLayout(data, checkoutMgr)
-	steps = append(steps, checkoutMgr.GenerateConfigureGitCredentialsSteps(prCheckoutToken, condition)...)
-	c.prCheckoutLintBlock = preparePRCheckoutLintBlock(steps, c.formatFrameworkJobRunsOn(data))
+	rootRepo := checkoutMgr.effectiveRootCheckoutRepository()
+	if c.trialMode && !checkoutMgr.HasExternalRootCheckout() {
+		rootRepo = "${{ github.repository }}"
+		if c.trialLogicalRepoSlug != "" {
+			rootRepo = fmt.Sprintf("%q", c.trialLogicalRepoSlug)
+		}
+	}
+	steps = append(steps, checkoutMgr.generateConfigureGitCredentialsStepsForRoot(prCheckoutToken, condition, rootRepo)...)
+	jobEnvironment := c.buildJobLevelSafeOutputEnvVars(data, GetWorkflowIDFromPath(c.markdownPath))
+	jobEnvironmentNames := make([]string, 0, len(jobEnvironment))
+	for name := range jobEnvironment {
+		jobEnvironmentNames = append(jobEnvironmentNames, name)
+	}
+	jobEnvironmentNames = append(jobEnvironmentNames, runtimeFeaturesEnvVarName)
+	slices.Sort(jobEnvironmentNames)
+	c.prCheckoutLintBlock = preparePRCheckoutLintBlock(steps, c.formatFrameworkJobRunsOn(data), jobEnvironmentNames)
 	consolidatedSafeOutputsStepsLog.Printf("Built shared PR checkout steps with condition: %s", condition.Render())
 	return steps
 }
 
-func preparePRCheckoutLintBlock(steps []string, runsOn string) string {
-	block := renderStepForRunner(strings.Join(steps, ""), runsOn)
+func preparePRCheckoutLintBlock(steps []string, runsOn string, jobEnvironmentVariables []string) string {
+	block := renderStepForRunnerWithEnvironment(strings.Join(steps, ""), runsOn, string(constants.SafeOutputsJobName), jobEnvironmentVariables)
 	finalized, err := finalizeRunnerTempSafety(block)
 	if err != nil {
 		return ""
 	}
 	return normalizeBlankLines(finalized)
+}
+
+const globalSafeOutputsAppTokenExpr = "steps.safe-outputs-app-token.outputs.token"
+
+// prHandlersUseGlobalApp reports whether the PR handlers push to the host repository
+// with the global safe-outputs App token (no per-handler App/token and no other target repo).
+func prHandlersUseGlobalApp(safeOutputs *SafeOutputsConfig) bool {
+	if safeOutputs == nil || safeOutputs.GitHubApp == nil || resolvePRCheckoutTargetRepo(safeOutputs) != "" {
+		return false
+	}
+	for _, field := range []string{"CreatePullRequests", "PushToPullRequestBranch"} {
+		if getHandlerGitHubApp(safeOutputs, field) != nil || getHandlerGitHubToken(safeOutputs, field) != "" {
+			return false
+		}
+	}
+	return safeOutputsGlobalAppTokenMinted(safeOutputs)
 }
 
 func prepareSharedPRCheckout(data *WorkflowData) (*CheckoutManager, string) {
@@ -67,7 +97,13 @@ func prepareSharedPRCheckout(data *WorkflowData) (*CheckoutManager, string) {
 	// same token is reused below for the "Configure Git credentials" step so both the
 	// persisted checkout credential and the push remote agree on a single token.
 	prCheckoutToken, _ := resolvePRCheckoutToken(data.SafeOutputs, checkoutMgr)
+	// Additional checkouts keep their existing static/per-checkout credentials; only the
+	// default workspace checkout adopts the minted App token, and only when the host
+	// repository is the PR target and the PR handlers rely on the global App.
 	checkoutMgr.SetPushToken(resolveStaticCheckoutToken(data.SafeOutputs, checkoutMgr))
+	if prHandlersUseGlobalApp(data.SafeOutputs) && strings.Contains(prCheckoutToken, globalSafeOutputsAppTokenExpr) {
+		checkoutMgr.SetDefaultPushToken(prCheckoutToken)
+	}
 	// Runtime checkouts are not revisited by GenerateConfigureGitCredentialsSteps.
 	// Resolve the shared PR auth without selecting another entry's scoped write app;
 	// dynamicCheckoutToken applies each runtime entry's own auth first.
@@ -153,6 +189,9 @@ func (c *Compiler) buildHandlerManagerStep(data *WorkflowData) ([]string, error)
 	}
 	if err := c.addSafeOutputCoreEnvVars(&steps, data); err != nil {
 		return nil, err
+	}
+	if data.LedgerConfig != nil && data.LedgerConfig.Enabled() {
+		steps = append(steps, fmt.Sprintf("          GH_AW_LEDGER_TRANSACTIONS: %s\n", ledgerTransactionsArtifactPath))
 	}
 	c.addSafeOutputTokenEnvVars(&steps, data)
 	steps = append(steps, fmt.Sprintf("          GH_AW_GITHUB_TOKEN_SOURCE: %s\n", c.safeOutputGitHubTokenSource(data)))
@@ -240,7 +279,7 @@ func (c *Compiler) buildDispatchRepositoryAppTokenSteps(data *WorkflowData) []st
 		for toolKey := range data.SafeOutputs.DispatchRepository.Tools {
 			toolKeys = append(toolKeys, toolKey)
 		}
-		sort.Strings(toolKeys)
+		slices.Sort(toolKeys)
 		globalStaged := templatableBoolIsTrue(data.SafeOutputs.Staged)
 		for _, toolKey := range toolKeys {
 			tool := data.SafeOutputs.DispatchRepository.Tools[toolKey]
@@ -280,12 +319,6 @@ func (c *Compiler) buildDispatchRepositoryAppTokenSteps(data *WorkflowData) []st
 	return steps
 }
 
-// buildSafeOutputItemsManifestUploadStep builds the step that uploads the safe output
-// items manifest and temporary ID map as a separate artifact.
-func buildSafeOutputItemsManifestUploadStep(prefix string, pinAction func(string) string, claimArtifacts bool, data *WorkflowData) []string {
-	return buildSafeOutputManifestUploadStep(prefix, pinAction, claimArtifacts, data, true)
-}
-
 func buildSafeOutputManifestUploadStep(prefix string, pinAction func(string) string, claimArtifacts bool, data *WorkflowData, includeItems bool) []string {
 	includeMergeDecisions := data != nil && data.SafeOutputs != nil && data.SafeOutputs.MergePullRequest != nil
 	condition := "always()"
@@ -303,7 +336,7 @@ func buildSafeOutputManifestUploadStep(prefix string, pinAction func(string) str
 	if includeItems {
 		steps = append(steps,
 			"            /tmp/gh-aw/safe-output-items.jsonl\n",
-			"            /tmp/gh-aw/safe-output-outcomes.jsonl\n",
+			"            /tmp/gh-aw/safe-output-executions.jsonl\n",
 			fmt.Sprintf("            /tmp/gh-aw/%s\n", constants.TemporaryIdMapFilename),
 			fmt.Sprintf("            /tmp/gh-aw/%s\n", constants.SafeOutputErrorsFilename),
 		)
@@ -317,7 +350,7 @@ func buildSafeOutputManifestUploadStep(prefix string, pinAction func(string) str
 	if claimArtifacts && includeItems {
 		steps = append(steps,
 			"            /tmp/gh-aw/claims/*/safe-output-items.jsonl\n",
-			"            /tmp/gh-aw/claims/*/safe-output-outcomes.jsonl\n",
+			"            /tmp/gh-aw/claims/*/safe-output-executions.jsonl\n",
 			"            /tmp/gh-aw/claims/*/temporary-id-map.json\n",
 			"            /tmp/gh-aw/claims/*/safe-output-errors.json\n",
 			"            /tmp/gh-aw/claims/*/claim-delivery-errors.json\n",
@@ -379,12 +412,12 @@ func generateSafeOutputScriptContent(scriptName string, scriptConfig *SafeScript
 		for name := range scriptConfig.Inputs {
 			safeName := stringutil.SanitizeParameterName(name)
 			if safeName != name {
-				inputNames = append(inputNames, name+": "+safeName)
+				inputNames = append(inputNames, fmt.Sprintf("%q: %s", name, safeName))
 			} else {
 				inputNames = append(inputNames, name)
 			}
 		}
-		sort.Strings(inputNames)
+		slices.Sort(inputNames)
 		sb.WriteString("  const { " + strings.Join(inputNames, ", ") + " } = config;\n")
 	}
 

@@ -279,25 +279,16 @@ func (cm *CheckoutManager) GenerateGitHubFolderCheckoutStep(repository, ref, tok
 	return []string{sb.String()}
 }
 
-// GenerateConfigureGitCredentialsSteps emits the "Configure Git credentials" step that
-// installs a push-capable token. The root workspace checkout is always the workflow
-// repository, so its remote is configured for ${{ github.repository }}. Any cross-repo
-// checkout placed into a subdirectory is re-authenticated in place so a later push can
-// reach it. The provided gitRemoteToken is used for all remotes.
-//
-// The agent job never pushes, so it has no equivalent of this step; it is used by the
-// safe_outputs job, which supplies the push token (resolvePRCheckoutToken) and a gating
-// condition.
-func (cm *CheckoutManager) GenerateConfigureGitCredentialsSteps(gitRemoteToken string, condition ConditionNode) []string {
+func (cm *CheckoutManager) generateConfigureGitCredentialsStepsForRoot(gitRemoteToken string, condition ConditionNode, rootRepo string) []string {
 	conditionStr := RenderCondition(condition)
-	rootRepo := cm.effectiveRootCheckoutRepository()
 	subRepos := cm.credentialSubrepositories()
-	if len(subRepos) == 0 {
+	rootCandidates := cm.runtimeRootCandidates()
+	if len(subRepos) == 0 && len(rootCandidates) == 0 {
 		return []string{
 			"      - name: Configure Git credentials\n",
 			fmt.Sprintf("        if: %s\n", conditionStr),
 			"        env:\n",
-			fmt.Sprintf("          GITHUB_REPOSITORY: %s\n", rootRepo),
+			fmt.Sprintf("          GH_AW_GIT_REPOSITORY: %s\n", rootRepo),
 			"          GITHUB_SERVER_URL: ${{ github.server_url }}\n",
 			fmt.Sprintf("          GIT_TOKEN: %s\n", gitRemoteToken),
 			"        run: bash \"${RUNNER_TEMP}/gh-aw/actions/configure_git_credentials.sh\"\n",
@@ -308,7 +299,8 @@ func (cm *CheckoutManager) GenerateConfigureGitCredentialsSteps(gitRemoteToken s
 		fmt.Sprintf("        if: %s\n", conditionStr),
 	}
 	steps = append(steps, credentialEnvironmentLines(rootRepo, gitRemoteToken, subRepos)...)
-	steps = append(steps, credentialCommandLines(subRepos)...)
+	steps = append(steps, runtimeRootEnvironmentLines(rootCandidates)...)
+	steps = append(steps, runtimeRootCredentialCommandLines(subRepos, rootCandidates)...)
 	return steps
 }
 
@@ -346,8 +338,12 @@ func (cm *CheckoutManager) GenerateDefaultCheckoutStep(
 	// push token so the credential retained in .git/config matches the token the
 	// safe-output handlers use to fetch/push (avoiding both a wrong-token push and the
 	// duplicate Authorization header that a separate per-command extraheader would add).
-	if !trialMode && !tokenEmitted && cm.keepCredentialsForPush && cm.pushToken != "" {
-		fmt.Fprintf(&sb, "          token: %s\n", cm.pushToken)
+	defaultToken := cm.pushToken
+	if cm.defaultPushToken != "" {
+		defaultToken = cm.defaultPushToken
+	}
+	if !trialMode && !tokenEmitted && cm.keepCredentialsForPush && defaultToken != "" {
+		fmt.Fprintf(&sb, "          token: %s\n", defaultToken)
 	}
 
 	steps := []string{sb.String()}

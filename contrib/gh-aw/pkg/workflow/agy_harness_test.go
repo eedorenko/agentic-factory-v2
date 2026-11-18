@@ -23,7 +23,7 @@ func agyHarnessCommand(t *testing.T, body string, reflectJSON string) (*exec.Cmd
 	t.Helper()
 	dir := t.TempDir()
 	harness := filepath.Join(dir, "agy_harness.cjs")
-	for _, name := range []string{"agy_harness.cjs", "jsonl_helpers.cjs", "resolve_model_alias.cjs", "json_schema_validation.cjs", "schema-validation.cjs", "add_labels_schema.cjs", "memory_schema_contract.cjs"} {
+	for _, name := range []string{"agy_harness.cjs", "jsonl_helpers.cjs", "resolve_model_alias.cjs", "model_costs.cjs", "json_schema_validation.cjs", "schema-validation.cjs", "add_labels_schema.cjs", "memory_schema_contract.cjs"} {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), agyRuntimeScript(t, name), 0o600))
 	}
 	actionsDir, err := filepath.Abs("../../actions/setup/js")
@@ -191,12 +191,11 @@ const timer = setInterval(() => {
 }, 1);
 setInterval(() => {}, 1000);`
 	cmd, _ := agyHarnessCommand(t, body, validReflect)
-	start := time.Now()
 	out, err := cmd.CombinedOutput()
 	require.Error(t, err)
 	assert.Contains(t, string(out), "pending JSONL record limit (16777216 UTF-16 code units)")
 	assert.Contains(t, string(out), "session.error")
-	assert.Less(t, time.Since(start), 4*time.Second, "pending output must terminate the child before the watchdog")
+	assert.Equal(t, 1, cmd.ProcessState.ExitCode(), "pending output must terminate the harness before its context deadline")
 }
 
 func TestAgyHarnessBoundsDescendantPipes(t *testing.T) {

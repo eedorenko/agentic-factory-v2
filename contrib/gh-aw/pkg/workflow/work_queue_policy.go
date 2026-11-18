@@ -95,11 +95,6 @@ func validateWorkQueueConfiguration(data *WorkflowData) error {
 func validateWorkQueueSafeOutputs(data *WorkflowData) error {
 	// Delegated effects require explicit trusted adapters and independent delivery evidence.
 	if data.SafeOutputs != nil {
-		for name, builder := range handlerRegistry {
-			if (strings.HasPrefix(name, "linear_") || strings.HasPrefix(name, "jira_") || strings.HasPrefix(name, "ado_")) && builder(data.SafeOutputs) != nil {
-				return fmt.Errorf("work-queue: external handler %q requires a trusted per-Claim target and delivery adapter", name)
-			}
-		}
 		if err := validateWorkQueueClaimAdapters(data); err != nil {
 			return err
 		}
@@ -567,17 +562,30 @@ func (c *Compiler) validateWorkQueueTargets(data *WorkflowData, markdownPath str
 	return validateWorkQueueProfileTargets(data, markdownPath)
 }
 
+var errNotCompilerManagedWorkQueueTarget = errors.New("workflow source is not compiler-managed")
+
+func resolveWorkQueueWorkerSource(name, markdownPath string) (string, error) {
+	target, err := findWorkflowFile(name, markdownPath)
+	if err != nil {
+		return "", err
+	}
+	if !target.mdExists {
+		return "", errNotCompilerManagedWorkQueueTarget
+	}
+	return target.mdPath, nil
+}
+
 func validateApprovedWorkQueueTargets(data *WorkflowData, markdownPath string) error {
 	if data.SafeOutputs != nil && data.SafeOutputs.DispatchWorkflow != nil {
 		for _, name := range data.SafeOutputs.DispatchWorkflow.Workflows {
-			target, err := findWorkflowFile(name, markdownPath)
+			sourcePath, err := resolveWorkQueueWorkerSource(name, markdownPath)
+			if errors.Is(err, errNotCompilerManagedWorkQueueTarget) {
+				return fmt.Errorf("work-queue: approved worker %q requires compiler-managed workflow source", name)
+			}
 			if err != nil {
 				return fmt.Errorf("work-queue: approved worker %q: %w", name, err)
 			}
-			if !target.mdExists {
-				return fmt.Errorf("work-queue: approved worker %q requires compiler-managed workflow source", name)
-			}
-			worker, err := mdHasWorkQueueWorker(target.mdPath)
+			worker, err := mdHasWorkQueueWorker(sourcePath)
 			if err != nil {
 				return err
 			}
@@ -598,14 +606,14 @@ func populateDefaultWorkQueueProfiles(data *WorkflowData, markdownPath string) e
 	if data.SafeOutputs != nil && data.SafeOutputs.DispatchWorkflow != nil {
 		pool.Profiles = map[string]workqueue.WorkerProfile{}
 		for _, name := range data.SafeOutputs.DispatchWorkflow.Workflows {
-			target, err := findWorkflowFile(name, markdownPath)
+			sourcePath, err := resolveWorkQueueWorkerSource(name, markdownPath)
+			if errors.Is(err, errNotCompilerManagedWorkQueueTarget) {
+				return fmt.Errorf("work-queue: worker profile %q requires compiler-managed workflow source", name)
+			}
 			if err != nil {
 				return fmt.Errorf("work-queue: worker profile %q: %w", name, err)
 			}
-			if !target.mdExists {
-				return fmt.Errorf("work-queue: worker profile %q requires compiler-managed workflow source", name)
-			}
-			worker, err := mdHasWorkQueueWorker(target.mdPath)
+			worker, err := mdHasWorkQueueWorker(sourcePath)
 			if err != nil {
 				return err
 			}
@@ -638,14 +646,14 @@ func validateWorkQueueProfileTargets(data *WorkflowData, markdownPath string) er
 			if name == GetWorkflowIDFromPath(markdownPath) && isWorkQueueWorker(data) {
 				continue
 			}
-			target, err := findWorkflowFile(name, markdownPath)
+			sourcePath, err := resolveWorkQueueWorkerSource(name, markdownPath)
+			if errors.Is(err, errNotCompilerManagedWorkQueueTarget) {
+				return fmt.Errorf("work-queue: profile %s/%s requires compiler-managed worker source", poolName, profileName)
+			}
 			if err != nil {
 				return fmt.Errorf("work-queue: profile %s/%s target: %w", poolName, profileName, err)
 			}
-			if !target.mdExists {
-				return fmt.Errorf("work-queue: profile %s/%s requires compiler-managed worker source", poolName, profileName)
-			}
-			worker, err := mdHasWorkQueueWorker(target.mdPath)
+			worker, err := mdHasWorkQueueWorker(sourcePath)
 			if err != nil {
 				return err
 			}

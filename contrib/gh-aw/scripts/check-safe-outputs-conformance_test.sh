@@ -7,6 +7,49 @@ OUTPUT=$(mktemp)
 FIXTURE_ROOT=$(mktemp -d)
 trap 'rm -f "$OUTPUT"; rm -rf "$FIXTURE_ROOT"' EXIT
 
+# Exercise TYPE-020 against the live handler and fixtures with weakened file-count and duplicate-filename guards.
+(
+    fixture="$FIXTURE_ROOT/type020"
+    mkdir -p "$fixture/actions/setup/js" "$fixture/pkg/workflow"
+    cp "$REPO_ROOT/actions/setup/js/merge_pull_request.cjs" "$fixture/actions/setup/js/merge_pull_request.cjs"
+    printf "must be 'blocked', 'allowed'\n" >"$fixture/pkg/workflow/merge_pull_request.go"
+    printf 'AddDefault("protected_files_policy", "blocked")\n' >"$fixture/pkg/workflow/safe_outputs_handler_registry_pull_requests.go"
+    cd "$fixture"
+
+    log_high() { echo "HIGH: $1"; }
+    log_critical() { echo "CRITICAL: $1"; }
+    log_pass() { echo "PASS: $1"; }
+    eval "$(sed -n '/^check_merge_pull_request_protected_files() {/,/^}/p' "$SCRIPT_DIR/check-safe-outputs-conformance.sh")"
+
+    check_merge_pull_request_protected_files >"$OUTPUT"
+    if ! grep -q '^PASS: TYPE-020:' "$OUTPUT" || grep -q '^HIGH:' "$OUTPUT"; then
+        echo "FAIL: TYPE-020 must pass when both changed-file safeguards are present"
+        cat "$OUTPUT"
+        exit 1
+    fi
+
+    sed 's/pr\.changed_files > 3000/pr.changed_files > 4000/' actions/setup/js/merge_pull_request.cjs >"$OUTPUT"
+    cp "$OUTPUT" actions/setup/js/merge_pull_request.cjs
+    check_merge_pull_request_protected_files >"$OUTPUT"
+    if ! grep -q "HIGH: TYPE-020: Changed-file counts above GitHub's 3000-file listing limit are not rejected" "$OUTPUT" ||
+        grep -q '^PASS:' "$OUTPUT"; then
+        echo "FAIL: TYPE-020 must reject a weakened changed-file upper bound"
+        cat "$OUTPUT"
+        exit 1
+    fi
+
+    cp "$REPO_ROOT/actions/setup/js/merge_pull_request.cjs" actions/setup/js/merge_pull_request.cjs
+    grep -vF 'new Set(files.map(file => file.filename)).size !== files.length' actions/setup/js/merge_pull_request.cjs >"$OUTPUT"
+    cp "$OUTPUT" actions/setup/js/merge_pull_request.cjs
+    check_merge_pull_request_protected_files >"$OUTPUT"
+    if ! grep -q 'HIGH: TYPE-020: Incomplete or duplicate changed-file evidence is not rejected' "$OUTPUT" ||
+        grep -q '^PASS:' "$OUTPUT"; then
+        echo "FAIL: TYPE-020 must reject removed duplicate-filename validation"
+        cat "$OUTPUT"
+        exit 1
+    fi
+)
+
 # Exercise SEC-005 independently so unsafe production handlers must still be reported.
 (
     cd "$FIXTURE_ROOT"
@@ -53,6 +96,69 @@ trap 'rm -f "$OUTPUT"; rm -rf "$FIXTURE_ROOT"' EXIT
     fi
 )
 
+# Exercise REQ-002 with a long type and an incomplete type followed by a complete sibling.
+(
+    cd "$FIXTURE_ROOT"
+    spec="docs/src/content/docs/specs/safe-outputs-specification.md"
+    mkdir -p "$(dirname "$spec")"
+    {
+        printf '#### Type: long_type\n\n**MCP Tool Schema**:\n'
+        for _ in $(seq 1 250); do printf 'filler\n'; done
+        printf '**Operational Semantics**:\n**Configuration Parameters**:\n**Security Requirements**:\n**Required Permissions**:\n\n'
+    } >"$spec"
+
+    log_medium() { echo "MEDIUM: $1"; }
+    log_pass() { echo "PASS: $1"; }
+    eval "$(sed -n '/^check_type_completeness() {/,/^}/p' "$SCRIPT_DIR/check-safe-outputs-conformance.sh")"
+    check_type_completeness >"$OUTPUT"
+    if ! grep -q '^PASS: REQ-002: All safe output types have complete documentation' "$OUTPUT" || grep -q '^MEDIUM:' "$OUTPUT"; then
+        echo "FAIL: REQ-002 must count required sections across the whole type block"
+        cat "$OUTPUT"
+        exit 1
+    fi
+
+    {
+        printf '\n#### Type: short_type\n\n**MCP Tool Schema**:\n**Operational Semantics**:\n'
+        printf '\n#### Type: short_type_sibling\n\n**MCP Tool Schema**:\n**Operational Semantics**:\n'
+        printf '**Configuration Parameters**:\n**Security Requirements**:\n**Required Permissions**:\n\n### Next Section\n'
+    } >>"$spec"
+    check_type_completeness >"$OUTPUT"
+    if ! grep -q "^MEDIUM: REQ-002: Type 'short_type' has only 2/5 required sections" "$OUTPUT" || grep -q '^PASS:' "$OUTPUT"; then
+        echo "FAIL: REQ-002 must report incomplete types and must not pass"
+        cat "$OUTPUT"
+        exit 1
+    fi
+)
+
+# Exercise WTD-002 through the getDetectionWarningBlocks caution chain, and reject a fallback whose caution template lost its label.
+(
+    cd "$FIXTURE_ROOT"
+    rm -rf actions
+    mkdir -p actions/setup/js actions/setup/md
+    printf 'const { getDetectionWarningBlocks } = require("./messages_run_status.cjs");\nconst conclusion = process.env.GH_AW_DETECTION_CONCLUSION;\nawait githubClient.rest.pulls.create({});\nmodule.exports = { getDetectionWarningBlocks, conclusion };\n' >actions/setup/js/push_to_pull_request_branch.cjs
+    printf 'const template = "threat_detection_caution.md";\nmodule.exports = { template };\n' >actions/setup/js/messages_run_status.cjs
+    printf '> [!CAUTION]\n> agentic threat detected\n> <!-- gh-aw-threat-detected -->\n' >actions/setup/md/threat_detection_caution.md
+
+    log_high() { echo "HIGH: $1"; }
+    log_medium() { echo "MEDIUM: $1"; }
+    log_pass() { echo "PASS: $1"; }
+    eval "$(sed -n '/^check_wtd_convertible_fallback() {/,/^}/p' "$SCRIPT_DIR/check-safe-outputs-conformance.sh")"
+    check_wtd_convertible_fallback >"$OUTPUT"
+    if ! grep -q '^PASS: WTD-002: push_to_pull_request_branch has convertible fallback' "$OUTPUT" || grep -q '^HIGH:' "$OUTPUT"; then
+        echo "FAIL: WTD-002 must accept the getDetectionWarningBlocks caution chain"
+        cat "$OUTPUT"
+        exit 1
+    fi
+
+    printf '> [!CAUTION]\n> threat detected\n' >actions/setup/md/threat_detection_caution.md
+    check_wtd_convertible_fallback >"$OUTPUT"
+    if ! grep -q "^HIGH: WTD-002: push_to_pull_request_branch fallback missing 'agentic threat detected' text" "$OUTPUT" || grep -q '^PASS:' "$OUTPUT"; then
+        echo "FAIL: WTD-002 must reject a fallback whose caution template lacks the threat label"
+        cat "$OUTPUT"
+        exit 1
+    fi
+)
+
 bash "$SCRIPT_DIR/check-safe-outputs-transport-integrity_test.sh"
 
 (cd "$REPO_ROOT" && bash "$SCRIPT_DIR/check-safe-outputs-conformance.sh" 2>&1 | sed -E $'s/\033\\[[0-9;]*[[:alpha:]]//g' >"$OUTPUT") || true
@@ -64,7 +170,7 @@ if ! grep -q 'SEC-005: All cross-repo handlers validate allowlists' "$OUTPUT" ||
     exit 1
 fi
 
-for finding in TYPE-016 MCE-001 USE-001 USE-003; do
+for finding in TYPE-016 MCE-001 USE-001 USE-003 WTD-002; do
     if grep -E "\\[(HIGH|MEDIUM|LOW)\\] $finding:" "$OUTPUT" >/dev/null; then
         echo "FAIL: Expected no $finding safe-output conformance findings"
         grep -E "\\[(HIGH|MEDIUM|LOW)\\] $finding:" "$OUTPUT"

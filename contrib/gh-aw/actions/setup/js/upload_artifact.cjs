@@ -55,6 +55,8 @@ const {
   claimIdentity,
   assertClaimIdentity,
   receiptMatchesClaim,
+  claimDeliveryReceipt,
+  durableReceipt,
 } = require("./work_queue_claim_scope.cjs");
 const { expectedGitHubHost } = require("./work_queue_host.cjs");
 const privateDeliveryReceipts = new WeakMap();
@@ -251,6 +253,9 @@ function listFilesRecursive(dir, baseDir) {
  * @returns {{ error: string|null }}
  */
 function copySingleFileToStaging(sourcePath, destRelPath) {
+  if (path.basename(destRelPath).startsWith("-")) {
+    return { error: `filenames beginning with "-" are not allowed: ${destRelPath}` };
+  }
   const destPath = path.join(stagingDirectory(), destRelPath);
   // Never overwrite a file that is already staged — the pre-staged version takes precedence.
   if (fs.existsSync(destPath)) {
@@ -524,6 +529,10 @@ function resolveFiles(request, allowedPaths, defaultInclude, defaultExclude) {
 
   // Deduplicate and sort deterministically.
   const unique = Array.from(new Set(candidateRelPaths)).sort();
+  const leadingDashFilename = unique.find(filename => path.basename(filename).startsWith("-"));
+  if (leadingDashFilename) {
+    return { files: [], error: `filenames beginning with "-" are not allowed: ${leadingDashFilename}` };
+  }
   if (currentClaimHandle()) for (const filename of unique) assertClaimArtifactFile(path.join(stagingDirectory(), filename), stagingDirectory());
   return { files: unique, error: null };
 }
@@ -820,9 +829,32 @@ async function main(config = {}) {
   };
 }
 
-async function verifyArtifactDelivery({ claim, result, github }) {
+async function verifyArtifactDelivery(options) {
+  const receipt = claimDeliveryReceipt(options, "artifact", privateDeliveryReceipts);
+  return verifyArtifactReceipt(options, receipt);
+}
+
+function validArtifactReceipt(receipt, claim) {
+  return (
+    receiptMatchesClaim(receipt, claim) &&
+    ["repository", "run_id", "name", "url"].every(key => typeof receipt[key] === "string" && receipt[key].length > 0) &&
+    /^[A-Za-z0-9_-]+\/[A-Za-z0-9._-]+$/.test(receipt.repository) &&
+    /^[1-9][0-9]*$/.test(receipt.run_id) &&
+    Number.isSafeInteger(receipt.id) &&
+    receipt.id > 0 &&
+    /^[a-f0-9]{64}$/.test(receipt.digest) &&
+    (receipt.size === undefined || (Number.isSafeInteger(receipt.size) && receipt.size >= 0))
+  );
+}
+
+function durableArtifactReceipt(result, claim) {
   const receipt = result && privateDeliveryReceipts.get(result);
-  if (!receiptMatchesClaim(receipt, claim) || !receipt.run_id) return { verified: false };
+  if (!validArtifactReceipt(receipt, claim)) return null;
+  return durableReceipt(receipt);
+}
+
+async function verifyArtifactReceipt({ claim, github }, receipt) {
+  if (!validArtifactReceipt(receipt, claim)) return { verified: false };
   const [owner, repo] = receipt.repository.split("/");
   const { data } = await github.rest.actions.getArtifact({ owner, repo, artifact_id: receipt.id });
   if (
@@ -842,4 +874,4 @@ async function verifyArtifactDelivery({ claim, result, github }) {
   };
 }
 
-module.exports = { main, verifyArtifactDelivery };
+module.exports = { main, verifyArtifactDelivery, durableArtifactReceipt };

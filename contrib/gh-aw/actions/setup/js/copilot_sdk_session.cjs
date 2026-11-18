@@ -28,6 +28,7 @@ const { getErrorMessage } = require("./error_helpers.cjs");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { openDurableSession } = require("./durable_native_session.cjs");
 const { isDeepStrictEqual } = require("node:util");
 const { buildCopilotSDKPermissionHandler, getEnvPositiveIntOrDefault, parseMaxToolDenialsLimit, MAX_TOOL_DENIALS_DEFAULT } = require("./copilot_sdk_permissions.cjs");
 const { buildCopilotSDKSessionToolConfig } = require("./copilot_sdk_tool_config.cjs");
@@ -38,6 +39,7 @@ const { copilotSessionContext, getCopilotMessageRefusal } = require("./copilot_s
 const { loadCopilotSDKCustomAgents } = require("./extract_inline_sub_agents.cjs");
 const { qualifyModelForMultiProvider, parseMultiProviderJson } = require("./copilot_sdk_multi_provider.cjs");
 const { COPILOT_MODEL_VERIFICATION_EXIT_CODE, createCopilotSDKModelObserver, copilotSessionStateDirectories } = require("./copilot_model_selection.cjs");
+const { WORKFLOW_TOOL_PERMISSION_DENIED_EXIT_CODE } = require("./permission_denied_helpers.cjs");
 
 const CAPTURED_EPHEMERAL_EVENTS = new Set([...COPILOT_WORKFLOW_EVENT_TYPES, "assistant.usage", "assistant.message_delta", "assistant.reasoning_delta", "model.call_failure", "model.call_final_result", "model.call_finished"]);
 
@@ -263,6 +265,7 @@ async function runCopilotSDKSession({
   let eventsStream = null;
   let clientStarted = false;
   let toolDenialCount = 0;
+  let workflowToolPermissionDenied = false;
   let assistantTurnCount = 0;
   let contentFiltered = false;
   /** @type {any} */
@@ -341,6 +344,7 @@ async function runCopilotSDKSession({
    * @param {string} reason
    */
   function recordToolDenial(reason) {
+    workflowToolPermissionDenied = true;
     toolDenialCount += 1;
     log(`tool denial ${toolDenialCount}/${maxToolDenialsLimit}: ${reason}`);
     if (catastrophicToolDenialsTriggered || toolDenialCount < maxToolDenialsLimit) {
@@ -422,10 +426,14 @@ async function runCopilotSDKSession({
       return { ...agent, model: sessionModel || undefined };
     });
     // The harness supplies the requested model (`auto` on routed runs); the session model is the expectation.
+    const durableSession = openDurableSession("copilot");
+    const restoredSessionId = durableSession?.id;
+    const durableSessionId = durableSession?.copilotSession();
     const modelObserver = createCopilotSDKModelObserver({
       configuredModel: process.env.GH_AW_COPILOT_CONFIGURED_MODEL || "",
       expectedModel: sessionModel || "",
       providerConfig,
+      sessionId: restoredSessionId,
       sessionDirs: [...new Set([sessionStateBase, ...copilotSessionStateDirectories()])],
       logger: log,
     });
@@ -452,7 +460,11 @@ async function runCopilotSDKSession({
       ...buildCopilotSDKSessionToolConfig(toolConfig, sdk, webFetchOptions),
     };
     log(`creating session with model="${sessionConfig.model || "(none)"}" providers=${providers?.length ?? 0} models=${providerModels?.length ?? 0}`);
-    session = await client.createSession(sessionConfig);
+    session = restoredSessionId
+      ? await client.resumeSession(restoredSessionId, { ...sessionConfig, allowTranscriptRecovery: false })
+      : await client.createSession({ ...sessionConfig, ...(durableSessionId ? { sessionId: durableSessionId } : {}) });
+    durableSession?.save(session.sessionId);
+    durableSession?.started(session.sessionId);
     log(`session created: sessionId=${session.sessionId}`);
     verification.sessionId = session.sessionId;
     modelObserver.setSessionId(session.sessionId);
@@ -655,7 +667,7 @@ async function runCopilotSDKSession({
     // Preserve any output collected before the error so the harness can use it
     // for retry decisions and diagnostics.
     return {
-      exitCode: 1,
+      exitCode: workflowToolPermissionDenied ? WORKFLOW_TOOL_PERMISSION_DENIED_EXIT_CODE : 1,
       output: hasOutput ? output : failure.message,
       hasOutput,
       durationMs,

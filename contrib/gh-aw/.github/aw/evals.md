@@ -15,6 +15,14 @@ is saved with catalog-derived AIC and USD costs for summaries and daily accounti
 Missing usage or pricing is reported as unavailable, not zero. AWF per-request
 credit limits and sandbox target overrides do not apply to evals.
 Request failures produce a `not_evaluated` marker, not `UNKNOWN` question results.
+If an HTTP 400 or 422 response explicitly reports a recognized model-unavailability
+code, the runtime warns and records `not_evaluated` with reason code
+`model_unavailable` without failing the execution step. It does not retry or
+fall back to a chat model. Select a Decisions-compatible `evals.model` offered
+to the workflow. Every HTTP 404 response remains an error, even with a model code,
+because a wrong base URL, removed route, or intermediary can return the same response.
+Authentication, transport, and other request errors also fail the execution step
+and are recorded as `judge_failed`.
 Both providers use `/v1/decisions`. Configure the actual provider model ID:
 `copilot/gpt-6-luna-decisions` for Copilot or `openai/gpt-6-luna` for OpenAI.
 Model IDs are sent without provider-specific name mapping.
@@ -72,7 +80,9 @@ evals:
 - `runs-on:` — optional runner override.
 
 Copilot requests use `COPILOT_GITHUB_TOKEN` or the workflow's
-`copilot-requests: write` permission. OpenAI requests use `CODEX_API_KEY` or
+`copilot-requests: write` permission and send
+`Copilot-Integration-Id: agentic-workflows`, matching the firewall's default
+integration identity. OpenAI requests omit that header and use `CODEX_API_KEY` or
 `OPENAI_API_KEY`. Per-question model overrides are not supported because the
 entire batch shares one request.
 

@@ -13,7 +13,16 @@ describe("Copilot configured versus observed model", () => {
   let root, env, session, infoPath;
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(process.cwd(), ".copilot-model-selection-"));
-    env = { GH_AW_TMP_DIR: root, GH_AW_AWF_CONFIG_PATH: path.join(root, "awf-config.json"), HOME: root, COPILOT_HOME: path.join(root, ".copilot"), GH_AW_ENGINE_ID: "copilot", GH_AW_ENGINE_MODEL: "gemini-3.8-flash" };
+    env = {
+      GH_AW_TMP_DIR: root,
+      GH_AW_AWF_CONFIG_PATH: path.join(root, "awf-config.json"),
+      GITHUB_WORKSPACE: root,
+      GH_AW_ENGINE_CWD: ".",
+      HOME: root,
+      COPILOT_HOME: path.join(root, ".copilot"),
+      GH_AW_ENGINE_ID: "copilot",
+      GH_AW_ENGINE_MODEL: "gemini-3.8-flash",
+    };
     session = path.join(root, ".copilot/session-state/session/events.jsonl");
     infoPath = path.join(root, "aw_info.json");
     fs.mkdirSync(path.dirname(session), { recursive: true });
@@ -53,6 +62,18 @@ describe("Copilot configured versus observed model", () => {
       model,
       model_selection: { status: model === "gemini-3.8-flash" ? "observed" : "substituted", effective_model: model },
     });
+  });
+
+  it("keeps models observed before a retry when the resumed session switches models", () => {
+    const autoObserver = () => createCopilotModelObserver({ configuredModel: "auto", resolvedModel: "auto", sessionId: "session", env });
+    const first = autoObserver();
+    append({ type: "assistant.message", data: { model: "gemini-3.8-flash" } });
+    expect(first.check()).toBe("");
+    const resumed = autoObserver();
+    append({ type: "assistant.message", data: { model: "claude-sonnet-5" } });
+    expect(resumed.check()).toBe("");
+    expect(readInfo().model_selection).toMatchObject({ status: "observed", effective_model: "claude-sonnet-5", observed_models: ["gemini-3.8-flash", "claude-sonnet-5"] });
+    expect(getEffectiveModelLabel(infoPath, "agent", { GH_AW_ENGINE_MODEL: "auto" })).toBe("auto (Gemini 3.8 Flash, Claude Sonnet 5)");
   });
 
   it("records an unavailable model without creating workflow metadata in the sandbox", () => {
