@@ -2,25 +2,25 @@
 
 issue: #582
 branch: executor/582-review-and-update-gh-aw-otlp-docs-to-match-metrics-implementation
-pr: create_pull_request called in run 2 (check list_pull_requests; run 1 PR fell back to issue #583 due to unsigned-push validation)
+pr: create_pull_request called in run 3 (signed-commits: false now set). Verify with list_pull_requests next run.
 phase: verification (PR awaiting review)
-checkpoint: confirm PR exists (if it fell back to an issue again, report to human); wait for APPROVED review; merge_pr; post-merge verify; Done
-runs: 2
+checkpoint: confirm PR exists; wait for APPROVED review; merge_pr; post-merge verify; Done
+runs: 3
 
 # Understanding
 
-- Only doc changed: contrib/gh-aw/docs/src/content/docs/reference/open-telemetry.mdx (## Metrics now has ### subsections; line 47 "opt-in" fixed).
-- Sources: actions/setup/js/otlp_metrics.cjs, send_otlp_span.cjs (~L2843), otlp.cjs, index.cjs.
+- Only doc changed: contrib/gh-aw/docs/src/content/docs/reference/open-telemetry.mdx (## Metrics split into ### subsections: Built-in metrics table + alias table, resource attrs, batching, export failures, logMetric params/guards).
+- Sources: actions/setup/js/otlp_metrics.cjs (logMetric ~L540, buildBuiltinRunMetrics ~L380, flush 1s), send_otlp_span.cjs (~L2843), otlp.cjs, pkg/workflow/observability_otlp.go L960.
 
 # Decisions
 
-- Doc-only. Branch created from origin/main.
+- Doc-only. Branch from origin/main; one commit.
 
 # Failed approaches
 
-- Run 1 create_pull_request failed with ERR_VALIDATION unsigned push; safe-output created issue #583 instead (human complained). Run 2 retried once with same content on fresh branch.
+- Run 1/2: create_pull_request fell back to issues #583/#584 (unsigned push). Human fixed config; run 3 retried (branch had been lost, redid edits).
 
 # Run log
 
-- Run 1: wrote docs, PR fell back to issue #583.
-- Run 2: redid edits on fresh branch, retried create_pull_request.
+- Run 1-2: docs written; PR fell back to issues.
+- Run 3: redid edits (verified vs implementation), committed, create_pull_request.
