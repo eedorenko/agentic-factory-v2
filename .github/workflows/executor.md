@@ -103,6 +103,7 @@ safe-outputs:
       exclude:
         - README.md
     preserve-branch-name: true
+    signed-commits: false
     max: 1
   push-to-pull-request-branch:
     target: "*"
@@ -112,6 +113,7 @@ safe-outputs:
       policy: fallback-to-issue
       exclude:
         - README.md
+    signed-commits: false
     max: 3
   update-issue:
     target: "*"
