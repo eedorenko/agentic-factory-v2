@@ -5,7 +5,7 @@ branch: none (verification-only, no code change expected)
 pr: none
 phase: verification
 checkpoint: wait for @eedorenko to confirm ngrok/Prometheus endpoint path (404) and Prometheus contents; then re-check next workflow run for otel-metrics.jsonl
-runs: 1
+runs: 2
 
 # Understanding
 
@@ -29,3 +29,4 @@ none
 # Run log
 
 - Run 1: gathered evidence, found OTLP 404 and no metrics artifact; posted findings.
+- Run 2: no new comments from human. Executor run 44204261394 artifacts (8) also lack otel-metrics.jsonl; this run has no otlp-export-errors.jsonl and no metrics file. Posted status; still waiting on @eedorenko.
