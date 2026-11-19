@@ -4,8 +4,8 @@ issue: #587
 branch: executor/587-test-verify-durable-mode-after-gh-aw-78853-fix
 pr: #590 (open, In Review)
 phase: verification
-checkpoint: Reviewer blocked by integrity policy (cannot read PR content); no APPROVED review. Waiting for human (@eedorenko) to review/approve or fix policy. Do not merge without APPROVED. Then merge_pr and post-merge verify.
-runs: 4
+checkpoint: Copilot review (COMMENTED, 1 low thread: overclaim) addressed in run 3 commit; wait for @reviewer APPROVED review, then merge_pr, then post-merge verify
+runs: 3
 
 # Understanding
 
@@ -23,4 +23,3 @@ Run 1 create_pull_request failed on unsigned push (#588).
 
 2: recreated branch, PR #590 created.
 3: addressed Copilot review overclaim; pushed.
-4: reviewer blocked on integrity policy; posted waiting status, no code change.
