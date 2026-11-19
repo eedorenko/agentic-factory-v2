@@ -2,32 +2,33 @@
 
 issue: #598
 branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (old impl; DO NOT build on it)
-pr: #599 superseded (set to draft, title marked); human must close. No new PR until spec + plan approved.
+pr: #599 superseded (draft); human must close. No new PR until spec + plan approved.
 phase: spec (human-directed: spec -> implementation plan -> implementation)
-checkpoint: wait for @eedorenko feedback on spec draft posted in issue comment (run 44634330471). Then revise spec in comment (no code). After spec approval, post implementation plan. Only then implement.
-runs: 2
+checkpoint: wait for @eedorenko feedback on spec v1 (run 44637560711). Then finalize spec -> post implementation plan -> wait approval -> implement. No code before approval.
+runs: 3
 
 # Understanding
 
-- Human (eedorenko) said: too fast; close PR, start from scratch; spec first, then plan, then implementation.
-- Metrics source: old PR branch contrib/gh-aw/actions/setup/js/otlp_metrics.cjs (buildBuiltinRunMetrics). Built-ins: gh_aw.job.duration, gh_aw.run.duration (hist, s); gh_aw.job.errors, gh_aw.run.errors (failure|timed_out|cancelled); gen_ai.client.token.usage (+alias; token.type, model, engine); gh_aw.agent.turns (hist); gh_aw.tool_calls (gh-aw.tool.status); gh_aw.ai.credits.limit_exceeded; gh_aw.ai.credits.rate_limit_errors; gh_aw.otlp.export.failures; gh_aw.workflow.output.items (+gh_aw.safe_outputs; gh-aw.safe_output.type). Delta temporality.
-- Old impl artifacts (reusable ideas): 9 metric-gap proposals (ai credits used, error class, safe-output failures, harness retries, firewall requests, tool name, buckets, run.result, label coverage).
-- CAO site not fetchable from runner.
-- Tool limits: no close_pull_request safe output; update_pull_request only title/body/draft.
+- Human answers (run 3 trigger): scope=all 4 dashboards; Prometheus only (no Loki/Tempo); layout=my call; CAO ref from githubnext/gh-cao; asked to check if gh-aw already has dashboards/specs.
+- gh-aw has NO dashboard JSON/spec. specs/otel-observability-spec.md (v0.7.0) says vendor dashboards out of scope (§1.2). Only Grafana MCP usage in workflows (Daily AIC report, grafana-otel-advisor issues).
+- Upstream spec has moved since old impl: §11.5 built-in metrics use attrs gh-aw.job.name, gh-aw.workflow.name, cicd.pipeline.task.run.result, gh-aw.engine.id, gen_ai.request.model; new counters gen_ai.client.inference.usage.{input,output,cache_read.input,cache_write.input}_tokens (input INCLUDES cache; do not sum with gen_ai.client.token.usage); gen_ai.invoke_agent.duration (hist, explicit buckets, error.type on failure); spec-only (code search finds only spec): gh_aw.ai.credits.usage, gh_aw.adoption.evaluations/resolution.duration/zero_touch. Aliases (gh_aw.run.*, gh_aw.safe_outputs) must not be summed with canonical. Metrics must not carry run IDs (§8.3/11.1) -> no per-run panels. Delta temporality.
+- gh-cao dashboards are NOT Grafana: declarative Dashboard Language (YAML/JSON IR): queries -> pages -> views; marks metric/table/line/pie/swimlane/treemap; <=4 essential views/page; summary-first; essential vs supplemental disclosure; units declared (AIC); missing != zero; data from `gh aw logs` JSONL. Files: .github/skills/dashboard-authoring/SKILL.md, generate-dashboard-ir/corpus/examples/*.dashboard.yml (workflow-cost-inventory, failed-run-investigation, triage-review-readiness, workflow-hardening-attainment), .github/cao/instructions/dashboard-analysis.md.
+- Tool limits: no close_pull_request safe output.
 
 # Plan
 
-1 spec (in issue comment, iterate) -> 2 implementation plan -> 3 implementation on canonical branch/new PR.
+1 spec v1 (posted) -> iterate -> 2 implementation plan -> 3 implementation (new PR, branch executor/598-...; sync branch rule). Proposed layout: specs/grafana-dashboards-spec.md, observability/grafana/{definitions,dashboards,alerts,README}.
 
 # Decisions
 
-- Spec posted as issue comment, not files/PR, to avoid repeating premature implementation.
+- Spec lives in issue comments until approved. Tier A (implemented) vs Tier B (spec-only, verify) metric labelling in panels. Tokens-first cost; credits panels guarded. Recommend definitions-file + generator.
 
 # Failed approaches
 
-- Building everything in one run (rejected by human).
+- Building everything in one run (rejected). CAO rendered site not fetchable; used repo instead.
 
 # Run log
 
-- Run 1 (44630854942): built full impl + PR #599 (now superseded).
-- Run 2 (44634330471): steered by human; PR marked superseded; spec draft posted; board back to In Progress.
+- Run 1: built impl + PR #599 (superseded).
+- Run 2: steered; spec v0 posted.
+- Run 3 (44637560711): researched gh-aw + gh-cao; posted spec v1 with answers.
