@@ -73,8 +73,12 @@ safe-outputs:
     max: 5
   add-comment:
     max: 2
-  update-project:
+  create-issue:
     max: 3
+  link-sub-issue:
+    max: 3
+  update-project:
+    max: 6
     project: "https://github.com/users/eedorenko/projects/2"
     github-token: ${{ secrets.GH_AW_PROJECT_GITHUB_TOKEN }}
 
@@ -146,6 +150,53 @@ and ask specific questions. Do NOT route incomplete issues.
 - **Architecture question needed first**: mention `@architect` to get a
   design decision before routing to executor.
 
+### 4b. Decompose complex issues
+
+When you judge an issue needs research, design, or multi-phase work before
+implementation — not just a `complex` label, but genuine phased work — create
+sub-issues to enforce the sequence.
+
+**When to decompose** (use your judgement):
+- The issue requires significant research (reading external PRs, APIs, specs)
+- A spec or design doc should exist before coding begins
+- The deliverable has distinct phases (research → spec → build)
+- Jumping straight to implementation would likely produce throwaway work
+
+**When NOT to decompose** (just route with `complex` label):
+- The scope is clear and the executor can plan in its first run
+- It's a well-defined bug fix or small feature, even if multi-file
+- The issue body already contains a detailed spec
+
+**How to decompose:**
+
+1. Create sub-issues using `create_issue`. Each sub-issue:
+   - Title: `[Parent #<number>] <phase>: <brief description>`
+   - Body: Clear scope, inputs, expected deliverable, and a note:
+     `Parent issue: #<number>. Complete this before the next sub-issue is started.`
+   - Labels: inherit priority from parent; add `complex` if warranted
+
+2. Link each sub-issue to the parent using `link_sub_issue`.
+
+3. Move only the FIRST sub-issue to Ready. Keep the parent and remaining
+   sub-issues in Backlog.
+
+4. In the parent issue triage comment, explain the decomposition:
+   - Why you decomposed it
+   - The sub-issues and their order
+   - That the executor should work them sequentially
+
+**Typical decomposition for a research-heavy feature:**
+
+| Sub-issue | Phase | Deliverable |
+|-----------|-------|-------------|
+| 1 | Research | Issue comment summarizing findings, links, key decisions |
+| 2 | Spec | Spec document (in repo or as issue body update on parent) |
+| 3 | Implementation | PR with code, tests, documentation |
+
+You may use fewer or more phases depending on the issue. A bug that needs
+investigation might only need: Research → Fix. A risky architectural change
+might need: Research → Spec → @architect approval → Implementation.
+
 ### 5. Report
 
 Post one concise triage comment:
@@ -161,6 +212,14 @@ Post one concise triage comment:
 | Priority | [priority] | [brief evidence] |
 | Complexity | [trivial / complex / risky] | [brief evidence] |
 | Routing | [ready / blocked / needs-architect] | [brief evidence] |
+
+### Decomposition (if applicable)
+This issue has been decomposed into sequential sub-issues:
+1. #[sub-issue-1] — Research: [brief]
+2. #[sub-issue-2] — Spec: [brief]
+3. #[sub-issue-3] — Implementation: [brief]
+
+The executor should complete them in order. Only #[sub-issue-1] is in Ready.
 
 ### Similar issues
 - #[number] — [duplicate or related]

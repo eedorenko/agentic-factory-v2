@@ -1,5 +1,5 @@
-# gh-aw-metadata: {"schema_version":"v4","frontmatter_hash":"117a0a6c7acfb2868f5649f478bb47a144a01019d0c6676c453a2516a0ec05df","body_hash":"b8a66914da2c0fbcd9a6855f63f8478f3366d18890a4c208c0eb25395364001d","compiler_version":"7abff6a","strict":true,"agent_id":"copilot","engine_versions":{"copilot":"1.0.103"}}
-# gh-aw-manifest: {"version":1,"secrets":["COPILOT_GITHUB_TOKEN","GH_AW_DEFAULT_OTLP_ENDPOINT","GH_AW_DEFAULT_OTLP_HEADERS","GH_AW_GITHUB_MCP_SERVER_TOKEN","GH_AW_GITHUB_TOKEN","GH_AW_PROJECT_GITHUB_TOKEN","GITHUB_TOKEN"],"actions":[{"repo":"actions/checkout","sha":"3d3c42e5aac5ba805825da76410c181273ba90b1","version":"v7.0.1"},{"repo":"actions/download-artifact","sha":"9000827ccba6bdab643e8b6fd33ac0654aef8333","version":"v8.0.2"},{"repo":"actions/github-script","sha":"3a2844b7e9c422d3c10d287c895573f7108da1b3","version":"v9.0.0"},{"repo":"actions/setup-node","sha":"949feb2413d6458794dcd2491c4babbbce0c15c1","version":"v7.1.0"},{"repo":"actions/upload-artifact","sha":"cf430e030ddbb5b0abf93d22962f4752f3646cd9","version":"v7.0.2"},{"repo":"github/gh-aw/actions/setup","sha":"7abff6aed2f9c1c349c16c69579d4dde5266fe1b","version":"7abff6aed2f9c1c349c16c69579d4dde5266fe1b"}],"containers":[{"image":"ghcr.io/github/gh-aw-firewall/agent:0.29.14@sha256:7f649a02f2cc235325ab512f546854e0fad32b7abdc6c24c5475ddc0639e0aaa"},{"image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.29.14@sha256:136785634c9207d7328c701d31d53941542ef307840bda6b348274c8842557c0"},{"image":"ghcr.io/github/gh-aw-firewall/router:0.29.14@sha256:b8822defe0cc2abebc619ee1cf49c34c67286fab117512f0d667962572564be0"},{"image":"ghcr.io/github/gh-aw-firewall/squid:0.29.14@sha256:878b9c1aaeca076004bf2157dd2be28586b68b2b3d69c3ff8fd2b5add2a3126c"},{"image":"ghcr.io/github/gh-aw-mcpg:v0.5.10","digest":"sha256:629ddcd68a48ab02e7db8af527d2756c6db563b00c1d31d8aa8fcbac96f01c59","pinned_image":"ghcr.io/github/gh-aw-mcpg:v0.5.10@sha256:629ddcd68a48ab02e7db8af527d2756c6db563b00c1d31d8aa8fcbac96f01c59"},{"image":"ghcr.io/github/gh-aw-node","digest":"sha256:8735428c2d4e602f90781ba0c571c400e8ff93c7ee1508a75d71f87e34e415cc","pinned_image":"ghcr.io/github/gh-aw-node@sha256:8735428c2d4e602f90781ba0c571c400e8ff93c7ee1508a75d71f87e34e415cc"},{"image":"ghcr.io/github/github-mcp-server:v2.1.0","digest":"sha256:f6056fc10bfffcc8c81a6417a2e9ca12808647e8dd6049642a4feaadee0e0f8a","pinned_image":"ghcr.io/github/github-mcp-server:v2.1.0@sha256:f6056fc10bfffcc8c81a6417a2e9ca12808647e8dd6049642a4feaadee0e0f8a"}],"mcp_servers":[{"name":"github","tools":["get_commit","get_file_contents","get_latest_release","get_release_by_tag","get_tag","issue_read","list_branches","list_commits","list_issue_types","list_issues","list_releases","list_starred_repositories","list_tags","search_code","search_issues","search_repositories"]},{"name":"safeoutputs","tools":["add_comment","add_labels","noop","report_incomplete","report_missing_data","report_missing_tool","update_project"]}],"threat_detection":{"mode":"enabled"},"admission":false,"agent_metadata":{}}
+# gh-aw-metadata: {"schema_version":"v4","frontmatter_hash":"5c600b91676d8a92d0208cc8b33a1f8c1564ce6766c81351cea8ae9add2cb4fa","body_hash":"1fa57ca75a6864c892abe1460185b8a78258121fe4e17caed30f3afecfad7233","strict":true,"agent_id":"copilot","engine_versions":{"copilot":"1.0.103"}}
+# gh-aw-manifest: {"version":1,"secrets":["COPILOT_GITHUB_TOKEN","GH_AW_DEFAULT_OTLP_ENDPOINT","GH_AW_DEFAULT_OTLP_HEADERS","GH_AW_GITHUB_MCP_SERVER_TOKEN","GH_AW_GITHUB_TOKEN","GH_AW_PROJECT_GITHUB_TOKEN","GITHUB_TOKEN"],"actions":[{"repo":"actions/checkout","sha":"3d3c42e5aac5ba805825da76410c181273ba90b1","version":"v7.0.1"},{"repo":"actions/download-artifact","sha":"9000827ccba6bdab643e8b6fd33ac0654aef8333","version":"v8.0.2"},{"repo":"actions/github-script","sha":"3a2844b7e9c422d3c10d287c895573f7108da1b3","version":"v9.0.0"},{"repo":"actions/setup-node","sha":"949feb2413d6458794dcd2491c4babbbce0c15c1","version":"v7.1.0"},{"repo":"actions/upload-artifact","sha":"cf430e030ddbb5b0abf93d22962f4752f3646cd9","version":"v7.0.2"}],"containers":[{"image":"ghcr.io/github/gh-aw-firewall/agent:0.29.14@sha256:7f649a02f2cc235325ab512f546854e0fad32b7abdc6c24c5475ddc0639e0aaa"},{"image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.29.14@sha256:136785634c9207d7328c701d31d53941542ef307840bda6b348274c8842557c0"},{"image":"ghcr.io/github/gh-aw-firewall/router:0.29.14@sha256:b8822defe0cc2abebc619ee1cf49c34c67286fab117512f0d667962572564be0"},{"image":"ghcr.io/github/gh-aw-firewall/squid:0.29.14@sha256:878b9c1aaeca076004bf2157dd2be28586b68b2b3d69c3ff8fd2b5add2a3126c"},{"image":"ghcr.io/github/gh-aw-mcpg:v0.5.10","digest":"sha256:629ddcd68a48ab02e7db8af527d2756c6db563b00c1d31d8aa8fcbac96f01c59","pinned_image":"ghcr.io/github/gh-aw-mcpg:v0.5.10@sha256:629ddcd68a48ab02e7db8af527d2756c6db563b00c1d31d8aa8fcbac96f01c59"},{"image":"ghcr.io/github/gh-aw-node","digest":"sha256:8735428c2d4e602f90781ba0c571c400e8ff93c7ee1508a75d71f87e34e415cc","pinned_image":"ghcr.io/github/gh-aw-node@sha256:8735428c2d4e602f90781ba0c571c400e8ff93c7ee1508a75d71f87e34e415cc"},{"image":"ghcr.io/github/github-mcp-server:v2.1.0","digest":"sha256:f6056fc10bfffcc8c81a6417a2e9ca12808647e8dd6049642a4feaadee0e0f8a","pinned_image":"ghcr.io/github/github-mcp-server:v2.1.0@sha256:f6056fc10bfffcc8c81a6417a2e9ca12808647e8dd6049642a4feaadee0e0f8a"}],"mcp_servers":[{"name":"github","tools":["get_commit","get_file_contents","get_latest_release","get_release_by_tag","get_tag","issue_read","list_branches","list_commits","list_issue_types","list_issues","list_releases","list_starred_repositories","list_tags","search_code","search_issues","search_repositories"]},{"name":"safeoutputs","tools":["add_comment","add_labels","create_issue","link_sub_issue","noop","report_incomplete","report_missing_data","report_missing_tool","update_project"]}],"threat_detection":{"mode":"enabled"},"admission":false,"agent_metadata":{}}
 # This file was automatically generated by gh-aw. DO NOT EDIT. To debug this workflow, load the skill at https://github.com/github/gh-aw/blob/main/debug.md
 #
 #    ___                   _   _
@@ -42,7 +42,6 @@
 #   - actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
 #   - actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
 #   - actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-#   - github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
 #
 # Container images used:
 #   - ghcr.io/github/gh-aw-mcpg:v0.5.10@sha256:629ddcd68a48ab02e7db8af527d2756c6db563b00c1d31d8aa8fcbac96f01c59
@@ -137,9 +136,18 @@ jobs:
       text: ${{ steps.sanitized.outputs.text }}
       title: ${{ steps.sanitized.outputs.title }}
     steps:
+      - name: Checkout actions folder
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: github/gh-aw
+          sparse-checkout: |
+            actions
+          fetch-depth: 1
+          clean: false
+          persist-credentials: false
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
+        uses: ./actions/setup
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -216,6 +224,7 @@ jobs:
           sparse-checkout: |
             .github
             .agents
+            actions/setup
             .claude
             .codex
             .gemini
@@ -290,7 +299,7 @@ jobs:
             <system>
           GH_AW_PROMPT_CONTENT_0001: |
             <safe-output-tools>
-            Tools: add_comment(max:2), add_labels(max:5), update_project(max:3), report_missing_tool, report_missing_data, report_incomplete, noop(max:2)
+            Tools: add_comment(max:2), create_issue(max:3), add_labels(max:5), update_project(max:6), link_sub_issue(max:3), report_missing_tool, report_missing_data, report_incomplete, noop(max:2)
           GH_AW_PROMPT_CONTENT_0002: |
             </safe-output-tools>
           GH_AW_PROMPT_CONTENT_0003: "<github-context>\n{{#if __GH_AW_GITHUB_ACTOR__ }}\n- **actor**: __GH_AW_GITHUB_ACTOR__\n{{/if}}\n{{#if __GH_AW_GITHUB_REPOSITORY__ }}\n- **repository**: __GH_AW_GITHUB_REPOSITORY__\n{{/if}}\n{{#if __GH_AW_GITHUB_WORKSPACE__ }}\n- **workspace**: __GH_AW_GITHUB_WORKSPACE__\n{{/if}}\n{{#if __GH_AW_EXPR_7C248226__ }}\n- **issue-number**: #__GH_AW_EXPR_7C248226__\n{{/if}}\n{{#if __GH_AW_EXPR_C19C384F__ }}\n- **discussion-number**: #__GH_AW_EXPR_C19C384F__\n{{/if}}\n{{#if __GH_AW_EXPR_76DF9333__ }}\n- **pull-request-number**: #__GH_AW_EXPR_76DF9333__\n{{/if}}\n{{#if __GH_AW_EXPR_77C1A4D2__ }}\n- **comment-id**: __GH_AW_EXPR_77C1A4D2__\n{{/if}}\n{{#if __GH_AW_GITHUB_RUN_ID__ }}\n- **workflow-run-id**: __GH_AW_GITHUB_RUN_ID__\n{{/if}}\n</github-context>\n\n"
@@ -533,9 +542,18 @@ jobs:
       shell_expansion_guard_rejected: ${{ steps.detect-agent-errors.outputs.shell_expansion_guard_rejected || 'false' }}
       unknown_model_ai_credits: ${{ steps.parse-mcp-gateway.outputs.unknown_model_ai_credits || 'false' }}
     steps:
+      - name: Checkout actions folder
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: github/gh-aw
+          sparse-checkout: |
+            actions
+          fetch-depth: 1
+          clean: false
+          persist-credentials: false
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
+        uses: ./actions/setup
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -664,7 +682,7 @@ jobs:
         env:
           GH_AW_FILE_ROOT: "${{ runner.temp }}/gh-aw"
           GH_AW_FILE_CONFIG: "{\"files\":[{\"path\":\"safeoutputs/config.json\",\"content_env\":\"GH_AW_SAFE_OUTPUTS_CONFIG\"}]}"
-          GH_AW_SAFE_OUTPUTS_CONFIG: "{\"add_comment\":{\"max\":2},\"add_labels\":{\"allowed\":[\"bug\",\"feature\",\"question\",\"priority/p0\",\"priority/p1\",\"priority/p2\",\"duplicate\",\"invalid\",\"complex\",\"risky\"],\"max\":5},\"create_report_incomplete_issue\":{},\"noop\":{\"max\":2,\"report-as-issue\":\"false\"},\"report_incomplete\":{},\"report_missing_data\":{},\"report_missing_tool\":{},\"update_project\":{\"max\":3,\"project\":\"https://github.com/users/eedorenko/projects/2\"}}"
+          GH_AW_SAFE_OUTPUTS_CONFIG: "{\"add_comment\":{\"max\":2},\"add_labels\":{\"allowed\":[\"bug\",\"feature\",\"question\",\"priority/p0\",\"priority/p1\",\"priority/p2\",\"duplicate\",\"invalid\",\"complex\",\"risky\"],\"max\":5},\"create_issue\":{\"max\":3,\"max_issue_artifact_size\":1048576,\"max_issue_artifacts\":10},\"create_report_incomplete_issue\":{},\"link_sub_issue\":{\"max\":3},\"noop\":{\"max\":2,\"report-as-issue\":\"false\"},\"report_incomplete\":{},\"report_missing_data\":{},\"report_missing_tool\":{},\"update_project\":{\"max\":6,\"project\":\"https://github.com/users/eedorenko/projects/2\"}}"
         with:
           script: |
             const path = require('path');
@@ -680,7 +698,9 @@ jobs:
               "description_suffixes": {
                 "add_comment": " CONSTRAINTS: Maximum 2 comment(s) can be added. Supports reply_to_id for discussion threading.",
                 "add_labels": " CONSTRAINTS: Maximum 5 add_labels call(s) allowed. Maximum 10 label(s) per call. Only these labels are allowed: [\"bug\" \"feature\" \"question\" \"priority/p0\" \"priority/p1\" \"priority/p2\" \"duplicate\" \"invalid\" \"complex\" \"risky\"].",
-                "update_project": " CONSTRAINTS: Maximum 3 project operation(s) can be performed. Default project URL: \"https://github.com/users/eedorenko/projects/2\"."
+                "create_issue": " CONSTRAINTS: Maximum 3 issue(s) can be created. Maximum 10 artifact(s) can be attached per issue. Maximum artifact body size: 1048576 UTF-8 bytes.",
+                "link_sub_issue": " CONSTRAINTS: Maximum 3 sub-issue link(s) can be created.",
+                "update_project": " CONSTRAINTS: Maximum 6 project operation(s) can be performed. Default project URL: \"https://github.com/users/eedorenko/projects/2\"."
               },
               "repo_params": {},
               "dynamic_tools": []
@@ -743,6 +763,66 @@ jobs:
                     "maxLength": 256
                   }
                 }
+              },
+              "create_issue": {
+                "defaultMax": 1,
+                "fields": {
+                  "artifacts": {
+                    "type": "array"
+                  },
+                  "blocked_by": {},
+                  "body": {
+                    "required": true,
+                    "type": "string",
+                    "sanitize": true,
+                    "maxLength": 65000,
+                    "minLength": 20
+                  },
+                  "fields": {
+                    "type": "array"
+                  },
+                  "labels": {
+                    "type": "array",
+                    "itemType": "string",
+                    "itemSanitize": true,
+                    "itemMaxLength": 128
+                  },
+                  "parent": {
+                    "issueOrPRNumber": true
+                  },
+                  "repo": {
+                    "type": "string",
+                    "maxLength": 256
+                  },
+                  "temporary_id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "required": true,
+                    "type": "string",
+                    "sanitize": true,
+                    "maxLength": 128
+                  }
+                },
+                "collapseData": true
+              },
+              "link_sub_issue": {
+                "defaultMax": 5,
+                "fields": {
+                  "parent_issue_number": {
+                    "required": true,
+                    "issueNumberOrTemporaryId": true
+                  },
+                  "repo": {
+                    "type": "string",
+                    "maxLength": 256
+                  },
+                  "sub_issue_number": {
+                    "required": true,
+                    "issueNumberOrTemporaryId": true
+                  }
+                },
+                "customValidation": "parentAndSubDifferent"
               },
               "noop": {
                 "defaultMax": 2,
@@ -1510,9 +1590,18 @@ jobs:
       tools_reported: ${{ steps.missing_tool.outputs.tools_reported }}
       total_count: ${{ steps.missing_tool.outputs.total_count }}
     steps:
+      - name: Checkout actions folder
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: github/gh-aw
+          sparse-checkout: |
+            actions
+          fetch-depth: 1
+          clean: false
+          persist-credentials: false
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
+        uses: ./actions/setup
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -1867,9 +1956,18 @@ jobs:
       detection_threat_kinds: ${{ steps.detection_conclusion.outputs.threat_kinds }}
       run_detection: ${{ steps.detection_guard.outputs.run_detection }}
     steps:
+      - name: Checkout actions folder
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: github/gh-aw
+          sparse-checkout: |
+            actions
+          fetch-depth: 1
+          clean: false
+          persist-credentials: false
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
+        uses: ./actions/setup
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -2206,6 +2304,9 @@ jobs:
   pre_activation:
     name: pre_activation
     runs-on: ubuntu-slim
+    # Permissions for the pre_activation job (workflow permissions default to none).
+    permissions:
+      contents: read
     env:
       GH_AW_RUNTIME_FEATURES: ${{ vars.GH_AW_RUNTIME_FEATURES }}
     outputs:
@@ -2217,9 +2318,18 @@ jobs:
       setup-span-id: ${{ steps.setup.outputs.span-id }}
       setup-trace-id: ${{ steps.setup.outputs.trace-id }}
     steps:
+      - name: Checkout actions folder
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: github/gh-aw
+          sparse-checkout: |
+            actions
+          fetch-depth: 1
+          clean: false
+          persist-credentials: false
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
+        uses: ./actions/setup
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -2307,6 +2417,8 @@ jobs:
       comment_url: ${{ steps.process_safe_outputs.outputs.comment_url }}
       create_discussion_error_count: ${{ steps.process_safe_outputs.outputs.create_discussion_error_count }}
       create_discussion_errors: ${{ steps.process_safe_outputs.outputs.create_discussion_errors }}
+      created_issue_number: ${{ steps.process_safe_outputs.outputs.created_issue_number }}
+      created_issue_url: ${{ steps.process_safe_outputs.outputs.created_issue_url }}
       process_safe_outputs_items_applied: ${{ steps.process_safe_outputs.outputs.items_applied }}
       process_safe_outputs_items_cancelled: ${{ steps.process_safe_outputs.outputs.items_cancelled }}
       process_safe_outputs_items_deferred: ${{ steps.process_safe_outputs.outputs.items_deferred }}
@@ -2317,9 +2429,18 @@ jobs:
       process_safe_outputs_processed_count: ${{ steps.process_safe_outputs.outputs.processed_count }}
       process_safe_outputs_status: ${{ steps.process_safe_outputs.outputs.status }}
     steps:
+      - name: Checkout actions folder
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: github/gh-aw
+          sparse-checkout: |
+            actions
+          fetch-depth: 1
+          clean: false
+          persist-credentials: false
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
+        uses: ./actions/setup
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -2370,7 +2491,7 @@ jobs:
           GH_AW_ALLOWED_DOMAINS: "archive.ubuntu.com,azure.archive.ubuntu.com,crl.geotrust.com,crl.globalsign.com,crl.identrust.com,crl.sectigo.com,crl.thawte.com,crl.usertrust.com,crl.verisign.com,crl3.digicert.com,crl4.digicert.com,crls.ssl.com,json-schema.org,json.schemastore.org,keyserver.ubuntu.com,ocsp.digicert.com,ocsp.geotrust.com,ocsp.globalsign.com,ocsp.identrust.com,ocsp.sectigo.com,ocsp.ssl.com,ocsp.thawte.com,ocsp.usertrust.com,ocsp.verisign.com,s.symcb.com,s.symcd.com,security.ubuntu.com,ts-crl.ws.symantec.com,ts-ocsp.ws.symantec.com"
           GITHUB_SERVER_URL: ${{ github.server_url }}
           GITHUB_API_URL: ${{ github.api_url }}
-          GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG: "{\"add_comment\":{\"max\":2},\"add_labels\":{\"allowed\":[\"bug\",\"feature\",\"question\",\"priority/p0\",\"priority/p1\",\"priority/p2\",\"duplicate\",\"invalid\",\"complex\",\"risky\"],\"max\":5},\"create_report_incomplete_issue\":{},\"noop\":{\"max\":2,\"report-as-issue\":\"false\"},\"report_incomplete\":{},\"report_missing_data\":{},\"report_missing_tool\":{},\"update_project\":{\"github-token\":\"${{ secrets.GH_AW_PROJECT_GITHUB_TOKEN }}\",\"max\":3,\"project\":\"https://github.com/users/eedorenko/projects/2\"}}"
+          GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG: "{\"add_comment\":{\"max\":2},\"add_labels\":{\"allowed\":[\"bug\",\"feature\",\"question\",\"priority/p0\",\"priority/p1\",\"priority/p2\",\"duplicate\",\"invalid\",\"complex\",\"risky\"],\"max\":5},\"create_issue\":{\"max\":3,\"max_issue_artifact_size\":1048576,\"max_issue_artifacts\":10},\"create_report_incomplete_issue\":{},\"link_sub_issue\":{\"max\":3},\"noop\":{\"max\":2,\"report-as-issue\":\"false\"},\"report_incomplete\":{},\"report_missing_data\":{},\"report_missing_tool\":{},\"update_project\":{\"github-token\":\"${{ secrets.GH_AW_PROJECT_GITHUB_TOKEN }}\",\"max\":6,\"project\":\"https://github.com/users/eedorenko/projects/2\"}}"
           GH_AW_PROJECT_URL: "https://github.com/users/eedorenko/projects/2"
           GH_AW_PROJECT_GITHUB_TOKEN: ${{ secrets.GH_AW_PROJECT_GITHUB_TOKEN }}
           GH_AW_GITHUB_TOKEN_SOURCE: ${{ secrets.GH_AW_GITHUB_TOKEN != '' && 'pat' || 'github_actions' }}
