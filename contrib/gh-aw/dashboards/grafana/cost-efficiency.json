@@ -1,0 +1,1198 @@
+{
+  "uid": "gh-aw-cost-efficiency",
+  "title": "gh-aw / Cost & Efficiency",
+  "description": "Estimated token spend, cost drivers, and waste. Dollar figures are estimates from the price variables at the top of the dashboard; gh-aw does not export billing data. Set the prices to match your contract.",
+  "tags": [
+    "gh-aw",
+    "otel",
+    "cost"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "refresh": "5m",
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "label": "Data source",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "refresh": 1
+      },
+      {
+        "name": "workflow",
+        "label": "Workflow",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values(gh_aw_job_duration_seconds_count, gh_aw_workflow_name)",
+          "refId": "workflow-q",
+          "qryType": 1
+        },
+        "definition": "label_values(gh_aw_job_duration_seconds_count, gh_aw_workflow_name)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "job",
+        "label": "Job",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values(gh_aw_job_duration_seconds_count, gh_aw_job_name)",
+          "refId": "job-q",
+          "qryType": 1
+        },
+        "definition": "label_values(gh_aw_job_duration_seconds_count, gh_aw_job_name)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "engine",
+        "label": "Engine",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values(gh_aw_job_duration_seconds_count{gh_aw_job_name=\"agent\"}, gh_aw_engine_id)",
+          "refId": "engine-q",
+          "qryType": 1
+        },
+        "definition": "label_values(gh_aw_job_duration_seconds_count{gh_aw_job_name=\"agent\"}, gh_aw_engine_id)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "price_input",
+        "label": "USD per 1M input tokens",
+        "type": "textbox",
+        "query": "3",
+        "current": {
+          "text": "3",
+          "value": "3"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "3",
+            "value": "3"
+          }
+        ]
+      },
+      {
+        "name": "price_output",
+        "label": "USD per 1M output tokens",
+        "type": "textbox",
+        "query": "15",
+        "current": {
+          "text": "15",
+          "value": "15"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "15",
+            "value": "15"
+          }
+        ]
+      },
+      {
+        "name": "price_cache_read",
+        "label": "USD per 1M cache-read tokens",
+        "type": "textbox",
+        "query": "0.3",
+        "current": {
+          "text": "0.3",
+          "value": "0.3"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "0.3",
+            "value": "0.3"
+          }
+        ]
+      },
+      {
+        "name": "price_cache_write",
+        "label": "USD per 1M cache-write tokens",
+        "type": "textbox",
+        "query": "3.75",
+        "current": {
+          "text": "3.75",
+          "value": "3.75"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "3.75",
+            "value": "3.75"
+          }
+        ]
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Estimated cost",
+      "description": "tokens x price variables. An estimate, not a bill.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "expr": "sum(increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input\"}[$__range])) * $price_input / 1e6 + sum(increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"output\"}[$__range])) * $price_output / 1e6 + sum(increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input_cache_read\"}[$__range])) * $price_cache_read / 1e6 + sum(increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input_cache_write\"}[$__range])) * $price_cache_write / 1e6",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "id": 1,
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Cost per agent run",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "expr": "(sum(increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input\"}[$__range])) * $price_input / 1e6 + sum(increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"output\"}[$__range])) * $price_output / 1e6 + sum(increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input_cache_read\"}[$__range])) * $price_cache_read / 1e6 + sum(increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input_cache_write\"}[$__range])) * $price_cache_write / 1e6) / sum(increase(gh_aw_job_duration_seconds_count{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=\"agent\", gh_aw_engine_id=~\"$engine\"}[$__range]))",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 3
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "id": 2,
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Cost per safe-output item",
+      "description": "Spend divided by items produced; the main efficiency signal.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "expr": "(sum(increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input\"}[$__range])) * $price_input / 1e6 + sum(increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"output\"}[$__range])) * $price_output / 1e6 + sum(increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input_cache_read\"}[$__range])) * $price_cache_read / 1e6 + sum(increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input_cache_write\"}[$__range])) * $price_cache_write / 1e6) / sum(increase(gh_aw_workflow_output_items_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]))",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 3
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "id": 3,
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      }
+    },
+    {
+      "type": "stat",
+      "title": "AI-credit limit hits",
+      "description": "Runs stopped by the AI-credit limit.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "expr": "(sum(increase(gh_aw_ai_credits_limit_exceeded_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range])) or vector(0))",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "id": 4,
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      }
+    },
+    {
+      "type": "row",
+      "title": "Spend",
+      "collapsed": false,
+      "panels": [],
+      "id": 5,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Estimated cost by model",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "expr": "sum by (gen_ai_request_model) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input\"}[$__rate_interval])) * $price_input / 1e6 + sum by (gen_ai_request_model) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"output\"}[$__rate_interval])) * $price_output / 1e6 + sum by (gen_ai_request_model) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input_cache_read\"}[$__rate_interval])) * $price_cache_read / 1e6 + sum by (gen_ai_request_model) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input_cache_write\"}[$__rate_interval])) * $price_cache_write / 1e6",
+          "legendFormat": "{{gen_ai_request_model}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 40,
+            "stacking": {
+              "mode": "normal"
+            },
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 6,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Estimated cost by workflow",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "expr": "sum by (gh_aw_workflow_name) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input\"}[$__rate_interval])) * $price_input / 1e6 + sum by (gh_aw_workflow_name) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"output\"}[$__rate_interval])) * $price_output / 1e6 + sum by (gh_aw_workflow_name) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input_cache_read\"}[$__rate_interval])) * $price_cache_read / 1e6 + sum by (gh_aw_workflow_name) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input_cache_write\"}[$__rate_interval])) * $price_cache_write / 1e6",
+          "legendFormat": "{{gh_aw_workflow_name}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 40,
+            "stacking": {
+              "mode": "normal"
+            },
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 7,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Cost per agent run by workflow",
+      "description": "A rising line without a workflow change signals context growth.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "expr": "(sum by (gh_aw_workflow_name) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input\"}[$__rate_interval])) * $price_input / 1e6 + sum by (gh_aw_workflow_name) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"output\"}[$__rate_interval])) * $price_output / 1e6 + sum by (gh_aw_workflow_name) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input_cache_read\"}[$__rate_interval])) * $price_cache_read / 1e6 + sum by (gh_aw_workflow_name) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input_cache_write\"}[$__rate_interval])) * $price_cache_write / 1e6) / on (gh_aw_workflow_name) sum by (gh_aw_workflow_name) (increase(gh_aw_job_duration_seconds_count{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=\"agent\"}[$__rate_interval]))",
+          "legendFormat": "{{gh_aw_workflow_name}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 8,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Output tokens vs input tokens",
+      "description": "Healthy runs reuse the cache; a falling cache-read share raises cost.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "expr": "sum(increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input\"}[$__rate_interval]))",
+          "legendFormat": "input",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "B",
+          "expr": "sum(increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"output\"}[$__rate_interval]))",
+          "legendFormat": "output",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "C",
+          "expr": "sum(increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input_cache_read\"}[$__rate_interval]))",
+          "legendFormat": "cache read",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 9,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      }
+    },
+    {
+      "type": "row",
+      "title": "Efficiency and waste",
+      "collapsed": false,
+      "panels": [],
+      "id": 10,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Tokens per safe-output item",
+      "description": "Evaluated over the selected range for stable ratios. Higher means less output per token.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "expr": "sum by (gh_aw_workflow_name) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\"}[$__range])) / sum by (gh_aw_workflow_name) (increase(gh_aw_workflow_output_items_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]))",
+          "legendFormat": "{{gh_aw_workflow_name}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 11,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 22
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Run duration vs tokens",
+      "description": "Shows whether duration tracks token volume. Divergence suggests tool or network latency.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "expr": "sum(increase(gh_aw_job_duration_seconds_sum{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=\"agent\", gh_aw_engine_id=~\"$engine\"}[$__rate_interval])) / sum(increase(gh_aw_job_duration_seconds_count{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=\"agent\", gh_aw_engine_id=~\"$engine\"}[$__rate_interval]))",
+          "legendFormat": "avg duration (s)",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "B",
+          "expr": "sum(increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=\"agent\", gh_aw_engine_id=~\"$engine\"}[$__rate_interval])) / sum(increase(gh_aw_job_duration_seconds_count{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=\"agent\", gh_aw_engine_id=~\"$engine\"}[$__rate_interval])) / 1000",
+          "legendFormat": "ktokens / run",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 12,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 22
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Tokens spent by workflows with no safe output",
+      "description": "Waste candidates: tokens consumed while no safe-output item was produced in the range.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "expr": "sum by (gh_aw_workflow_name) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\"}[$__range])) unless on (gh_aw_workflow_name) sum by (gh_aw_workflow_name) (increase(gh_aw_workflow_output_items_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]))",
+          "legendFormat": "{{gh_aw_workflow_name}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "id": 13,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 30
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Tokens per run by workflow",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "expr": "sum by (gh_aw_workflow_name) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=\"agent\", gh_aw_engine_id=~\"$engine\"}[$__range])) / sum by (gh_aw_workflow_name) (increase(gh_aw_job_duration_seconds_count{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=\"agent\"}[$__range]))",
+          "legendFormat": "{{gh_aw_workflow_name}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "id": 14,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 30
+      }
+    },
+    {
+      "type": "row",
+      "title": "Per-workflow cost",
+      "collapsed": false,
+      "panels": [],
+      "id": 15,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 38
+      }
+    },
+    {
+      "type": "table",
+      "title": "Cost drivers",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "expr": "sum by (gh_aw_workflow_name) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input\"}[$__range])) * $price_input / 1e6 + sum by (gh_aw_workflow_name) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"output\"}[$__range])) * $price_output / 1e6 + sum by (gh_aw_workflow_name) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input_cache_read\"}[$__range])) * $price_cache_read / 1e6 + sum by (gh_aw_workflow_name) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\", gen_ai_token_type=\"input_cache_write\"}[$__range])) * $price_cache_write / 1e6",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "B",
+          "expr": "sum by (gh_aw_workflow_name) (increase(gh_aw_job_duration_seconds_count{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=\"agent\"}[$__range]))",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "C",
+          "expr": "sum by (gh_aw_workflow_name) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gh_aw_engine_id=~\"$engine\"}[$__range]))",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "D",
+          "expr": "sum by (gh_aw_workflow_name) (increase(gh_aw_workflow_output_items_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]))",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "E",
+          "expr": "sum by (gh_aw_workflow_name) (increase(gh_aw_ai_credits_limit_exceeded_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]))",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Est. cost"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Runs"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tokens"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Safe outputs"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Credit-limit hits"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Est. cost",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "gh_aw_workflow_name",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "gh_aw_workflow_name": "Workflow",
+              "Value #A": "Est. cost",
+              "Value #B": "Runs",
+              "Value #C": "Tokens",
+              "Value #D": "Safe outputs",
+              "Value #E": "Credit-limit hits"
+            }
+          }
+        }
+      ],
+      "id": 16,
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 39
+      }
+    }
+  ]
+}

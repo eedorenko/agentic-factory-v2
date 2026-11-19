@@ -1,0 +1,71 @@
+groups:
+  - name: gh-aw-reliability
+    rules:
+      - alert: GhAwJobSuccessRateLow
+        expr: |
+          1 - (
+            (sum(increase(gh_aw_job_errors_total[1h])) or vector(0))
+            / sum(increase(gh_aw_job_duration_seconds_count[1h]))
+          ) < 0.8
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: gh-aw job success rate is below 80% over the last hour
+          description: Failure, timeout, and cancelled jobs exceed 20% of all jobs. Open the Reliability dashboard.
+
+      - alert: GhAwJobTimedOut
+        expr: sum by (gh_aw_workflow_name) (increase(gh_aw_job_errors_total{cicd_pipeline_task_run_result="timed_out"}[1h])) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "gh-aw workflow {{ $labels.gh_aw_workflow_name }} had a timed-out job"
+
+      - alert: GhAwAICreditLimitExceeded
+        expr: sum by (gh_aw_workflow_name) (increase(gh_aw_ai_credits_limit_exceeded_total[1h])) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "gh-aw workflow {{ $labels.gh_aw_workflow_name }} hit its AI-credit limit"
+
+      - alert: GhAwAICreditRateLimited
+        expr: sum(increase(gh_aw_ai_credits_rate_limit_errors_total[1h])) >= 3
+        labels: { severity: warning }
+        annotations:
+          summary: Repeated AI-credit rate-limit errors; concurrency may exceed the account allowance
+
+      - alert: GhAwToolCallErrorRateHigh
+        expr: |
+          (
+            sum by (gh_aw_workflow_name) (increase(gh_aw_tool_calls_total{gh_aw_tool_status="error"}[6h]))
+            / sum by (gh_aw_workflow_name) (increase(gh_aw_tool_calls_total[6h]))
+          ) > 0.2
+          and sum by (gh_aw_workflow_name) (increase(gh_aw_tool_calls_total[6h])) >= 20
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: "More than 20% of tool calls fail in {{ $labels.gh_aw_workflow_name }}"
+
+      - alert: GhAwOTLPExportFailures
+        expr: sum(increase(gh_aw_otlp_export_failures_total[1h])) > 0
+        labels: { severity: info }
+        annotations:
+          summary: gh-aw could not export metrics to at least one OTLP endpoint; dashboards may undercount
+
+  - name: gh-aw-cost
+    rules:
+      - alert: GhAwTokenUsageSpike
+        expr: |
+          sum(increase(gen_ai_client_token_usage_total[6h]))
+          > 3 * sum(increase(gen_ai_client_token_usage_total[6h] offset 1d))
+          and sum(increase(gen_ai_client_token_usage_total[6h])) > 1e6
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: Token usage over the last 6 hours is more than 3x the same window yesterday
+
+      - alert: GhAwWorkflowSilent
+        expr: |
+          sum by (gh_aw_workflow_name) (increase(gh_aw_job_duration_seconds_count{gh_aw_job_name="agent"}[7d] offset 1d)) > 0
+          unless
+          sum by (gh_aw_workflow_name) (increase(gh_aw_job_duration_seconds_count{gh_aw_job_name="agent"}[1d]))
+        labels: { severity: info }
+        annotations:
+          summary: "{{ $labels.gh_aw_workflow_name }} ran earlier this week but not in the last day"
