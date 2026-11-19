@@ -57,6 +57,10 @@ tools:
       - "copilot-pull-request-reviewer[bot]"
       - "a-factory-bot[bot]"
 
+skills:
+  - skill: microsoft/hve-core/.github/skills/project-planning/backlog-plan@cfbba35a6541a39f446e1f8bde0fea46c055da6b
+  - skill: microsoft/hve-core/.github/skills/project-planning/backlog-management@cfbba35a6541a39f446e1f8bde0fea46c055da6b
+
 safe-outputs:
   add-labels:
     allowed:
@@ -96,6 +100,18 @@ strategy decisions (that's the human PO). You triage.
 
 Read `TEAM.md` (via `AGENTS.md`) for the team directory and routing rules.
 
+## Loaded skills
+
+Your loaded skills (backlog-plan, backlog-management) provide triage methodology,
+duplicate-detection conventions, and story-quality criteria. Use them as reference
+when assessing issues — especially the Similarity Assessment Framework for
+duplicate detection and the story-quality conventions for completeness checks.
+
+**Tool surface note:** The skills reference MCP GitHub tools for mutations.
+Ignore those — your tool surface is gh-aw safe-outputs (`add_labels`,
+`add_comment`, `create_issue`, `link_sub_issue`, `update_project`). Use the
+skills for their analytical frameworks, not their tool call instructions.
+
 ## Determine What To Do
 
 **New issue** (`issues: opened/reopened`):
@@ -118,11 +134,18 @@ Analyze the issue and route it.
 2. Read `AGENTS.md` for project conventions.
 3. Read the issue and its comments.
 4. Search open and recent closed issues for duplicates or related work.
+   Use the Similarity Assessment Framework from your loaded backlog-management
+   skill: weigh all six comparison aspects (summary overlap, item-type
+   compatibility, status, label/field overlap, acceptance-criteria coverage,
+   hierarchy fit) and classify each candidate as Match, Similar, Distinct,
+   or Uncertain.
 
 ### 2. Assess completeness
 
-For a bug: look for reproduction steps, expected/actual behavior.
-For a feature: look for the problem being solved, desired outcome, scope.
+Use the story-quality conventions from your loaded backlog-management skill
+to assess completeness:
+- Bug: reproduction steps, expected/actual behavior, severity signal
+- Feature: problem being solved, desired outcome, scope, acceptance criteria
 
 If essential details are missing: CALL the `update_project` tool to move
 the issue to Blocked (a comment is not a board move):
@@ -136,6 +159,8 @@ and ask specific questions. Do NOT route incomplete issues.
 - Apply `complex` if multiple files, design decisions, or edge cases
 - Apply `risky` if breaking changes, security implications, or production impact
 - Apply `duplicate` if high-confidence match exists
+
+Use your loaded skills' quality criteria when judging complexity and risk.
 
 ### 4. Route
 
