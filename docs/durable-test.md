@@ -17,5 +17,11 @@ validation fix in github/gh-aw#78853:
    is saved without a validation error.
 3. A follow-up run can pick up the saved checkpoint.
 
-This file is the deliverable of a single-run task; its existence on `main`
-shows the flow completed.
+## Status
+
+Durable verification is **pending**. This file's existence on `main` does not
+show that checkpoint saving or restoration works. In
+[durable run 44595466518](https://github.com/eedorenko/agentic-factory-v2/actions/runs/44595466518/job/135813703224),
+checkpoint validation failed and checkpoint upload was skipped. Verification
+is complete only once a run uploads a checkpoint successfully and a follow-up
+run restores it.
