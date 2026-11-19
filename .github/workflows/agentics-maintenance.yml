@@ -40,11 +40,6 @@ name: Agentic Maintenance
 on:
   schedule:
     - cron: "37 0 * * *"  # Daily (for queue compaction)
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/*.md'
   workflow_dispatch:
     inputs:
       operation:
@@ -118,16 +113,8 @@ jobs:
     permissions:
       discussions: write # Create or update discussions and comments.
     steps:
-      - name: Checkout actions folder
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          sparse-checkout: |
-            actions
-          clean: false
-          persist-credentials: false
-
       - name: Setup Scripts
-        uses: ./actions/setup
+        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -149,16 +136,8 @@ jobs:
     permissions:
       issues: write # Create or update issues and comments.
     steps:
-      - name: Checkout actions folder
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          sparse-checkout: |
-            actions
-          clean: false
-          persist-credentials: false
-
       - name: Setup Scripts
-        uses: ./actions/setup
+        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -180,16 +159,8 @@ jobs:
     permissions:
       pull-requests: write # Create or update pull requests and review comments.
     steps:
-      - name: Checkout actions folder
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          sparse-checkout: |
-            actions
-          clean: false
-          persist-credentials: false
-
       - name: Setup Scripts
-        uses: ./actions/setup
+        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -222,7 +193,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Scripts
-        uses: ./actions/setup
+        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -238,21 +209,17 @@ jobs:
             const { main } = require(path.join(actionsDir, 'check_team_member.cjs'));
             await main();
 
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Install gh-aw
+        uses: github/gh-aw-actions/setup-cli@7abff6aed2f9c1c349c16c69579d4dde5266fe1b
         with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build gh-aw
-        run: make build
+          version: 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
 
       - name: Run operation
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_AW_OPERATION: ${{ inputs.operation }}
-          GH_AW_CMD_PREFIX: ./gh-aw
+          GH_AW_CMD_PREFIX: gh aw
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -278,16 +245,8 @@ jobs:
       contents: write # Create or update repository contents.
       pull-requests: write # Create or update pull requests and review comments.
     steps:
-      - name: Checkout actions folder
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          sparse-checkout: |
-            actions
-          clean: false
-          persist-credentials: false
-
       - name: Setup Scripts
-        uses: ./actions/setup
+        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -340,7 +299,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Scripts
-        uses: ./actions/setup
+        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -394,7 +353,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Scripts
-        uses: ./actions/setup
+        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -410,19 +369,15 @@ jobs:
             const { main } = require(path.join(actionsDir, 'check_team_member.cjs'));
             await main();
 
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Install gh-aw
+        uses: github/gh-aw-actions/setup-cli@7abff6aed2f9c1c349c16c69579d4dde5266fe1b
         with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build gh-aw
-        run: make build
+          version: 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
 
       - name: Create missing labels
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          GH_AW_CMD_PREFIX: ./gh-aw
+          GH_AW_CMD_PREFIX: gh aw
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -450,7 +405,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Scripts
-        uses: ./actions/setup
+        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -466,14 +421,10 @@ jobs:
             const { main } = require(path.join(actionsDir, 'check_team_member.cjs'));
             await main();
 
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Install gh-aw
+        uses: github/gh-aw-actions/setup-cli@7abff6aed2f9c1c349c16c69579d4dde5266fe1b
         with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build gh-aw
-        run: make build
+          version: 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
 
       - name: Restore activity report logs cache
         id: activity_report_logs_cache
@@ -489,7 +440,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_AW_CMD_PREFIX: ./gh-aw
+          GH_AW_CMD_PREFIX: gh aw
         run: |
           ${GH_AW_CMD_PREFIX} logs \
             --repo "$GITHUB_REPOSITORY" \
@@ -563,7 +514,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Scripts
-        uses: ./actions/setup
+        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -579,14 +530,10 @@ jobs:
             const { main } = require(path.join(actionsDir, 'check_team_member.cjs'));
             await main();
 
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Install gh-aw
+        uses: github/gh-aw-actions/setup-cli@7abff6aed2f9c1c349c16c69579d4dde5266fe1b
         with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build gh-aw
-        run: make build
+          version: 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
 
       - name: Restore forecast report logs cache
         id: forecast_report_logs_cache
@@ -604,7 +551,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_AW_CMD_PREFIX: ./gh-aw
+          GH_AW_CMD_PREFIX: gh aw
         run: |
           mkdir -p ./.cache/gh-aw/forecast
           set +e
@@ -663,16 +610,8 @@ jobs:
     permissions:
       issues: write # Create or update issues and comments.
     steps:
-      - name: Checkout actions folder
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          sparse-checkout: |
-            actions
-          clean: false
-          persist-credentials: false
-
       - name: Setup Scripts
-        uses: ./actions/setup
+        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -715,7 +654,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Scripts
-        uses: ./actions/setup
+        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -731,19 +670,15 @@ jobs:
             const { main } = require(path.join(actionsDir, 'check_team_member.cjs'));
             await main();
 
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Install gh-aw
+        uses: github/gh-aw-actions/setup-cli@7abff6aed2f9c1c349c16c69579d4dde5266fe1b
         with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build gh-aw
-        run: make build
+          version: 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
 
       - name: Validate workflows and file issue on findings
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          GH_AW_CMD_PREFIX: ./gh-aw
+          GH_AW_CMD_PREFIX: gh aw
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -753,116 +688,6 @@ jobs:
             setupGlobals(core, github, context, exec, io, getOctokit);
             const { main } = require(path.join(actionsDir, 'run_validate_workflows.cjs'));
             await main();
-
-  compile-workflows:
-    name: Compile workflows
-    if: ${{ (!(github.event.repository.fork)) && (github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call' || inputs.operation == '' || inputs.operation == 'none') }}
-    runs-on: ubuntu-slim
-    concurrency:
-      group: ${{ github.workflow }}-compile-workflows-${{ github.repository }}
-      cancel-in-progress: true
-    # Detect drift by reading sources and open a tracking issue when necessary.
-    permissions:
-      contents: read
-      issues: write # Create or update issues and comments.
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build gh-aw
-        run: make build
-
-      - name: Pre-compile validation
-        run: |
-          ./gh-aw compile --validate --no-emit --verbose
-          echo "✓ Pre-compile validation passed"
-
-      - name: Compile workflows
-        run: |
-          ./gh-aw compile --validate --verbose
-          echo "✓ All workflows compiled successfully"
-
-      - name: Setup Scripts
-        uses: ./actions/setup
-        with:
-          destination: ${{ runner.temp }}/gh-aw/actions
-
-      - name: Check for out-of-sync workflows and create issue or pull request if needed
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        with:
-          script: |
-            const path = require('path');
-            const actionsDir = path.join(process.env.RUNNER_TEMP, 'gh-aw', 'actions');
-            const { setupGlobals } = require(path.join(actionsDir, 'setup_globals.cjs'));
-            setupGlobals(core, github, context, exec, io, getOctokit);
-            const { main } = require(path.join(actionsDir, 'check_workflow_recompile_needed.cjs'));
-            await main();
-
-  secret-validation:
-    name: Validate secrets
-    if: ${{ (!(github.event.repository.fork)) && github.event_name != 'push' && (github.event_name != 'workflow_dispatch' && github.event_name != 'workflow_call' || inputs.operation == '' || inputs.operation == 'none') }}
-    runs-on: ubuntu-slim
-    # Read repository scripts to check configured integration secrets without write access.
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout actions folder
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          sparse-checkout: |
-            actions
-          clean: false
-          persist-credentials: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '22'
-
-      - name: Setup Scripts
-        uses: ./actions/setup
-        with:
-          destination: ${{ runner.temp }}/gh-aw/actions
-
-      - name: Validate Secrets
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        env:
-          # GitHub tokens
-          GH_AW_GITHUB_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
-          GH_AW_GITHUB_MCP_SERVER_TOKEN: ${{ secrets.GH_AW_GITHUB_MCP_SERVER_TOKEN }}
-          GH_AW_PROJECT_GITHUB_TOKEN: ${{ secrets.GH_AW_PROJECT_GITHUB_TOKEN }}
-          GH_AW_COPILOT_TOKEN: ${{ secrets.GH_AW_COPILOT_TOKEN }}
-          # AI Engine API keys
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
-          # Integration tokens
-          NOTION_API_TOKEN: ${{ secrets.NOTION_API_TOKEN }}
-        with:
-          script: |
-            const path = require('path');
-            const actionsDir = path.join(process.env.RUNNER_TEMP, 'gh-aw', 'actions');
-            const { setupGlobals } = require(path.join(actionsDir, 'setup_globals.cjs'));
-            setupGlobals(core, github, context, exec, io, getOctokit);
-            const { main } = require(path.join(actionsDir, 'validate_secrets.cjs'));
-            await main();
-
-      - name: Upload secret validation report
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: secret-validation-report
-          path: secret-validation-report.md
-          retention-days: ${{ vars.GH_AW_DEFAULT_ARTIFACT_RETENTION_DAYS || '30' }}
-          if-no-files-found: warn
 
   ledger_compaction_plan:
     name: Plan ledger compaction
@@ -878,16 +703,8 @@ jobs:
       plan_1_created: ${{ steps.plan_1.outputs.plan_created }}
       plan_2_created: ${{ steps.plan_2.outputs.plan_created }}
     steps:
-      - name: Checkout actions folder
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          sparse-checkout: |
-            actions
-          clean: false
-          persist-credentials: false
-
       - name: Setup Scripts
-        uses: ./actions/setup
+        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
@@ -1072,16 +889,8 @@ jobs:
     permissions:
       contents: write # Create or update repository contents.
     steps:
-      - name: Checkout actions folder
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          sparse-checkout: |
-            actions
-          clean: false
-          persist-credentials: false
-
       - name: Setup Scripts
-        uses: ./actions/setup
+        uses: github/gh-aw/actions/setup@7abff6aed2f9c1c349c16c69579d4dde5266fe1b # 7abff6aed2f9c1c349c16c69579d4dde5266fe1b
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
 
