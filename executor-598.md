@@ -4,24 +4,29 @@ issue: #598
 branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (old impl; DO NOT build on it)
 pr: #599 superseded (draft); human must close. No new PR until spec + plan approved.
 phase: spec (human-directed: spec -> implementation plan -> implementation)
-checkpoint: wait for @eedorenko feedback on spec v1 (run 44637560711). Then finalize spec -> post implementation plan -> wait approval -> implement. No code before approval.
-runs: 3
+checkpoint: spec v2 posted (run 44640825219) with all open decisions resolved by me ("your call"). Wait for @eedorenko approval of spec v2. Then post implementation plan (files, generator design, tests, verification) -> wait approval -> implement. No code before both approvals.
+runs: 4
 
 # Understanding
 
-- Human answers (run 3 trigger): scope=all 4 dashboards; Prometheus only (no Loki/Tempo); layout=my call; CAO ref from githubnext/gh-cao; asked to check if gh-aw already has dashboards/specs.
-- gh-aw has NO dashboard JSON/spec. specs/otel-observability-spec.md (v0.7.0) says vendor dashboards out of scope (§1.2). Only Grafana MCP usage in workflows (Daily AIC report, grafana-otel-advisor issues).
-- Upstream spec has moved since old impl: §11.5 built-in metrics use attrs gh-aw.job.name, gh-aw.workflow.name, cicd.pipeline.task.run.result, gh-aw.engine.id, gen_ai.request.model; new counters gen_ai.client.inference.usage.{input,output,cache_read.input,cache_write.input}_tokens (input INCLUDES cache; do not sum with gen_ai.client.token.usage); gen_ai.invoke_agent.duration (hist, explicit buckets, error.type on failure); spec-only (code search finds only spec): gh_aw.ai.credits.usage, gh_aw.adoption.evaluations/resolution.duration/zero_touch. Aliases (gh_aw.run.*, gh_aw.safe_outputs) must not be summed with canonical. Metrics must not carry run IDs (§8.3/11.1) -> no per-run panels. Delta temporality.
-- gh-cao dashboards are NOT Grafana: declarative Dashboard Language (YAML/JSON IR): queries -> pages -> views; marks metric/table/line/pie/swimlane/treemap; <=4 essential views/page; summary-first; essential vs supplemental disclosure; units declared (AIC); missing != zero; data from `gh aw logs` JSONL. Files: .github/skills/dashboard-authoring/SKILL.md, generate-dashboard-ir/corpus/examples/*.dashboard.yml (workflow-cost-inventory, failed-run-investigation, triage-review-readiness, workflow-hardening-attainment), .github/cao/instructions/dashboard-analysis.md.
+- Human: scope=all 4 dashboards; Prometheus only; layout my call; CAO ref from githubnext/gh-cao; "your call on all bullets. Update the spec" (run 4 trigger).
+- gh-aw has NO dashboard JSON/spec. Upstream specs/otel-observability-spec.md v0.7.0 §1.2 vendor dashboards out of scope. Local external/gh-aw checkout is STALE (v0.5.0) - read upstream via github MCP get_file_contents (saved to tmp, parse with python).
+- Metric contract §11.5 (Tier A): gh_aw.job.duration (hist s; attrs gh-aw.job.name, gh-aw.workflow.name, cicd.pipeline.task.run.result, gh-aw.engine.id, gen_ai.request.model), gh_aw.job.errors, gen_ai.client.inference.usage.{input,output,cache_read.input,cache_write.input}_tokens (input INCLUDES cache; attrs op name, provider, modality, model, job, workflow), gen_ai.invoke_agent.duration (hist, bucket list, agent.name, error.type), gh_aw.agent.turns (job, workflow only), gh_aw.tool_calls (+gh-aw.tool.status), gh_aw.workflow.output.items (+gh-aw.safe_output.type), gh_aw.ai.credits.limit_exceeded/rate_limit_errors, gh_aw.otlp.export.failures (+gh-aw.otlp.endpoint.class, failure.class). Aliases gh_aw.run.*, gh_aw.safe_outputs, gen_ai.client.token.usage must not be summed with canonical. Tier B (§11.3 only): gh_aw.ai.credits.usage, gh_aw.adoption.{evaluations,resolution.duration,zero_touch}. No run/job IDs as dims. Delta temporality -> collector deltatocumulative.
+- Prometheus names (to verify vs real collector, #581): dots->_, unit suffix _seconds, counters _total, {unit} dropped, hist _bucket/_sum/_count.
+- gh-cao: Dashboard Language (queries->pages->views), <=4 essential views/page, summary-first, supplemental disclosure, units, missing != zero.
 - Tool limits: no close_pull_request safe output.
 
 # Plan
 
-1 spec v1 (posted) -> iterate -> 2 implementation plan -> 3 implementation (new PR, branch executor/598-...; sync branch rule). Proposed layout: specs/grafana-dashboards-spec.md, observability/grafana/{definitions,dashboards,alerts,README}.
+1 spec v2 (posted) -> approval -> 2 implementation plan -> approval -> 3 implementation (new PR on executor/598-..., sync branch rule).
 
-# Decisions
+# Decisions (all chosen by me per "your call")
 
-- Spec lives in issue comments until approved. Tier A (implemented) vs Tier B (spec-only, verify) metric labelling in panels. Tokens-first cost; credits panels guarded. Recommend definitions-file + generator.
+- Cost: tokens first; est. cost via price vars ($price_in/out/cache_read/cache_write per 1M, default 0 -> "set prices" hint); credits in collapsed Tier B row.
+- Definitions YAML + zero-dep Node generator -> JSON committed; CI/test checks JSON up to date.
+- Layout: specs/grafana-dashboards-spec.md + observability/grafana/{README,definitions,dashboards,alerts,METRICS-PROPOSAL.md,tools}.
+- Tier B: collapsed, tagged rows; no alerts on Tier B.
+- Variable applicability matrix: $engine/$model only on duration/token series.
 
 # Failed approaches
 
@@ -29,6 +34,6 @@ runs: 3
 
 # Run log
 
-- Run 1: built impl + PR #599 (superseded).
 - Run 2: steered; spec v0 posted.
-- Run 3 (44637560711): researched gh-aw + gh-cao; posted spec v1 with answers.
+- Run 3 (44637560711): research; spec v1.
+- Run 4 (44640825219): re-verified §11 upstream; posted spec v2 with decisions resolved.
