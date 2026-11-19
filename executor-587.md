@@ -2,24 +2,24 @@
 
 issue: #587
 branch: executor/587-test-verify-durable-mode-after-gh-aw-78853-fix
-pr: requested run 44596788745 (prior attempt failed unsigned push -> fallback issue #588)
+pr: #590 (open, In Review)
 phase: verification
-checkpoint: confirm PR exists, wait for review/APPROVED, then merge_pr, then post-merge verify
-runs: 2
+checkpoint: Copilot review (COMMENTED, 1 low thread: overclaim) addressed in run 3 commit; wait for @reviewer APPROVED review, then merge_pr, then post-merge verify
+runs: 3
 
 # Understanding
 
-Docs-only task: docs/durable-test.md summarizing durable mode. Trivial, no tests.
+Docs-only: docs/durable-test.md. No tests. Durable verification itself is pending (run 44595466518 had checkpoint validation failure).
 
 # Decisions
 
-Recreated branch from origin/main with same file since prior push was rejected (unsigned commit).
+Doc now says verification pending rather than claiming success.
 
 # Failed approaches
 
-Run 1 create_pull_request failed: pushSignedCommits refused unsigned push (issue #588).
+Run 1 create_pull_request failed on unsigned push (#588).
 
 # Run log
 
-1: created file, PR fallback to #588.
-2: recreated branch/commit, retried create_pull_request, moved to In Review.
+2: recreated branch, PR #590 created.
+3: addressed Copilot review overclaim; pushed.
