@@ -1,38 +1,35 @@
 # State
 
 issue: #598
-branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (old impl; DO NOT build on it; on implementation start, branch fresh from origin/main per sync rule)
-pr: #599 superseded (draft); human must close. No new PR until implementation plan approved.
-phase: implementation plan (spec v2+v3 APPROVED by @eedorenko in comment 'approved' 2026-11-20T17:38)
-checkpoint: impl plan v2 posted incl. chunk 4 (k3d/ngrok live validation, human-run). Wait for @eedorenko 'approved' + answers to 3 questions (access method, Grafana API token, collector in k3d?). Then implement in chunks: (1) generator+name map+tests, (2) 4 definitions + generated JSON, (3) alerts+README+METRICS-PROPOSAL+spec file, then verify, then ONE PR "[Executor #598] ..." -> move to In Review.
-runs: 7
+branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (fresh from origin/main in run 8, 1 commit 05ab821d)
+pr: draft PR opened run 8 ("[Executor #598] ..."); old #599 closed by human. Check list_pull_requests for the number.
+phase: verification (live k3d validation by human)
+checkpoint: Wait for @eedorenko to run tools/smoke-test.mjs (and/or paste `curl $PROM/api/v1/label/__name__/values` + label names) and report. Then fix name-map/label/query errors in definitions/common.mjs or definitions/*.mjs, run `node observability/grafana/tools/generate.mjs`, `npm test`, push_to_pull_request_branch. When validated, mark PR ready / move issue to In Review. Issue board status still In Progress until validated.
+runs: 8
 
 # Understanding
 
-- Approved spec = comments #9 (spec v2) + #11 (v3 delta) on issue #598; re-read them via issue_read get_comments if details needed (4 dashboards, panels/queries, variables, alerts, layout).
-- gh-aw has NO dashboard JSON/spec. Local external/gh-aw checkout STALE (v0.5.0); read upstream (github/gh-aw specs/otel-observability-spec.md v0.7.0 §11.5, actions/setup/js/otlp_metrics.cjs) via github MCP.
-- Metrics (Prom names, expected): gh_aw_job_duration_seconds_{bucket,sum,count} (gh_aw_workflow_name, gh_aw_job_name, cicd_pipeline_task_run_result, gh_aw_engine_id, gen_ai_request_model); gh_aw_job_errors_total; gen_ai_client_inference_usage_{input,output,cache_read_input,cache_write_input}_tokens_total (input INCLUDES cache); gen_ai_invoke_agent_duration_seconds_*(error_type); gh_aw_agent_turns_*; gh_aw_tool_calls_total (gh_aw_tool_status ok|error); gh_aw_workflow_output_items_total (gh_aw_safe_output_type); gh_aw_ai_credits_{limit_exceeded,rate_limit_errors}_total; gh_aw_otlp_export_failures_total. Tier B (not emitted): gh_aw_ai_credits_usage_total.
-- Final: METRICS-PROPOSAL.md has 2 items (emit credits.usage; explicit buckets for agent.turns [1,2,3,5,8,13,21,34,55,89,144]) + note on job.duration buckets + "answered by existing signals" list.
-- GH Actions links via $gh_repo textbox var: https://github.com/$gh_repo/actions?query=workflow:"${__field.labels.gh_aw_workflow_name}".
-- Repo: node 24, `npm test` = node --test src/**/*.test.js; no deps; no specs/ or observability/ dirs yet. Tool limits: no close_pull_request safe output.
+- Approved spec = specs/grafana-dashboards-spec.md in branch (consolidated). 4 dashboards: gh-aw-operations-overview, -agent-performance, -cost-efficiency, -reliability (uids = filenames).
+- Layout: observability/grafana/{definitions/common.mjs (METRICS name map, LABELS, helpers sel/inc/sum/ratio/quantile/costExpr), definitions/*.mjs, dashboards/*.json generated, alerts/alerts.rules.yml, tools/generate.mjs, generate.test.js (32 tests), smoke-test.mjs, seed-metrics.mjs, README, METRICS-PROPOSAL}. package.json test script includes observability/**/*.test.js.
+- Human-confirmed Prom names (canonical): gh_aw_job_duration_seconds_*, gh_aw_agent_turns_*, gh_aw_job_errors_total, gh_aw_tool_calls_total, gh_aw_workflow_output_items_total, gh_aw_otlp_export_failures_total, gen_ai_invoke_agent_duration_seconds_*, gen_ai_client_inference_usage_{input,output,cache_read_input,cache_write_input}_tokens_total. gh_aw_ai_credits_usage_total NOT present (Tier B). Labels NOT yet verified against real series.
+- Human collector (otelcol-contrib 0.164, monitoring ns) needs `delta_to_cumulative` processor; prometheus exporter on :8889; fixed by human.
+- Smoke test: GRAFANA_URL, GRAFANA_TOKEN, PROM_DS_UID env; human runs it; verified only against a mock server here.
+- Sandbox notes: `kill %1`/pkill-style kill blocked; use async bash + stop_bash. spawnSync deadlocks mock servers.
 
 # Plan
 
-Impl plan proposes: definitions as .mjs modules (not YAML: zero-dep Node can't parse YAML) -> tools/generate.mjs -> dashboards/*.json; tests in observability/grafana/tools/*.test.js; add to package.json test script.
+Done: chunks 1-3 + smoke test + seeder + docs. Remaining: live validation feedback loop, fixes, mark ready.
 
 # Decisions
 
-- Run 7: human asked for k3d (Prometheus+Grafana, via ngrok) testing. Executor sandbox is firewalled (no outbound to ngrok; no secrets) -> build tools/smoke-test.mjs (zero-dep, human-run: imports dashboards via Grafana HTTP API, runs every panel query against Prometheus, reports errors/no-data) + optional tools/seed-metrics.mjs (synthetic exposition endpoint). Human runs it and pastes output; I iterate on fixes. Do not probe kubectl/network.
-
-- Cost: tokens first, price vars default 0. Tier B collapsed rows, no alerts on Tier B. Stage here, final home github/gh-aw. Deviation from spec: .mjs not YAML (flagged in plan comment).
+- .mjs definitions not YAML (approved). Tokens-first cost with price vars. Tier B collapsed, no alerts. Draft PR opened before live validation because human needs the code; issue stays In Progress until validated.
+- Cost expr uses label_replace + `or` to keep four terms distinct; cache terms use (price_cache - price_in) because input includes cache.
 
 # Failed approaches
 
-- Building everything in one run (rejected by human). CAO rendered site not fetchable.
+- Building everything in one run (rejected earlier). CAO site not fetchable. promtool not installed.
 
 # Run log
 
-- Run 7: added k3d/ngrok validation chunk to plan; asked 3 questions.
-- Run 6: spec approved; posted implementation plan, awaiting approval.
-- Run 5: answered gap question; verified upstream code; spec v3 delta.
-- Run 4: spec v2.
+- Run 8: implemented everything, 108 tests pass, draft PR opened, awaiting human live validation.
+- Run 7: k3d plan amendment. Run 6: impl plan. Run 5: spec v3. Run 4: spec v2.
