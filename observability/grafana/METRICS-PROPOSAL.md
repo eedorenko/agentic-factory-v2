@@ -15,8 +15,7 @@ Gaps found while designing the Grafana dashboards, checked against gh-aw
 The spec defines it (§11.3) but `otlp_metrics.cjs` only emits `gh_aw.ai.credits.limit_exceeded`
 and `gh_aw.ai.credits.rate_limit_errors`. Without it, cost can only be estimated from tokens
 times user-set prices. A real credit counter gives provider-independent cost and enables the
-Tier B panels already in the Cost & Efficiency dashboard ("Credits consumed", "Credits per
-safe-output item", "Credits per hour").
+Tier B panels in the workflow drilldown ("Credits per hour", "Credits per safe-output item").
 
 ## 2. Explicit histogram buckets for `gh_aw.agent.turns`
 
@@ -30,6 +29,18 @@ high end.
 
 Defaults are `[1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600]` seconds. That is fine for p50 and
 p95 up to one hour; only jobs longer than an hour are coarse. Low priority.
+
+## Gaps surfaced by the SLO/SLI design
+
+The SLO dashboards define five happiness factors (see `specs/grafana-dashboards-spec.md`).
+Some SLIs cannot be measured from today's OTEL metrics.
+
+| # | Gap | Factor | Why it matters | Proposal |
+| --- | --- | --- | --- | --- |
+| G1 | Event -> run-start latency and issue stage dwell time | Responsiveness | "Issues move through the pipeline and do not go stale" is the core responsiveness expectation; R1 only measures job duration. | Not in OTEL. Needs a GitHub Projects/Events datasource, or a histogram `gh_aw.run.start_latency` (seconds from triggering event to the first job starting). |
+| G2 | Rework cycles (re-opened PRs, repeated "changes requested") | Quality | Q1-Q3 see failed runs but not work that completed and was then rejected. | GitHub data. Could be a counter `gh_aw.workflow.rework` with the safe-output type as attribute. |
+| G3 | Run id exemplars on duration and error metrics | all | The commit tier can only link to a workflow's run list, not the exact run. | Attach the run id as an OTLP exemplar on `gh_aw.job.duration` and `gh_aw.job.errors` (not a label: cardinality). |
+| G4 | Explicit `timed_out` result value | Availability | A2 (timeout ratio) reads 0 until a timeout is emitted; no `timed_out` has appeared in real data yet. | Confirm `cicd.pipeline.task.run.result="timed_out"` is emitted when a job hits its timeout. |
 
 ## Answered by existing signals (do not re-propose)
 

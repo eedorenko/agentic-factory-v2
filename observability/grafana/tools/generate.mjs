@@ -5,14 +5,14 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { VARIABLES, TEXTBOX_VARIABLES, VARIABLE_NAMES, ACTIONS_LINK } from '../definitions/common.mjs';
-import operations from '../definitions/operations-overview.mjs';
-import agent from '../definitions/agent-performance.mjs';
-import cost from '../definitions/cost-efficiency.mjs';
-import reliability from '../definitions/reliability.mjs';
+import { SLO_DASHBOARDS } from '../definitions/slo-dashboards.mjs';
+import drilldown from '../definitions/workflow-drilldown.mjs';
+import { alertRulesYaml } from '../definitions/slo.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const DASHBOARD_DIR = join(here, '..', 'dashboards');
-export const DEFINITIONS = [operations, agent, cost, reliability];
+export const ALERTS_FILE = join(here, '..', 'alerts', 'alerts.rules.yml');
+export const DEFINITIONS = [...SLO_DASHBOARDS, drilldown];
 
 const DS = { type: 'prometheus', uid: '${ds}' };
 const GRID_WIDTH = 24;
@@ -20,6 +20,7 @@ const GRID_WIDTH = 24;
 export function panelDescription(panel) {
   const tier = panel.tier === 'B' ? 'Tier B: not emitted by gh-aw yet' : 'Tier A: emitted by gh-aw';
   const lines = [`Question: ${panel.question}`, `Metrics: ${tier}.`];
+  if (panel.slis?.length) lines.push(`SLI: ${panel.slis.join(', ')}.`);
   if (panel.ignores) lines.push(`Ignores variables: ${panel.ignores}.`);
   if (panel.note) lines.push(panel.note);
   return lines.join('\n');
@@ -38,10 +39,12 @@ function fieldConfig(panel) {
   if (panel.thresholds) {
     defaults.thresholds = {
       mode: 'absolute',
-      steps: [{ color: 'green', value: null }, ...panel.thresholds.map(([value, color]) => ({ color, value }))],
+      steps: [{ color: panel.thresholdBase ?? 'green', value: null }, ...panel.thresholds.map(([value, color]) => ({ color, value }))],
     };
   }
-  if (panel.link) defaults.links = [panel.link];
+  if (panel.mappings) defaults.mappings = panel.mappings;
+  const links = panel.links ?? (panel.link ? [panel.link] : []);
+  if (links.length) defaults.links = links;
   const custom = {};
   if (panel.viz === 'timeseries') {
     Object.assign(custom, { drawStyle: 'line', lineWidth: 1, fillOpacity: panel.stack ? 20 : 8, showPoints: 'never', spanNulls: false });
@@ -57,7 +60,7 @@ function options(panel) {
       return {
         reduceOptions: { calcs: ['lastNotNull'], fields: '', values: false },
         colorMode: panel.thresholds ? 'background' : 'none',
-        graphMode: 'none',
+        graphMode: panel.sparkline ? 'area' : 'none',
         textMode: panel.textMode || 'auto',
         orientation: 'auto',
       };
@@ -74,6 +77,16 @@ function options(panel) {
         pieType: 'donut',
         legend: { displayMode: 'table', placement: 'right', values: ['value'] },
       };
+    case 'heatmap':
+      return {
+        calculate: false,
+        cellGap: 1,
+        color: { mode: 'scheme', scheme: 'Spectral', scale: 'exponential', exponent: 0.5, steps: 64, reverse: false },
+        yAxis: { axisPlacement: 'left', unit: panel.unit },
+        legend: { show: true },
+        tooltip: { show: true, yHistogram: false },
+        rowsFrame: { layout: 'auto' },
+      };
     case 'table':
       return { showHeader: true, cellHeight: 'sm', sortBy: panel.sortBy ? [panel.sortBy] : [] };
     case 'timeseries':
@@ -88,7 +101,7 @@ function options(panel) {
 
 function buildPanel(panel, id, gridPos) {
   const isTable = panel.viz === 'table';
-  const instant = panel.instant ?? ['stat', 'bargauge', 'piechart', 'table'].includes(panel.viz);
+  const instant = panel.instant ?? (['stat', 'bargauge', 'piechart', 'table'].includes(panel.viz) && !panel.sparkline);
   const targets = panel.targets.map((t, i) => ({
     datasource: DS,
     refId: String.fromCharCode(65 + i),
@@ -97,6 +110,7 @@ function buildPanel(panel, id, gridPos) {
     instant,
     range: !instant,
     ...(isTable ? { format: 'table' } : {}),
+    ...(panel.viz === 'heatmap' ? { format: 'heatmap' } : {}),
   }));
   const out = {
     id,
@@ -110,17 +124,26 @@ function buildPanel(panel, id, gridPos) {
     options: options(panel),
   };
   if (isTable && panel.transformations) out.transformations = panel.transformations;
-  if (isTable && panel.overrides) out.fieldConfig.overrides = panel.overrides;
+  if (panel.overrides) out.fieldConfig.overrides = panel.overrides;
   return out;
 }
 
-function layoutRow(panels, nextId, y) {
+// Panels flow left to right and wrap at the grid width. A panel with `at: {x, y}` is placed
+// explicitly (relative to the section start), which the glance dashboard uses for its factor columns.
+function layoutRow(panels, nextId, startY) {
   const built = [];
+  let y = startY;
   let x = 0;
   let rowHeight = 0;
+  let fixedBottom = 0;
   for (const p of panels) {
     const w = p.w ?? 12;
     const h = p.h ?? 8;
+    if (p.at) {
+      built.push(buildPanel(p, nextId.value++, { x: p.at.x, y: startY + p.at.y, w, h }));
+      fixedBottom = Math.max(fixedBottom, p.at.y + h);
+      continue;
+    }
     if (x + w > GRID_WIDTH) {
       y += rowHeight;
       x = 0;
@@ -130,7 +153,7 @@ function layoutRow(panels, nextId, y) {
     x += w;
     rowHeight = Math.max(rowHeight, h);
   }
-  return { built, nextY: y + rowHeight };
+  return { built, nextY: Math.max(y + rowHeight, startY + fixedBottom) };
 }
 
 function rowPanel(title, id, y, collapsed, children) {
@@ -189,29 +212,25 @@ function templating(def) {
   return { list };
 }
 
+// A section without a title is laid out inline; a titled one gets a row header and may be collapsed.
 export function buildDashboard(def) {
   const nextId = { value: 1 };
   const panels = [];
   let y = 0;
 
-  const summary = layoutRow(def.summary, nextId, y);
-  panels.push(...summary.built);
-  y = summary.nextY;
-
-  const main = layoutRow(def.main, nextId, y);
-  panels.push(...main.built);
-  y = main.nextY;
-
-  for (const [title, group, collapsedDefault] of [
-    ['Supplemental', def.supplemental ?? [], true],
-    ['Tier B: not emitted yet', def.tierB ?? [], true],
-  ]) {
-    if (!group.length) continue;
+  for (const section of def.sections) {
+    if (!section.panels.length) continue;
+    if (!section.title) {
+      const laid = layoutRow(section.panels, nextId, y);
+      panels.push(...laid.built);
+      y = laid.nextY;
+      continue;
+    }
     const rowId = nextId.value++;
-    const children = layoutRow(group, nextId, y + 1);
-    panels.push(rowPanel(title, rowId, y, collapsedDefault, children.built));
+    const children = layoutRow(section.panels, nextId, y + 1);
+    panels.push(rowPanel(section.title, rowId, y, Boolean(section.collapsed), children.built));
     y += 1;
-    if (!collapsedDefault) {
+    if (!section.collapsed) {
       panels.push(...children.built);
       y = children.nextY;
     }
@@ -231,7 +250,10 @@ export function buildDashboard(def) {
     time: { from: 'now-7d', to: 'now' },
     templating: templating(def),
     annotations: { list: [] },
-    links: [{ ...ACTIONS_LINK, title: 'GitHub Actions', url: 'https://github.com/${gh_repo}/actions', type: 'link', icon: 'external link' }],
+    links: [
+      { type: 'dashboards', title: 'gh-aw dashboards', tags: ['gh-aw'], asDropdown: true, includeVars: true, keepTime: true },
+      { ...ACTIONS_LINK, title: 'GitHub Actions', url: 'https://github.com/${gh_repo}/actions', type: 'link', icon: 'external link' },
+    ],
     panels,
   };
 }
@@ -242,12 +264,17 @@ export function generateAll() {
   return DEFINITIONS.map((def) => ({ file: `${def.uid}.json`, content: serialize(buildDashboard(def)) }));
 }
 
+export const generateAlerts = () => alertRulesYaml();
+
 function main() {
   const check = process.argv.includes('--check');
   let stale = 0;
   if (!check) mkdirSync(DASHBOARD_DIR, { recursive: true });
-  for (const { file, content } of generateAll()) {
-    const path = join(DASHBOARD_DIR, file);
+  const outputs = [
+    ...generateAll().map(({ file, content }) => ({ label: `dashboards/${file}`, path: join(DASHBOARD_DIR, file), content })),
+    { label: 'alerts/alerts.rules.yml', path: ALERTS_FILE, content: generateAlerts() },
+  ];
+  for (const { label, path, content } of outputs) {
     if (check) {
       let existing = '';
       try {
@@ -256,12 +283,12 @@ function main() {
         // missing counts as stale
       }
       if (existing !== content) {
-        console.error(`STALE: ${file}`);
+        console.error(`STALE: ${label}`);
         stale++;
       }
     } else {
       writeFileSync(path, content);
-      console.log(`wrote dashboards/${file}`);
+      console.log(`wrote ${label}`);
     }
   }
   if (check) {
@@ -269,7 +296,7 @@ function main() {
       console.error('Run `node observability/grafana/tools/generate.mjs` to regenerate.');
       process.exit(1);
     }
-    console.log('dashboards are up to date');
+    console.log('dashboards and alerts are up to date');
   }
 }
 

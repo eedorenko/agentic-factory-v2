@@ -1,29 +1,42 @@
 # gh-aw Grafana dashboards
 
-Four importable Grafana dashboards for the OpenTelemetry metrics emitted by gh-aw
-(see `specs/grafana-dashboards-spec.md` for the design).
+SLO/SLI-driven Grafana dashboards for the OpenTelemetry metrics emitted by gh-aw
+(see `specs/grafana-dashboards-spec.md` for the design). Dashboards start from what
+operators of agentic workflows expect (happiness factors), derive measurable SLIs and SLO
+thresholds, and are organised **glance -> scan -> commit**.
 
-| Dashboard | Audience | Question |
+| Tier | Dashboard | Question |
 | --- | --- | --- |
-| `gh-aw / Operations Overview` | on-call, maintainers | Is the fleet healthy, slow, and producing work? |
-| `gh-aw / Agent Performance` | workflow authors | How hard do agents work, and where do tokens go? |
-| `gh-aw / Cost & Efficiency` | budget owners | What does it cost, and where is it wasted? |
-| `gh-aw / Reliability` | SRE | What fails, and can the telemetry be trusted? |
+| Glance | `gh-aw / SLO Overview` | Is the fleet meeting expectations right now, and which factor is not? |
+| Scan | `gh-aw / SLO Availability` | Are workflows running, or stuck or dead? Which ones time out? |
+| Scan | `gh-aw / SLO Responsiveness` | Which workflows are slow? |
+| Scan | `gh-aw / SLO Throughput` | Is work getting done, relative to the fleet's own baseline? |
+| Scan | `gh-aw / SLO Quality` | Which workflows fail, error, or end incomplete? |
+| Scan | `gh-aw / SLO Cost efficiency` | Which workflows burn tokens without matching output? |
+| Commit | `gh-aw / Workflow Drilldown` | Why is this workflow violating an SLO? |
+
+Start at the overview. Tiles are green (SLO met), orange (at risk) or red (breached); click a
+factor or tile to scan which workflows violate it, then click a workflow to drill down. The
+SLI definitions and thresholds are tabulated in the spec; the PromQL is in `definitions/slo.mjs`.
 
 ## Layout
 
 ```
-definitions/*.mjs        source of truth (panels, queries, units); common.mjs holds the metric name map
-dashboards/*.json        generated, importable into Grafana (do not edit by hand)
-alerts/alerts.rules.yml  Prometheus alert rules (Tier A metrics only)
-tools/generate.mjs       definitions -> dashboards (`--check` fails when JSON is stale)
-tools/smoke-test.mjs     human-run: import into Grafana and run every query
-tools/seed-metrics.mjs   SYNTHETIC data server for trying the dashboards without real telemetry
-METRICS-PROPOSAL.md      upstream metric gaps
+definitions/slo.mjs              the SLI table (factor, PromQL, SLO, amber margin): source of truth for
+                                 tiles, thresholds, SLO lines and alerts. Edit thresholds here.
+definitions/slo-dashboards.mjs   glance and scan dashboards, generated from the SLI table
+definitions/workflow-drilldown.mjs  commit dashboard
+definitions/common.mjs           metric name map, labels, PromQL helpers, variables
+dashboards/*.json                generated, importable into Grafana (do not edit by hand)
+alerts/alerts.rules.yml          generated Prometheus alert rules, one per breached SLO
+tools/generate.mjs               definitions -> dashboards and alerts (`--check` fails when stale)
+tools/smoke-test.mjs             human-run: import into Grafana and run every query
+tools/seed-metrics.mjs           SYNTHETIC data server for trying the dashboards without real telemetry
+METRICS-PROPOSAL.md              upstream metric gaps (G1-G4)
 ```
 
 Edit a definition, then run `node observability/grafana/tools/generate.mjs`. `npm test` fails
-if the committed JSON is stale.
+if the committed JSON or alert rules are stale.
 
 ## Prerequisites
 
@@ -87,18 +100,24 @@ Input tokens **include** cache tokens, so panels subtract cache to avoid double 
 3. Set the dashboard variables:
    - `$gh_repo` (`owner/name`) powers the "open in GitHub Actions" links. Metrics carry no run
      ids, so links open the workflow's run list, not a single run.
+   - `$slo_window` (default `7d`) is the window the SLIs are evaluated over.
    - `$price_in`, `$price_out`, `$price_cache_read`, `$price_cache_write` (USD per 1M tokens,
-     default 0) drive the estimated-cost panels.
+     default 0) drive the optional estimated-cost panels.
 4. Optional: load `alerts/alerts.rules.yml` as a Prometheus rule file.
+
+The dashboards link to each other by uid and share the `gh-aw` tag, so import all seven.
 
 ## Design rules
 
-- At most 4 summary stats plus 2 main views per dashboard; detail sits in collapsed
-  "Supplemental" rows. Tier B (spec-only) metrics sit in a collapsed row and have no alerts.
-- Every panel's description states the question it answers, its metric tier and which
-  variables it ignores.
+- Every panel traces to a happiness factor, SLI and SLO; its description states the question it
+  answers, the SLI id, the SLO, its metric tier and which variables it ignores.
+- Glance is fleet level (ignores `$workflow`) and fits one screen. Tier B (spec-only) metrics
+  sit in a collapsed row in the drilldown and have no alerts.
 - Missing is not zero: ratios use `a / (b > 0)`, so a quiet fleet shows "No data", not 0%.
-- Totals use `$__range`, trends use `$__rate_interval`.
+- SLIs use `$slo_window`; trends use `$__rate_interval`.
+- Relative SLOs (throughput, token burn) compare against the fleet's own trailing baseline
+  because there is no agreed absolute budget yet. Tune the absolute thresholds after a week of
+  real data.
 
 ## Validating against a live Grafana and Prometheus
 

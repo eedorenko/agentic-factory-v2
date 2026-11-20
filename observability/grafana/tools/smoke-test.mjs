@@ -59,6 +59,7 @@ function expand(expr, vars) {
   return expr
     .replace(/\$__range/g, vars.range)
     .replace(/\$__rate_interval/g, '5m')
+    .replace(/\$\{?slo_window\}?/g, '7d')
     .replace(/\$\{?(price_[a-z_]+)\}?/g, (_, n) => vars.textbox[n] ?? '0')
     .replace(/\$\{?(workflow|job|engine|model|result)\}?/g, '.*');
 }

@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { generateAll, buildDashboard, DEFINITIONS, DASHBOARD_DIR } from './generate.mjs';
+import { generateAll, generateAlerts, buildDashboard, DEFINITIONS, DASHBOARD_DIR, ALERTS_FILE } from './generate.mjs';
+import { SLIS, SLI_BY_ID, FACTORS, GLANCE_IDS, thresholdSteps, fleetExpr } from '../definitions/slo.mjs';
 import { allMetricNames, ALIAS_NAMES, LABELS, VARIABLE_NAMES, TEXTBOX_VARIABLES, METRICS } from '../definitions/common.mjs';
 
 const dashboards = DEFINITIONS.map((def) => ({ def, json: buildDashboard(def) }));
@@ -34,17 +35,164 @@ test('generator output is deterministic', () => {
   assert.deepEqual(generateAll(), generateAll());
 });
 
-test('four dashboards with unique uid and title', () => {
-  assert.equal(dashboards.length, 4);
-  assert.equal(new Set(dashboards.map((d) => d.json.uid)).size, 4);
-  assert.equal(new Set(dashboards.map((d) => d.json.title)).size, 4);
+test('committed alert rules are fresh', () => {
+  assert.equal(readFileSync(ALERTS_FILE, 'utf8'), generateAlerts(), 'alerts.rules.yml is stale; run tools/generate.mjs');
 });
 
-test('essential panels: at most 4 summary stats and 2 main views per dashboard', () => {
-  for (const { def } of dashboards) {
-    assert.ok(def.summary.length <= 4, `${def.uid} summary`);
-    assert.ok(def.main.length <= 2, `${def.uid} main`);
+test('seven dashboards (1 glance, 5 scan, 1 commit) with unique uid and title', () => {
+  assert.equal(dashboards.length, 7);
+  assert.equal(new Set(dashboards.map((d) => d.json.uid)).size, 7);
+  assert.equal(new Set(dashboards.map((d) => d.json.title)).size, 7);
+  assert.deepEqual(dashboards.map((d) => d.json.uid).sort(), [
+    'gh-aw-slo-availability', 'gh-aw-slo-cost', 'gh-aw-slo-overview', 'gh-aw-slo-quality',
+    'gh-aw-slo-responsiveness', 'gh-aw-slo-throughput', 'gh-aw-workflow-drilldown',
+  ]);
+  for (const f of Object.values(FACTORS)) assert.ok(dashboards.some((d) => d.json.uid === f.uid), f.uid);
+});
+
+const byUid = (uid) => dashboards.find((d) => d.json.uid === uid).json;
+
+test('SLI table: every SLI has a factor, query, and a coherent SLO', () => {
+  assert.equal(SLIS.length, 15);
+  assert.equal(new Set(SLIS.map((s) => s.id)).size, SLIS.length);
+  for (const s of SLIS) {
+    assert.ok(FACTORS[s.factor], `${s.id} factor`);
+    assert.equal(typeof s.expr, 'function');
+    if (s.informational) continue;
+    assert.ok(['min', 'max'].includes(s.dir), `${s.id} dir`);
+    assert.equal(typeof s.slo, 'number', `${s.id} slo`);
+    if (s.amber !== undefined) {
+      // Amber sits on the "bad" side of the SLO: lower for floors, higher for ceilings.
+      assert.ok(s.dir === 'min' ? s.amber < s.slo : s.amber > s.slo, `${s.id} amber must be beyond the SLO`);
+    }
   }
+});
+
+test('SLO thresholds from the spec', () => {
+  const t = (id) => [SLI_BY_ID.get(id).dir, SLI_BY_ID.get(id).slo, SLI_BY_ID.get(id).amber];
+  assert.deepEqual(t('A2'), ['max', 0.02, 0.04]);
+  assert.deepEqual(t('R1'), ['max', 1200, 1500]);
+  assert.deepEqual(t('T1'), ['min', 0.6, 0.4]);
+  assert.deepEqual(t('T2'), ['min', 0.5, 0.3]);
+  assert.deepEqual(t('Q1'), ['min', 0.95, 0.9]);
+  assert.deepEqual(t('Q2'), ['min', 0.9, 0.8]);
+  assert.deepEqual(t('Q3'), ['max', 0.05, 0.1]);
+  assert.deepEqual(t('C1'), ['max', 1.5, 2]);
+  assert.deepEqual(t('C2'), ['max', 2, 3]);
+  assert.deepEqual(t('C3'), ['min', 0.4, 0.2]);
+});
+
+test('threshold steps colour the right side of the SLO', () => {
+  const floor = thresholdSteps(SLI_BY_ID.get('Q1'));
+  assert.equal(floor.base, 'red');
+  assert.deepEqual(floor.steps, [[0.9, 'orange'], [0.95, 'green']]);
+  const ceiling = thresholdSteps(SLI_BY_ID.get('Q3'));
+  assert.equal(ceiling.base, 'green');
+  assert.equal(ceiling.steps[0][1], 'orange');
+  assert.ok(ceiling.steps[0][0] > 0.05, 'value exactly at the SLO still counts as met');
+  assert.equal(ceiling.steps[1][1], 'red');
+  const count = thresholdSteps(SLI_BY_ID.get('A4'));
+  assert.deepEqual(count.steps, [[1, 'red']]);
+  assert.equal(thresholdSteps(SLI_BY_ID.get('A3')), null);
+});
+
+test('glance: every tile traces to an SLI with an SLO; one column per factor; one screen', () => {
+  const glance = byUid('gh-aw-slo-overview');
+  const tiles = glance.panels.filter((p) => p.title.match(/^[A-Z]\d /));
+  assert.deepEqual(tiles.map((p) => p.title.split(' ')[0]).sort(), [...GLANCE_IDS].sort());
+  for (const p of tiles) {
+    const sli = SLI_BY_ID.get(p.title.split(' ')[0]);
+    assert.ok(/SLO/.test(p.description) || p.title.includes('('), p.title);
+    assert.match(p.description, new RegExp(`SLI: ${sli.id}\\.`));
+    if (!sli.informational) {
+      assert.equal(p.type, 'stat');
+      assert.ok(p.fieldConfig.defaults.thresholds.steps.length >= 2, `${p.title} thresholds`);
+    }
+    assert.ok(p.fieldConfig.defaults.links[0].url.includes(FACTORS[sli.factor].uid), `${p.title} links to its scan dashboard`);
+  }
+  assert.equal(glance.panels.filter((p) => p.title.startsWith('Telemetry health')).length, 1, 'A4 banner');
+  const factorTiles = glance.panels.filter((p) => Object.values(FACTORS).some((f) => p.title.startsWith(`${f.label}:`)));
+  assert.equal(factorTiles.length, 5);
+  const bottom = Math.max(...glance.panels.map((p) => p.gridPos.y + p.gridPos.h));
+  assert.ok(bottom <= 30, `glance fits on one screen (bottom row ${bottom})`);
+});
+
+test('scan: every panel traces to SLI ids of its own factor; each table is sorted worst-first', () => {
+  for (const [factor, f] of Object.entries(FACTORS)) {
+    const json = byUid(f.uid);
+    const panels = flattenPanels(json).map((x) => x.panel);
+    assert.ok(panels.some((p) => p.type === 'table'), `${f.uid} has a per-workflow table`);
+    assert.ok(panels.some((p) => p.type === 'timeseries' && p.targets.some((t) => t.legendFormat === 'SLO' || /^[A-Z]\d /.test(t.legendFormat))), `${f.uid} has an SLI vs SLO time series`);
+    for (const p of panels) {
+      const m = p.description.match(/SLI: ([A-Z0-9, ]+)\./);
+      assert.ok(m, `${f.uid}/${p.title} has no SLI trace`);
+      for (const id of m[1].split(',').map((x) => x.trim())) {
+        assert.ok(SLI_BY_ID.has(id), `${p.title}: unknown SLI ${id}`);
+        assert.equal(SLI_BY_ID.get(id).factor, factor, `${p.title}: SLI ${id} belongs to another factor`);
+      }
+    }
+    const table = panels.find((p) => p.title.includes('SLIs per workflow'));
+    assert.ok(table.options.sortBy.length === 1, `${f.uid} table sorted`);
+    assert.ok(table.fieldConfig.overrides.some((o) => o.properties.some((x) => x.id === 'links')), `${f.uid} workflow column links to the drilldown`);
+  }
+});
+
+test('scan SLI-vs-SLO series draw the SLO as a dashed line', () => {
+  const q = byUid('gh-aw-slo-quality');
+  const p = flattenPanels(q).map((x) => x.panel).find((x) => x.title.startsWith('Q1 '));
+  assert.ok(p.targets.some((t) => t.expr === 'vector(0.95)' && t.legendFormat === 'SLO'));
+  assert.ok(p.fieldConfig.overrides.some((o) => o.matcher.options === 'SLO' && o.properties.some((x) => x.id === 'custom.lineStyle')));
+});
+
+test('commit: drilldown has workflow/job/model variables and links out to GitHub Actions', () => {
+  const d = byUid('gh-aw-workflow-drilldown');
+  const names = d.templating.list.map((v) => v.name);
+  for (const n of ['workflow', 'job', 'model', 'gh_repo']) assert.ok(names.includes(n), n);
+  assert.ok(d.links.some((l) => l.url === 'https://github.com/${gh_repo}/actions'));
+  const exprs = flattenPanels(d).flatMap(({ panel }) => queriesOf(panel)).join('\n');
+  for (const needle of [LABELS.errorType, 'gh_aw_tool_status', 'gh_aw_safe_output_type', 'gh_aw_agent_turns']) assert.ok(exprs.includes(needle), needle);
+});
+
+test('every dashboard carries the gh-aw tag and a dashboards link for navigation', () => {
+  for (const { json } of dashboards) {
+    assert.ok(json.tags.includes('gh-aw'));
+    assert.ok(json.links.some((l) => l.type === 'dashboards' && l.tags.includes('gh-aw')));
+  }
+});
+
+test('SLO window variable is defined wherever $slo_window is used', () => {
+  for (const { json } of dashboards) {
+    const text = JSON.stringify(json.panels);
+    if (text.includes('$slo_window')) assert.ok(json.templating.list.some((v) => v.name === 'slo_window' && v.query === '7d'), json.uid);
+  }
+});
+
+test('alerts: one rule per SLI alert, thresholds come from the SLI table', () => {
+  const yaml = generateAlerts();
+  const withAlert = SLIS.filter((s) => s.alert);
+  assert.deepEqual(withAlert.map((s) => s.alert.name).sort(), [
+    'GhAwFleetSilent', 'GhAwHighFailureRate', 'GhAwHighIncompleteRate', 'GhAwSlowAgentJobs', 'GhAwTelemetryBroken', 'GhAwTimedOutJobs', 'GhAwTokenBurnSpike',
+  ].sort());
+  for (const s of withAlert) {
+    const block = yaml.split('      - alert: ').find((b) => b.startsWith(s.alert.name));
+    assert.ok(block, s.alert.name);
+    assert.match(block, new RegExp(`sli: ${s.id}`));
+    assert.ok(block.includes(` ${s.dir === 'min' ? '<' : '>'} ${s.slo}`), `${s.alert.name} uses the SLO threshold`);
+    assert.ok(!block.includes('$'), `${s.alert.name} has no dashboard variables`);
+  }
+  assert.ok(!/gh_aw_ai_credits_usage_total/.test(yaml), 'no alerts on Tier B metrics');
+});
+
+test('alert rules where a quiet fleet would misfire require a minimum job count', () => {
+  const yaml = generateAlerts();
+  for (const s of SLIS.filter((x) => x.alert?.minJobs)) {
+    const block = yaml.split('      - alert: ').find((b) => b.startsWith(s.alert.name));
+    assert.match(block, />= \d+\)/, `${s.alert.name} needs a job-count guard`);
+  }
+});
+
+test('fleet queries carry no $workflow filter (glance is fleet level)', () => {
+  for (const s of SLIS) assert.ok(!fleetExpr(s).includes('$workflow'), s.id);
 });
 
 for (const { def, json } of dashboards) {
@@ -128,7 +276,7 @@ for (const { def, json } of dashboards) {
         for (const m of expr.matchAll(/\bby \(([^)]*)\)/g)) {
           for (const l of m[1].split(',').map((s) => s.trim())) assert.ok(knownLabels.has(l), `${panel.title}: unknown label ${l}`);
         }
-        assert.ok(!/\bsuccess\b/.test(expr), `${panel.title}: tool status is "ok"/"error", not "success"`);
+        assert.ok(!/gh_aw_tool_status=~?"success"/.test(expr), `${panel.title}: tool status is "ok"/"error", not "success"`);
         // `increase(...)` / `rate(...)` need a range selector.
         for (const m of expr.matchAll(/\b(?:increase|rate)\(([^()]*(?:\{[^}]*\})?[^()]*)\)/g)) {
           assert.match(m[1], /\[[^\]]+\]/, `${panel.title}: missing range in ${m[0]}`);
@@ -146,24 +294,21 @@ for (const { def, json } of dashboards) {
   });
 }
 
-test('tool-call failure uses status "error"', () => {
-  const agent = dashboards.find((d) => d.def.uid === 'gh-aw-agent-performance').json;
-  const exprs = flattenPanels(agent).flatMap(({ panel }) => queriesOf(panel));
-  assert.ok(exprs.some((e) => e.includes('gh_aw_tool_status="error"')));
+test('tool-call success uses status "ok"; failures use "error"', () => {
+  const exprs = dashboards.flatMap(({ json }) => flattenPanels(json).flatMap(({ panel }) => queriesOf(panel)));
+  assert.ok(exprs.some((e) => e.includes('gh_aw_tool_status="ok"')));
 });
 
 test('input counter is never used as non-cache input without subtracting cache', () => {
-  const agent = dashboards.find((d) => d.def.uid === 'gh-aw-agent-performance').json;
-  const panel = flattenPanels(agent).find(({ panel: p }) => p.title === 'Tokens by type').panel;
+  const cost = byUid('gh-aw-slo-cost');
+  const panel = flattenPanels(cost).find(({ panel: p }) => p.title === 'Tokens per hour by type').panel;
   assert.match(panel.targets[0].expr, /clamp_min\(.*cache_read.*cache_write/);
 });
 
-test('workflow-level panels link to GitHub Actions via $gh_repo', () => {
+test('workflow-level dashboards link to GitHub Actions via $gh_repo', () => {
   for (const { json } of dashboards) {
     assert.ok(json.links.some((l) => l.url === 'https://github.com/${gh_repo}/actions'));
   }
-  const ops = flattenPanels(dashboards[0].json).find(({ panel }) => panel.title.startsWith('Failure rate by workflow')).panel;
-  assert.match(ops.fieldConfig.defaults.links[0].url, /actions\?query=workflow:/);
 });
 
 test('metrics map covers every metric declared by definitions', () => {

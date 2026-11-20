@@ -141,6 +141,7 @@ export const VARIABLES = {
 };
 
 export const TEXTBOX_VARIABLES = {
+  slo_window: { label: 'SLO window (e.g. 7d)', default: '7d' },
   gh_repo: { label: 'GitHub repo (owner/name)', default: 'github/gh-aw' },
   price_in: { label: 'Price: input (USD / 1M tokens)', default: '0' },
   price_out: { label: 'Price: output (USD / 1M tokens)', default: '0' },

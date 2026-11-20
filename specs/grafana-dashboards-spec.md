@@ -1,96 +1,98 @@
-# gh-aw Grafana dashboards: spec
+# gh-aw Grafana dashboards: SLO/SLI spec
 
-Status: approved design (issue #598). Stage in `eedorenko/agentic-factory-v2`; final home is
+Status: SLO/SLI redesign approved on issue #598 (supersedes the four audience dashboards). Stage in `eedorenko/agentic-factory-v2`; final home is
 `github/gh-aw` (`specs/` and `observability/grafana/`). Implementation lives in
 `observability/grafana/`; see its README for usage.
 
 Source metrics: gh-aw `specs/otel-observability-spec.md` v0.7.0 and
 `actions/setup/js/otlp_metrics.cjs`.
 
-## 1. Decisions
+## 1. Principle
+
+Each dashboard answers "are the people relying on gh-aw happy?", not "what metrics exist?".
+Every panel traces to a happiness factor -> SLI -> SLO. The flow is glance -> scan -> commit.
+
+- **Prometheus metrics only.** Issue-board signals (stage dwell, rework) need GitHub data and are listed as gaps G1/G2, not invented SLIs.
+- **No baseline yet.** Thresholds are initial defaults to tune after a week of real data. Where a fixed number would be a guess, the SLO is relative to the fleet's own trailing baseline (T1, C1, C2).
+- SLO window is `$slo_window` (default `7d`). Tile colours: green = SLO met, orange = within the amber margin, red = breached.
+
+## 2. Decisions
 
 | Topic | Decision |
 | --- | --- |
-| Cost | Tokens first. Estimated cost = tokens x price variables (`$price_in`, `$price_out`, `$price_cache_read`, `$price_cache_write`, USD per 1M tokens, default 0). Credit panels sit in a collapsed Tier B row. |
-| Source of truth | Definitions in `observability/grafana/definitions/*.mjs` (not YAML: Node has no built-in YAML parser). A zero-dependency script generates the importable JSON; a test fails if committed JSON is stale. |
-| Tier B metrics | Defined in the spec but not emitted. Shown in collapsed rows tagged "Tier B: not emitted yet"; no alerts. |
-| CAO | Mirror its design rules, not its visuals. |
-| Links | `$gh_repo` variable; workflow-level panels link to the workflow's GitHub Actions run list. |
+| Source of truth | `definitions/slo.mjs` holds one SLI table (id, factor, PromQL, SLO, amber margin, unit). Glance tiles, scan thresholds, SLO lines and alert rules are all generated from it, so a threshold change is one edit. |
+| Definitions | `.mjs`, not YAML. `tools/generate.mjs` writes the dashboard JSON and `alerts/alerts.rules.yml`; a test fails if either is stale. |
+| Cost | Tokens first. Relative SLOs (C1, C2) avoid guessing absolute budgets. Estimated dollars remain an optional panel (`$price_*`, USD per 1M tokens, default 0), not an SLO. Credit panels are Tier B. |
+| Tier B | Defined upstream but not emitted (`gh_aw_ai_credits_usage_total`). Collapsed row in the drilldown, no alerts. |
+| Links | `$gh_repo`; scan rows link to the commit tier, the commit tier links to the workflow's GitHub Actions run list (metrics carry no run id). |
 
-## 2. Design rules
+## 3. Happiness factors, SLIs, SLOs
 
-1. At most 4 summary panels and 2 main views per dashboard; detail in collapsed "Supplemental" rows.
-2. Each panel's description holds the question it answers, its metric tier, and ignored variables.
-3. Each panel declares a unit.
-4. Missing is not zero. Ratios use `a / (b > 0)`; no null-as-zero.
-5. Canonical names only; never `gh_aw_run_*`, `gh_aw_safe_outputs`, `gen_ai_client_token_usage` or `gh_aw_tokens_*`.
-6. No per-run drill-down: metrics carry no run ids.
+| Factor | Happy when | SLI | Definition | SLO | Amber |
+| --- | --- | --- | --- | --- | --- |
+| Availability | workflows run and are not stuck | A1 Fleet liveness | jobs reported in the last 6h | >= 1 | n/a |
+| | | A2 Timeout ratio | `timed_out` jobs / non-cancelled jobs | <= 2% | <= 4% |
+| | | A3 Silent workflows | active in 7d but silent in 24h | informational | n/a |
+| | | A4 Telemetry health | OTLP export failures in 1h (trust gate) | 0 | n/a |
+| Responsiveness | work finishes promptly | R1 Agent job p95 | p95 of `agent` job duration | <= 20 min | <= 25 min |
+| | | R2 Agent job p50 | median | informational | n/a |
+| Throughput | runs are productive | T1 Throughput vs baseline | successful agent runs, 24h / 7d daily average | >= 60% | >= 40% |
+| | | T2 Productive outputs per run | non-`noop` safe outputs / agent runs | >= 0.5 | >= 0.3 |
+| Quality | low failure rate | Q1 Job success ratio | successful / non-cancelled jobs | >= 95% | >= 90% |
+| | | Q2 Tool call success ratio | `ok` / all tool calls | >= 90% | >= 80% |
+| | | Q3 Incomplete-run rate | `report_incomplete` outputs / agent runs | <= 5% | <= 10% |
+| Cost efficiency | reasonable burn | C1 Tokens per output vs baseline | 7d tokens-per-output / 28d | <= 1.5x | <= 2x |
+| | | C2 Burn rate vs baseline | 24h tokens / 7d daily average | <= 2x | <= 3x |
+| | | C3 Cache hit ratio | cache-read / input tokens | >= 40% | >= 20% |
+| | | C4 Credit and rate-limit events | limit-exceeded + rate-limit errors | 0 | n/a |
 
-## 3. Prerequisites
+The PromQL for each SLI lives in `definitions/slo.mjs` (`fleetExpr` for the glance tier, `workflowExpr` for scan tables). Ratios use `a / (b > 0)` so a quiet fleet shows "No data", not 0%.
 
-- gh-aw emits **delta** temporality; the collector needs a delta-to-cumulative processor before the Prometheus exporter.
-- Name mapping: dots become `_`, histograms get unit suffix (`_seconds`) and `_bucket/_count/_sum`, counters get `_total`. All names live in one map in `definitions/common.mjs`.
-- Totals use `$__range`; trends use `$__rate_interval`.
+## 4. Dashboards: glance -> scan -> commit
 
-## 4. Variables
+| Tier | Dashboard (uid) | Question |
+| --- | --- | --- |
+| Glance | `gh-aw-slo-overview` | Is the fleet meeting expectations right now, and which factor is not? |
+| Scan | `gh-aw-slo-availability`, `-responsiveness`, `-throughput`, `-quality`, `-cost` | Which workflows violate this SLO, and since when? |
+| Commit | `gh-aw-workflow-drilldown` | Why is this workflow violating the SLO? |
+
+**Glance** (one screen, no scrolling): a telemetry-health banner (A4, trust gate), five factor tiles showing the worst SLI state per factor, then one stat tile per SLI in factor columns with sparkline and the SLO in the title. Every tile links to its factor's scan dashboard.
+
+**Scan** (one per factor): a per-workflow table of the factor's SLIs sorted worst first with cells coloured against the SLO and a sample-size column; an SLI-vs-SLO time series per SLI with the SLO (dashed red) and amber margin (dashed orange); a distribution panel where it fits (duration heatmap, token mix). Clicking a workflow opens the drilldown with `var-workflow` set. Throughput shows `create_pull_request` and `merge_pr` counts as a proxy for "issues completed"; they are not an SLO.
+
+**Commit** (`$workflow`, `$job`, `$model`, `$result`): duration by result, jobs/errors by job, agent failures by `error_type` and model, tool calls by status, turns, tokens by type and model, safe-output types, estimated cost, Tier B credits in a collapsed row.
+
+Every panel description records the question it answers, its metric tier, the SLI id(s) it traces to, the SLO text, and the variables it ignores.
+
+## 5. Variables
 
 | Variable | Label | Used on |
 | --- | --- | --- |
-| `$workflow` | `gh_aw_workflow_name` | all workflow-scoped series |
-| `$job` | `gh_aw_job_name` | all workflow-scoped series |
-| `$engine` | `gh_aw_engine_id` | only `gh_aw.job.duration` |
-| `$model` | `gen_ai_request_model` | duration, tokens, invoke_agent |
-| `$result` | `cicd_pipeline_task_run_result` | duration, errors |
-| `$gh_repo`, `$price_*` | text boxes | links and cost |
+| `$workflow` | `gh_aw_workflow_name` | scan and commit tiers (the glance tier is fleet level) |
+| `$job`, `$model`, `$result` | `gh_aw_job_name`, `gen_ai_request_model`, `cicd_pipeline_task_run_result` | commit tier |
+| `$slo_window` | text box, default `7d` | glance and scan |
+| `$gh_repo`, `$price_*` | text boxes | links and optional cost |
 
-Panels that cannot honour a variable ignore it and say so in their description.
+## 6. Alerts (one rule per breached SLO)
 
-## 5. Dashboards
+Generated from the SLI table; thresholds equal the SLO. Rules on ratios also require a minimum job count so a quiet fleet does not page.
 
-`F(x)` = `{gh_aw_workflow_name=~"$workflow", gh_aw_job_name=~"$job"}`.
-
-### 5.1 Operations Overview (on-call, maintainers)
-Is the fleet healthy, slow, and producing work?
-Summary: Jobs completed, Failure rate (5% / 20%), p95 job duration, Safe-output items.
-Main: Failure rate by workflow (top 10), Duration p50/p95 trend.
-Supplemental: Jobs per hour by result, Safe-output items by type, Workflows overview table.
-
-### 5.2 Agent Performance (workflow authors)
-How hard do agents work, and where do tokens go?
-Summary: Turns p50/p95, Agent duration p95, Cache-read share, Tool-call failure rate (2% / 10%; `gh_aw_tool_status="error"` over total).
-Main: Tokens by type (input is non-cache: input - cache read - cache write), Tokens by model.
-Supplemental: Workflows ranked by tokens per job, Tool calls by status (job-level aggregate; no tool name), Agent duration trend.
-
-### 5.3 Cost & Efficiency (budget owners)
-What does this cost, and where is it wasted?
-Summary: Estimated cost, Tokens total, Tokens per safe-output item, Cache-read share.
-Main: Cost by workflow (table with tokens and items), Estimated cost per hour.
-Supplemental: Waste (workflows with tokens but zero items).
-Tier B: Credits consumed, Credits per item, Credits per hour (`gh_aw_ai_credits_usage_total`).
-
-### 5.4 Reliability (SRE)
-What fails, at which stage, and can the telemetry be trusted?
-Summary: Errors by result, Timed-out jobs, Credit limit / rate-limit events, OTLP export failures.
-Main: Error rate by workflow (top 10), Agent failures by `error_type`.
-Supplemental: Errors over time by result, Telemetry heartbeat, Agent failure ratio by model.
-
-`gh_aw.otlp.export.failures` always carries `endpoint.class="configured"` and `failure.class="export"`, so panels use the total.
-
-## 6. Alerts (Tier A only; defaults to tune)
-
-| Alert | Expression | For |
-| --- | --- | --- |
-| High failure rate | failure ratio over 1h > 0.20 | 15m |
-| Fleet silent | `sum(increase(gh_aw_job_duration_seconds_count[6h])) == 0` | 0m |
-| Timed-out jobs | `increase(gh_aw_job_errors_total{...timed_out}[1h]) > 3` | 0m |
-| Telemetry broken | `increase(gh_aw_otlp_export_failures_total[15m]) > 0` | 15m |
+| Alert | SLI | Window | For |
+| --- | --- | --- | --- |
+| `GhAwFleetSilent` | A1 | 6h | 0m |
+| `GhAwTimedOutJobs` | A2 | 6h | 15m |
+| `GhAwTelemetryBroken` | A4 | 15m | 15m |
+| `GhAwSlowAgentJobs` | R1 | 6h | 30m |
+| `GhAwHighFailureRate` | Q1 | 1h | 15m |
+| `GhAwHighIncompleteRate` | Q3 | 6h | 30m |
+| `GhAwTokenBurnSpike` | C2 | 1d vs 7d | 1h |
 
 ## 7. Verification
 
-- `npm test`: freshness of generated JSON, schema checks (unique ids, no overlaps, variables defined, datasource variable, descriptions and units), metric-name and alias checks, Tier B confinement, PromQL sanity (balanced brackets, `histogram_quantile` over `sum by (le)`, known `by` labels, range selectors).
-- `tools/smoke-test.mjs`, run by a human against a live Grafana and Prometheus: every query returns OK, NO DATA or ERROR; checks the name map against real series.
-- Layout is verified visually in Grafana; the automated checks cover structure and queries only.
+- `npm test`: freshness of generated JSON and alerts; SLI table coherence (amber beyond SLO) and the approved thresholds; every glance tile has an SLO and links to its scan dashboard; every scan panel traces to an SLI of its own factor; the SLO line is drawn; alert thresholds come from the table; schema checks (unique ids, no overlaps, variables defined, datasource variable, descriptions, units); metric-name, alias and Tier B checks; PromQL sanity.
+- `tools/smoke-test.mjs`, run by a human against a live Grafana and Prometheus: every query returns OK, NO DATA or ERROR, and the name map is checked against real series.
+- Layout is verified visually in Grafana.
 
 ## 8. Upstream metric gaps
 
-See `observability/grafana/METRICS-PROPOSAL.md`: emit `gh_aw.ai.credits.usage`; explicit buckets for `gh_aw.agent.turns`.
+See `observability/grafana/METRICS-PROPOSAL.md` (credits usage, turns buckets, and gaps G1-G4 surfaced by the SLO design).

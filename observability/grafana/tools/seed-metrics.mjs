@@ -9,11 +9,11 @@ import { createServer } from 'node:http';
 
 const port = Number(process.argv.includes('--port') ? process.argv[process.argv.indexOf('--port') + 1] : 9101);
 
-const workflows = ['triager', 'executor', 'reviewer', 'orchestrator'];
-const jobs = ['agent', 'safe_outputs', 'detection'];
-const models = ['claude-sonnet-5.5', 'gpt-5'];
-const engines = { triager: 'copilot', executor: 'copilot', reviewer: 'claude', orchestrator: 'copilot' };
-const results = ['success', 'failure', 'timed_out', 'cancelled'];
+// Title Case names and the job set match what real gh-aw telemetry shows.
+const workflows = ['Triager', 'Executor', 'Review Agent', 'Orchestrator', 'Architect'];
+const supportJobs = ['pre_activation', 'activation', 'detection', 'safe_outputs', 'conclusion'];
+const models = ['claude-sonnet-5.5', 'claude-haiku-5.5'];
+const engines = { Triager: 'copilot', Executor: 'copilot', 'Review Agent': 'claude', Orchestrator: 'copilot', Architect: 'copilot' };
 const durationBuckets = [1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600];
 const turnBuckets = [1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600];
 
@@ -37,7 +37,11 @@ function tick() {
   for (const wf of workflows) {
     if (Math.random() < 0.3) continue;
     const base = { gh_aw_workflow_name: wf, gh_aw_job_name: 'agent' };
-    const failed = Math.random() < (wf === 'executor' ? 0.25 : 0.08);
+    const failed = Math.random() < (wf === 'Executor' ? 0.25 : 0.08);
+    // Support jobs are short and almost always succeed.
+    for (const job of supportJobs) {
+      observe('gh_aw_job_duration_seconds', durationBuckets, { gh_aw_workflow_name: wf, gh_aw_job_name: job, cicd_pipeline_task_run_result: Math.random() < 0.02 ? 'failure' : 'success', gh_aw_engine_id: engines[wf], gen_ai_request_model: 'auto' }, rnd(2, 60));
+    }
     const result = failed ? pick(['failure', 'failure', 'timed_out', 'cancelled']) : 'success';
     const model = pick(models);
     observe('gh_aw_job_duration_seconds', durationBuckets, { ...base, cicd_pipeline_task_run_result: result, gh_aw_engine_id: engines[wf], gen_ai_request_model: model }, rnd(20, 900));
@@ -54,7 +58,8 @@ function tick() {
     bump('gh_aw_tool_calls_total', { ...base, gh_aw_tool_status: 'ok' }, calls);
     if (Math.random() < 0.4) bump('gh_aw_tool_calls_total', { ...base, gh_aw_tool_status: 'error' }, Math.round(rnd(1, 4)));
     // The reviewer burns tokens without ever producing items, so the "waste" table has a row.
-    if (wf !== 'reviewer' && !failed) bump('gh_aw_workflow_output_items_total', { ...base, gh_aw_safe_output_type: pick(['add_comment', 'create_pull_request', 'add_labels']) }, Math.round(rnd(1, 3)));
+    if (wf !== 'Review Agent' && !failed) bump('gh_aw_workflow_output_items_total', { ...base, gh_aw_safe_output_type: pick(['add_comment', 'create_pull_request', 'add_labels', 'merge_pr', 'update_project', 'noop']) }, Math.round(rnd(1, 3)));
+    if (failed && Math.random() < 0.3) bump('gh_aw_workflow_output_items_total', { ...base, gh_aw_safe_output_type: 'report_incomplete' });
     if (failed && Math.random() < 0.15) bump('gh_aw_ai_credits_rate_limit_errors_total', base);
     if (failed && Math.random() < 0.1) bump('gh_aw_ai_credits_limit_exceeded_total', base);
   }
@@ -78,4 +83,3 @@ createServer((req, res) => {
   }
 }).listen(port, () => console.log(`synthetic gh-aw metrics on :${port}/metrics`));
 
-export { results };
