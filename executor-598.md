@@ -4,8 +4,8 @@ issue: #598
 branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (old impl; DO NOT build on it)
 pr: #599 superseded (draft); human must close. No new PR until spec + plan approved.
 phase: spec (human-directed: spec -> implementation plan -> implementation)
-checkpoint: spec v2 posted (run 44640825219) with all open decisions resolved by me ("your call"). Wait for @eedorenko approval of spec v2. Then post implementation plan (files, generator design, tests, verification) -> wait approval -> implement. No code before both approvals.
-runs: 4
+checkpoint: spec v3 delta posted (run 44781642833): gaps cut 9->2 (+1 optional), tool.status values are ok/error, GH Actions links yes via $gh_repo var, stage in this repo first (final dest github/gh-aw). Wait for @eedorenko approval of spec v2+v3 delta. Then post implementation plan -> approval -> implement. No code before both.
+runs: 5
 
 # Understanding
 
@@ -15,6 +15,9 @@ runs: 4
 - Prometheus names (to verify vs real collector, #581): dots->_, unit suffix _seconds, counters _total, {unit} dropped, hist _bucket/_sum/_count.
 - gh-cao: Dashboard Language (queries->pages->views), <=4 essential views/page, summary-first, supplemental disclosure, units, missing != zero.
 - Tool limits: no close_pull_request safe output.
+
+- Upstream code (actions/setup/js/otlp_metrics.cjs, read run 5): gh_aw.tool_calls status values are "ok"/"error" (job-level aggregate, no tool name); DEFAULT_HISTOGRAM_BUCKETS=[1,5,15,30,60,120,300,600,1800,3600] used for job.duration AND agent.turns (turns buckets are seconds-shaped -> real defect); credits.usage NOT emitted (only limit_exceeded, rate_limit_errors); job.errors has job name dim so safe_outputs job failures are visible via gh_aw_job_name="safe_outputs"; tool name/retry/policy are span events/attrs (traces/logs), not metrics; firewall not in OTEL spec.
+- Human run 5: wants GH Actions links on panels; final destination github/gh-aw but stage here first.
 
 # Plan
 
@@ -34,6 +37,7 @@ runs: 4
 
 # Run log
 
+- Run 5 (44781642833): answered gap question; verified upstream code; spec v3 delta.
 - Run 2: steered; spec v0 posted.
 - Run 3 (44637560711): research; spec v1.
 - Run 4 (44640825219): re-verified §11 upstream; posted spec v2 with decisions resolved.
