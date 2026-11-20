@@ -1,37 +1,33 @@
 # State
 
 issue: #598
-branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (fresh from origin/main in run 8, 1 commit 05ab821d)
-pr: none open (#599 closed; fallback issue #600). Branch has old 4-dashboard impl, smoke-tested green by human.
-phase: spec (SLO/SLI redesign)
-checkpoint: WAIT for @eedorenko to approve SLO/SLI spec v1 (comment run 44821278416; 5 factors, 14 SLIs, 7 dashboards: 1 glance + 5 scan + 1 drilldown). Then implement: definitions/slo.mjs SLI table, new dashboards, update tests/alerts/README/spec/METRICS-PROPOSAL (G1-G4), keep common.mjs. Do NOT code before approval.
-runs: 9
+branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (commit 7b892ded on top of 05ab821d)
+pr: draft PR requested in run 10 via create_pull_request (may fall back to a review issue like #600 if protected files block it; check list_pull_requests / new issue next run)
+phase: verification (SLO/SLI redesign implemented; awaiting human live validation)
+checkpoint: WAIT for @eedorenko to re-run tools/smoke-test.mjs on k3d + screenshots of glance and a scan dashboard. Fix whatever it shows (queries, layout, thresholds), push to same branch, then mark PR ready. Board stays In Progress until validated.
+runs: 10
 
 # Understanding
 
-- Approved spec = specs/grafana-dashboards-spec.md in branch (consolidated). 4 dashboards: gh-aw-operations-overview, -agent-performance, -cost-efficiency, -reliability (uids = filenames).
-- Layout: observability/grafana/{definitions/common.mjs (METRICS name map, LABELS, helpers sel/inc/sum/ratio/quantile/costExpr), definitions/*.mjs, dashboards/*.json generated, alerts/alerts.rules.yml, tools/generate.mjs, generate.test.js (32 tests), smoke-test.mjs, seed-metrics.mjs, README, METRICS-PROPOSAL}. package.json test script includes observability/**/*.test.js.
-- Human-confirmed Prom names (canonical): gh_aw_job_duration_seconds_*, gh_aw_agent_turns_*, gh_aw_job_errors_total, gh_aw_tool_calls_total, gh_aw_workflow_output_items_total, gh_aw_otlp_export_failures_total, gen_ai_invoke_agent_duration_seconds_*, gen_ai_client_inference_usage_{input,output,cache_read_input,cache_write_input}_tokens_total. gh_aw_ai_credits_usage_total NOT present (Tier B). Labels NOT yet verified against real series.
-- Human collector (otelcol-contrib 0.164, monitoring ns) needs `delta_to_cumulative` processor; prometheus exporter on :8889; fixed by human.
-- Smoke test: GRAFANA_URL, GRAFANA_TOKEN, PROM_DS_UID env; human runs it; verified only against a mock server here.
-- Sandbox notes: `kill %1`/pkill-style kill blocked; use async bash + stop_bash. spawnSync deadlocks mock servers.
+- Layout: observability/grafana/{definitions/slo.mjs (SLI table: id/factor/expr(ctx)/slo/amber/dir; fleetExpr, workflowExpr, scopedExpr, thresholdSteps, stateExpr, factorStateExpr, alertRulesYaml), definitions/slo-dashboards.mjs (glance gh-aw-slo-overview + 5 scan gh-aw-slo-<factor>), definitions/workflow-drilldown.mjs (commit), definitions/common.mjs (METRICS name map, LABELS, helpers, VARIABLES, TEXTBOX_VARIABLES incl slo_window), tools/generate.mjs (sections-based dashboards + alerts; --check), tools/generate.test.js, smoke-test.mjs, seed-metrics.mjs, alerts/alerts.rules.yml GENERATED, README, METRICS-PROPOSAL (G1-G4)}. Spec: specs/grafana-dashboards-spec.md (SLO/SLI version).
+- Human-confirmed names/labels: Title Case workflow names (Executor, Triager, Review Agent...), job names agent/detection/safe_outputs/pre_activation/activation/conclusion/push_repo_memory, tool status `ok`, safe-output types incl noop/report_incomplete/merge_pr, results success/failure/cancelled (no timed_out seen yet). Prior smoke test (old 4 dashboards) was green on real k3d Grafana 13.3.
+- Validation tools here: promql-parser in venv /tmp/gh-aw/agent/v (ephemeral), mock Grafana server. Sandbox: kill needs numeric PID.
 
 # Plan
 
-Done: chunks 1-3 + smoke test + seeder + docs. Remaining: live validation feedback loop, fixes, mark ready.
+Done: spec approved (human "approve", 22:11), implemented glance/scan/commit, alerts generated, tests (138 pass), PromQL parse check, mock smoke 117 OK. Remaining: live validation feedback loop; mark ready; merge flow after review.
 
 # Decisions
 
-- Run 9: Prometheus-only SLIs; relative SLOs (vs trailing baseline) for throughput/cost since no baseline; GitHub-data signals (stage dwell, rework) listed as gaps G1/G2 not invented. Questions pending: 5 vs fewer scan dashboards, thresholds, scope of GitHub gaps, alerts tied to SLOs.
-- .mjs definitions not YAML (approved). Tokens-first cost with price vars. Tier B collapsed, no alerts. Draft PR opened before live validation because human needs the code; issue stays In Progress until validated.
-- Cost expr uses label_replace + `or` to keep four terms distinct; cache terms use (price_cache - price_in) because input includes cache.
+- One SLI table drives everything. Relative SLOs for T1/C1/C2. Informational SLIs (A3, R2) have no colours. A4 is trust gate banner. Glance fleet-level, scan per-workflow with $workflow.
+- Spec questions (5 scan dashboards, thresholds, GitHub gaps out of scope, alerts tied to SLOs) were answered by the single "approve"; treated as approval of defaults.
+- Ratio SLIs: `(num/(den>0)) or ((den>0)*0)` so numerator-absent gives real 0 but quiet fleet gives No data.
 
 # Failed approaches
 
-- Building everything in one run (rejected earlier). CAO site not fetchable. promtool not installed.
+- Fetching the MS article (firewall). Building everything in one run earlier.
 
 # Run log
 
-- Run 9: human paused impl (same comment posted 3x) and asked for SLO/SLI-driven redesign (MS IoT Edge observability article, unfetchable from firewalled runner). Posted SLO/SLI spec v1, no code.
-- Run 8: implemented everything, 108 tests pass, draft PR opened, awaiting human live validation.
-- Run 7: k3d plan amendment. Run 6: impl plan. Run 5: spec v3. Run 4: spec v2.
+- Run 10: implemented SLO redesign, tests 138 pass, draft PR requested, commented.
+- Run 9: posted SLO/SLI spec v1. Run 8: first impl + draft PR (fell back to #600).
