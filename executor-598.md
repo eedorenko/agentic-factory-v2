@@ -2,10 +2,10 @@
 
 issue: #598
 branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (fresh from origin/main in run 8, 1 commit 05ab821d)
-pr: draft PR opened run 8 ("[Executor #598] ..."); old #599 closed by human. Check list_pull_requests for the number.
-phase: verification (live k3d validation by human)
-checkpoint: Wait for @eedorenko to run tools/smoke-test.mjs (and/or paste `curl $PROM/api/v1/label/__name__/values` + label names) and report. Then fix name-map/label/query errors in definitions/common.mjs or definitions/*.mjs, run `node observability/grafana/tools/generate.mjs`, `npm test`, push_to_pull_request_branch. When validated, mark PR ready / move issue to In Review. Issue board status still In Progress until validated.
-runs: 8
+pr: none open (#599 closed; fallback issue #600). Branch has old 4-dashboard impl, smoke-tested green by human.
+phase: spec (SLO/SLI redesign)
+checkpoint: WAIT for @eedorenko to approve SLO/SLI spec v1 (comment run 44821278416; 5 factors, 14 SLIs, 7 dashboards: 1 glance + 5 scan + 1 drilldown). Then implement: definitions/slo.mjs SLI table, new dashboards, update tests/alerts/README/spec/METRICS-PROPOSAL (G1-G4), keep common.mjs. Do NOT code before approval.
+runs: 9
 
 # Understanding
 
@@ -22,6 +22,7 @@ Done: chunks 1-3 + smoke test + seeder + docs. Remaining: live validation feedba
 
 # Decisions
 
+- Run 9: Prometheus-only SLIs; relative SLOs (vs trailing baseline) for throughput/cost since no baseline; GitHub-data signals (stage dwell, rework) listed as gaps G1/G2 not invented. Questions pending: 5 vs fewer scan dashboards, thresholds, scope of GitHub gaps, alerts tied to SLOs.
 - .mjs definitions not YAML (approved). Tokens-first cost with price vars. Tier B collapsed, no alerts. Draft PR opened before live validation because human needs the code; issue stays In Progress until validated.
 - Cost expr uses label_replace + `or` to keep four terms distinct; cache terms use (price_cache - price_in) because input includes cache.
 
@@ -31,5 +32,6 @@ Done: chunks 1-3 + smoke test + seeder + docs. Remaining: live validation feedba
 
 # Run log
 
+- Run 9: human paused impl (same comment posted 3x) and asked for SLO/SLI-driven redesign (MS IoT Edge observability article, unfetchable from firewalled runner). Posted SLO/SLI spec v1, no code.
 - Run 8: implemented everything, 108 tests pass, draft PR opened, awaiting human live validation.
 - Run 7: k3d plan amendment. Run 6: impl plan. Run 5: spec v3. Run 4: spec v2.
