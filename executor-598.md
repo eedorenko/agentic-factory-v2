@@ -4,8 +4,8 @@ issue: #598
 branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (old impl; DO NOT build on it; on implementation start, branch fresh from origin/main per sync rule)
 pr: #599 superseded (draft); human must close. No new PR until implementation plan approved.
 phase: implementation plan (spec v2+v3 APPROVED by @eedorenko in comment 'approved' 2026-11-20T17:38)
-checkpoint: impl plan posted (run 44786172815... see run log). Wait for @eedorenko approval of impl plan. Then implement in chunks: (1) generator+name map+tests, (2) 4 definitions + generated JSON, (3) alerts+README+METRICS-PROPOSAL+spec file, then verify, then ONE PR "[Executor #598] ..." -> move to In Review.
-runs: 6
+checkpoint: impl plan v2 posted incl. chunk 4 (k3d/ngrok live validation, human-run). Wait for @eedorenko 'approved' + answers to 3 questions (access method, Grafana API token, collector in k3d?). Then implement in chunks: (1) generator+name map+tests, (2) 4 definitions + generated JSON, (3) alerts+README+METRICS-PROPOSAL+spec file, then verify, then ONE PR "[Executor #598] ..." -> move to In Review.
+runs: 7
 
 # Understanding
 
@@ -22,6 +22,8 @@ Impl plan proposes: definitions as .mjs modules (not YAML: zero-dep Node can't p
 
 # Decisions
 
+- Run 7: human asked for k3d (Prometheus+Grafana, via ngrok) testing. Executor sandbox is firewalled (no outbound to ngrok; no secrets) -> build tools/smoke-test.mjs (zero-dep, human-run: imports dashboards via Grafana HTTP API, runs every panel query against Prometheus, reports errors/no-data) + optional tools/seed-metrics.mjs (synthetic exposition endpoint). Human runs it and pastes output; I iterate on fixes. Do not probe kubectl/network.
+
 - Cost: tokens first, price vars default 0. Tier B collapsed rows, no alerts on Tier B. Stage here, final home github/gh-aw. Deviation from spec: .mjs not YAML (flagged in plan comment).
 
 # Failed approaches
@@ -30,6 +32,7 @@ Impl plan proposes: definitions as .mjs modules (not YAML: zero-dep Node can't p
 
 # Run log
 
+- Run 7: added k3d/ngrok validation chunk to plan; asked 3 questions.
 - Run 6: spec approved; posted implementation plan, awaiting approval.
 - Run 5: answered gap question; verified upstream code; spec v3 delta.
 - Run 4: spec v2.
