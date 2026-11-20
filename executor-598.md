@@ -1,43 +1,35 @@
 # State
 
 issue: #598
-branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (old impl; DO NOT build on it)
-pr: #599 superseded (draft); human must close. No new PR until spec + plan approved.
-phase: spec (human-directed: spec -> implementation plan -> implementation)
-checkpoint: spec v3 delta posted (run 44781642833): gaps cut 9->2 (+1 optional), tool.status values are ok/error, GH Actions links yes via $gh_repo var, stage in this repo first (final dest github/gh-aw). Wait for @eedorenko approval of spec v2+v3 delta. Then post implementation plan -> approval -> implement. No code before both.
-runs: 5
+branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (old impl; DO NOT build on it; on implementation start, branch fresh from origin/main per sync rule)
+pr: #599 superseded (draft); human must close. No new PR until implementation plan approved.
+phase: implementation plan (spec v2+v3 APPROVED by @eedorenko in comment 'approved' 2026-11-20T17:38)
+checkpoint: impl plan posted (run 44786172815... see run log). Wait for @eedorenko approval of impl plan. Then implement in chunks: (1) generator+name map+tests, (2) 4 definitions + generated JSON, (3) alerts+README+METRICS-PROPOSAL+spec file, then verify, then ONE PR "[Executor #598] ..." -> move to In Review.
+runs: 6
 
 # Understanding
 
-- Human: scope=all 4 dashboards; Prometheus only; layout my call; CAO ref from githubnext/gh-cao; "your call on all bullets. Update the spec" (run 4 trigger).
-- gh-aw has NO dashboard JSON/spec. Upstream specs/otel-observability-spec.md v0.7.0 §1.2 vendor dashboards out of scope. Local external/gh-aw checkout is STALE (v0.5.0) - read upstream via github MCP get_file_contents (saved to tmp, parse with python).
-- Metric contract §11.5 (Tier A): gh_aw.job.duration (hist s; attrs gh-aw.job.name, gh-aw.workflow.name, cicd.pipeline.task.run.result, gh-aw.engine.id, gen_ai.request.model), gh_aw.job.errors, gen_ai.client.inference.usage.{input,output,cache_read.input,cache_write.input}_tokens (input INCLUDES cache; attrs op name, provider, modality, model, job, workflow), gen_ai.invoke_agent.duration (hist, bucket list, agent.name, error.type), gh_aw.agent.turns (job, workflow only), gh_aw.tool_calls (+gh-aw.tool.status), gh_aw.workflow.output.items (+gh-aw.safe_output.type), gh_aw.ai.credits.limit_exceeded/rate_limit_errors, gh_aw.otlp.export.failures (+gh-aw.otlp.endpoint.class, failure.class). Aliases gh_aw.run.*, gh_aw.safe_outputs, gen_ai.client.token.usage must not be summed with canonical. Tier B (§11.3 only): gh_aw.ai.credits.usage, gh_aw.adoption.{evaluations,resolution.duration,zero_touch}. No run/job IDs as dims. Delta temporality -> collector deltatocumulative.
-- Prometheus names (to verify vs real collector, #581): dots->_, unit suffix _seconds, counters _total, {unit} dropped, hist _bucket/_sum/_count.
-- gh-cao: Dashboard Language (queries->pages->views), <=4 essential views/page, summary-first, supplemental disclosure, units, missing != zero.
-- Tool limits: no close_pull_request safe output.
-
-- Upstream code (actions/setup/js/otlp_metrics.cjs, read run 5): gh_aw.tool_calls status values are "ok"/"error" (job-level aggregate, no tool name); DEFAULT_HISTOGRAM_BUCKETS=[1,5,15,30,60,120,300,600,1800,3600] used for job.duration AND agent.turns (turns buckets are seconds-shaped -> real defect); credits.usage NOT emitted (only limit_exceeded, rate_limit_errors); job.errors has job name dim so safe_outputs job failures are visible via gh_aw_job_name="safe_outputs"; tool name/retry/policy are span events/attrs (traces/logs), not metrics; firewall not in OTEL spec.
-- Human run 5: wants GH Actions links on panels; final destination github/gh-aw but stage here first.
+- Approved spec = comments #9 (spec v2) + #11 (v3 delta) on issue #598; re-read them via issue_read get_comments if details needed (4 dashboards, panels/queries, variables, alerts, layout).
+- gh-aw has NO dashboard JSON/spec. Local external/gh-aw checkout STALE (v0.5.0); read upstream (github/gh-aw specs/otel-observability-spec.md v0.7.0 §11.5, actions/setup/js/otlp_metrics.cjs) via github MCP.
+- Metrics (Prom names, expected): gh_aw_job_duration_seconds_{bucket,sum,count} (gh_aw_workflow_name, gh_aw_job_name, cicd_pipeline_task_run_result, gh_aw_engine_id, gen_ai_request_model); gh_aw_job_errors_total; gen_ai_client_inference_usage_{input,output,cache_read_input,cache_write_input}_tokens_total (input INCLUDES cache); gen_ai_invoke_agent_duration_seconds_*(error_type); gh_aw_agent_turns_*; gh_aw_tool_calls_total (gh_aw_tool_status ok|error); gh_aw_workflow_output_items_total (gh_aw_safe_output_type); gh_aw_ai_credits_{limit_exceeded,rate_limit_errors}_total; gh_aw_otlp_export_failures_total. Tier B (not emitted): gh_aw_ai_credits_usage_total.
+- Final: METRICS-PROPOSAL.md has 2 items (emit credits.usage; explicit buckets for agent.turns [1,2,3,5,8,13,21,34,55,89,144]) + note on job.duration buckets + "answered by existing signals" list.
+- GH Actions links via $gh_repo textbox var: https://github.com/$gh_repo/actions?query=workflow:"${__field.labels.gh_aw_workflow_name}".
+- Repo: node 24, `npm test` = node --test src/**/*.test.js; no deps; no specs/ or observability/ dirs yet. Tool limits: no close_pull_request safe output.
 
 # Plan
 
-1 spec v2 (posted) -> approval -> 2 implementation plan -> approval -> 3 implementation (new PR on executor/598-..., sync branch rule).
+Impl plan proposes: definitions as .mjs modules (not YAML: zero-dep Node can't parse YAML) -> tools/generate.mjs -> dashboards/*.json; tests in observability/grafana/tools/*.test.js; add to package.json test script.
 
-# Decisions (all chosen by me per "your call")
+# Decisions
 
-- Cost: tokens first; est. cost via price vars ($price_in/out/cache_read/cache_write per 1M, default 0 -> "set prices" hint); credits in collapsed Tier B row.
-- Definitions YAML + zero-dep Node generator -> JSON committed; CI/test checks JSON up to date.
-- Layout: specs/grafana-dashboards-spec.md + observability/grafana/{README,definitions,dashboards,alerts,METRICS-PROPOSAL.md,tools}.
-- Tier B: collapsed, tagged rows; no alerts on Tier B.
-- Variable applicability matrix: $engine/$model only on duration/token series.
+- Cost: tokens first, price vars default 0. Tier B collapsed rows, no alerts on Tier B. Stage here, final home github/gh-aw. Deviation from spec: .mjs not YAML (flagged in plan comment).
 
 # Failed approaches
 
-- Building everything in one run (rejected). CAO rendered site not fetchable; used repo instead.
+- Building everything in one run (rejected by human). CAO rendered site not fetchable.
 
 # Run log
 
-- Run 5 (44781642833): answered gap question; verified upstream code; spec v3 delta.
-- Run 2: steered; spec v0 posted.
-- Run 3 (44637560711): research; spec v1.
-- Run 4 (44640825219): re-verified §11 upstream; posted spec v2 with decisions resolved.
+- Run 6: spec approved; posted implementation plan, awaiting approval.
+- Run 5: answered gap question; verified upstream code; spec v3 delta.
+- Run 4: spec v2.
