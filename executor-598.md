@@ -2,10 +2,10 @@
 
 issue: #598
 branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (commit 7b892ded on top of 05ab821d)
-pr: draft PR requested in run 10 via create_pull_request (may fall back to a review issue like #600 if protected files block it; check list_pull_requests / new issue next run)
+pr: NONE exists (run 11 verified list_pull_requests empty); human must create PR from #600 fallback; draft PR requested in run 10 via create_pull_request (may fall back to a review issue like #600 if protected files block it; check list_pull_requests / new issue next run)
 phase: verification (SLO/SLI redesign implemented; awaiting human live validation)
 checkpoint: WAIT for @eedorenko to re-run tools/smoke-test.mjs on k3d + screenshots of glance and a scan dashboard. Fix whatever it shows (queries, layout, thresholds), push to same branch, then mark PR ready. Board stays In Progress until validated.
-runs: 10
+runs: 11
 
 # Understanding
 
@@ -29,5 +29,6 @@ Done: spec approved (human "approve", 22:11), implemented glance/scan/commit, al
 
 # Run log
 
+- Run 11: workflow_dispatch; no new human comments; no PR exists (#600/#602 fallback issues, #602 closed as dup); remote branch still at 05ab821d, 7b892ded only in fallback bundle. Posted waiting status.
 - Run 10: implemented SLO redesign, tests 138 pass, draft PR requested, commented.
 - Run 9: posted SLO/SLI spec v1. Run 8: first impl + draft PR (fell back to #600).
