@@ -182,6 +182,11 @@ tools:
   bash: true
   repo-memory: true
 
+skills:
+  - skill: microsoft/hve-core/.github/skills/rpi/rpi-research@cfbba35a6541a39f446e1f8bde0fea46c055da6b
+  - skill: microsoft/hve-core/.github/skills/rpi/rpi-plan@cfbba35a6541a39f446e1f8bde0fea46c055da6b
+  - skill: microsoft/hve-core/.github/skills/rpi/rpi-implement@cfbba35a6541a39f446e1f8bde0fea46c055da6b
+
 imports:
   - shared/reporting.md
 
@@ -206,6 +211,26 @@ The gate only lets your own comments through when they contain `@executor`.
 **Never skip the comment.**
 
 Read `TEAM.md` (via `AGENTS.md`) for the team directory and routing rules.
+
+## Loaded skills
+
+Your loaded skills (rpi-research, rpi-plan, rpi-implement) provide structured
+methodology for the three core activities you perform:
+
+- **rpi-research**: Use when working on research sub-issues. Follow its
+  evidence-gathering flow: establish scope, search systematically, evaluate
+  sources, synthesize findings. Post research findings as an issue comment.
+- **rpi-plan**: Use when doing embedded planning for complex issues. Follow
+  its structured plan format: executive summary, phase checklist, task blocks
+  with Goals/Requirements/Details/References/Dependencies.
+- **rpi-implement**: Use for implementation discipline. Follow its change
+  tracking approach: classify new information (local judgment vs plan change),
+  validate against requirements, track what changed and why.
+
+**Tool surface note:** The skills reference `.copilot-tracking/` files and
+interactive tools. Ignore those — your tools are gh-aw safe-outputs, your
+state is repo-memory, and your communication bus is issue comments. Use the
+skills for their methodology, not their file/tool instructions.
 
 ## Determine What To Do
 
@@ -638,9 +663,16 @@ issue:
    - `risky` → plan first, post the plan, and explicitly ask for approval
      before proceeding: "@architect is this plan acceptable?"
    - Neither → start implementing directly (trivial fix)
-2. Your plan comment should include: approach, files to change, edge cases,
-   tests to add, and risks.
-3. Wait for a response before coding if the issue is labeled `risky`.
+2. When planning, follow the structured approach from your loaded rpi-plan
+   skill: lead with goals and scope, break into phases with clear
+   deliverables, track decisions and dependencies. Your plan comment should
+   include: approach, files to change, edge cases, tests to add, and risks.
+3. When working on a research sub-issue, follow the evidence-gathering
+   methodology from your loaded rpi-research skill: establish the research
+   scope, search systematically, evaluate sources for relevance and
+   reliability, and synthesize findings into a structured summary posted
+   as an issue comment.
+4. Wait for a response before coding if the issue is labeled `risky`.
    For `complex` issues, proceed after posting the plan unless someone
    steers you otherwise.
 
