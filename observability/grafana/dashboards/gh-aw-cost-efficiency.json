@@ -1,0 +1,866 @@
+{
+  "uid": "gh-aw-cost-efficiency",
+  "title": "gh-aw / Cost & Efficiency",
+  "description": "What does agent work cost, and where is it wasted? For budget owners. Cost is estimated from tokens and price variables.",
+  "tags": [
+    "gh-aw",
+    "otel",
+    "cost"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "timezone": "browser",
+  "refresh": "5m",
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "label": "Data source",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "refresh": 1,
+        "regex": "",
+        "includeAll": false,
+        "multi": false,
+        "options": []
+      },
+      {
+        "name": "workflow",
+        "label": "Workflow",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${ds}"
+        },
+        "definition": "label_values(gh_aw_job_duration_seconds_count, gh_aw_workflow_name)",
+        "query": {
+          "query": "label_values(gh_aw_job_duration_seconds_count, gh_aw_workflow_name)",
+          "refId": "var_workflow",
+          "qryType": 1
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "regex": "",
+        "hide": 0
+      },
+      {
+        "name": "job",
+        "label": "Job",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${ds}"
+        },
+        "definition": "label_values(gh_aw_job_duration_seconds_count{gh_aw_workflow_name=~\"$workflow\"}, gh_aw_job_name)",
+        "query": {
+          "query": "label_values(gh_aw_job_duration_seconds_count{gh_aw_workflow_name=~\"$workflow\"}, gh_aw_job_name)",
+          "refId": "var_job",
+          "qryType": 1
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "regex": "",
+        "hide": 0
+      },
+      {
+        "name": "gh_repo",
+        "label": "GitHub repo (owner/name)",
+        "type": "textbox",
+        "query": "github/gh-aw",
+        "current": {
+          "text": "github/gh-aw",
+          "value": "github/gh-aw"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "github/gh-aw",
+            "value": "github/gh-aw"
+          }
+        ],
+        "hide": 0
+      },
+      {
+        "name": "price_in",
+        "label": "Price: input (USD / 1M tokens)",
+        "type": "textbox",
+        "query": "0",
+        "current": {
+          "text": "0",
+          "value": "0"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "0",
+            "value": "0"
+          }
+        ],
+        "hide": 0
+      },
+      {
+        "name": "price_out",
+        "label": "Price: output (USD / 1M tokens)",
+        "type": "textbox",
+        "query": "0",
+        "current": {
+          "text": "0",
+          "value": "0"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "0",
+            "value": "0"
+          }
+        ],
+        "hide": 0
+      },
+      {
+        "name": "price_cache_read",
+        "label": "Price: cache read (USD / 1M tokens)",
+        "type": "textbox",
+        "query": "0",
+        "current": {
+          "text": "0",
+          "value": "0"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "0",
+            "value": "0"
+          }
+        ],
+        "hide": 0
+      },
+      {
+        "name": "price_cache_write",
+        "label": "Price: cache write (USD / 1M tokens)",
+        "type": "textbox",
+        "query": "0",
+        "current": {
+          "text": "0",
+          "value": "0"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "0",
+            "value": "0"
+          }
+        ],
+        "hide": 0
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "GitHub Actions",
+      "url": "https://github.com/${gh_repo}/actions",
+      "targetBlank": true,
+      "type": "link",
+      "icon": "external link"
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Estimated cost",
+      "description": "Question: What did agent token usage cost in the selected range?\nMetrics: Tier A: emitted by gh-aw.\nIgnores variables: model.\nEstimated: tokens x the price variables (USD per 1M tokens, default 0). Set the $price_* variables to see a value.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "expr": "sum (label_replace(increase(gen_ai_client_inference_usage_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]) * ($price_in), \"kind\", \"input\", \"\", \"\") or label_replace(increase(gen_ai_client_inference_usage_cache_read_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]) * ($price_cache_read - $price_in), \"kind\", \"cache_read\", \"\", \"\") or label_replace(increase(gen_ai_client_inference_usage_cache_write_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]) * ($price_cache_write - $price_in), \"kind\", \"cache_write\", \"\", \"\") or label_replace(increase(gen_ai_client_inference_usage_output_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]) * ($price_out), \"kind\", \"output\", \"\", \"\")) / 1e6",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "noValue": "No data",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Tokens total",
+      "description": "Question: How many tokens (input + output; input includes cache) were used?\nMetrics: Tier A: emitted by gh-aw.\nIgnores variables: model.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "expr": "sum (increase(gen_ai_client_inference_usage_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range])) + sum (increase(gen_ai_client_inference_usage_output_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]))",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "{token}",
+          "noValue": "No data",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Tokens per safe-output item",
+      "description": "Question: A rough yield measure: how many tokens does one safe-output item (comment, PR, ...) cost?\nMetrics: Tier A: emitted by gh-aw.\nIgnores variables: model.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "expr": "(sum (increase(gen_ai_client_inference_usage_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range])) + sum (increase(gen_ai_client_inference_usage_output_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]))) / ((sum (increase(gh_aw_workflow_output_items_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]))) > 0)",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "{token}",
+          "noValue": "No data",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Cache-read share",
+      "description": "Question: What share of input tokens were served from cache? Higher is cheaper.\nMetrics: Tier A: emitted by gh-aw.\nIgnores variables: model.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "expr": "(sum (increase(gen_ai_client_inference_usage_cache_read_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]))) / ((sum (increase(gen_ai_client_inference_usage_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]))) > 0)",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "No data",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Cost by workflow",
+      "description": "Question: Which workflows cost the most, and what do they produce? Click a workflow to open it in GitHub Actions.\nMetrics: Tier A: emitted by gh-aw.\nIgnores variables: model.\nEstimated: tokens x the price variables (USD per 1M tokens, default 0). Set the $price_* variables to see a value.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 14,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "expr": "sum by (gh_aw_workflow_name) (label_replace(increase(gen_ai_client_inference_usage_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]) * ($price_in), \"kind\", \"input\", \"\", \"\") or label_replace(increase(gen_ai_client_inference_usage_cache_read_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]) * ($price_cache_read - $price_in), \"kind\", \"cache_read\", \"\", \"\") or label_replace(increase(gen_ai_client_inference_usage_cache_write_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]) * ($price_cache_write - $price_in), \"kind\", \"cache_write\", \"\", \"\") or label_replace(increase(gen_ai_client_inference_usage_output_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]) * ($price_out), \"kind\", \"output\", \"\", \"\")) / 1e6",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "B",
+          "expr": "sum by (gh_aw_workflow_name) (increase(gen_ai_client_inference_usage_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range])) + sum by (gh_aw_workflow_name) (increase(gen_ai_client_inference_usage_output_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]))",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "C",
+          "expr": "sum by (gh_aw_workflow_name) (increase(gh_aw_workflow_output_items_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]))",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "noValue": "No data",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "links": [
+            {
+              "title": "Open this workflow in GitHub Actions",
+              "url": "https://github.com/${gh_repo}/actions?query=workflow:\"${__data.fields.gh_aw_workflow_name}\"",
+              "targetBlank": true
+            }
+          ]
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Cost (USD)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tokens"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "{token}"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Items"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Tokens",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value #A": "Cost (USD)",
+              "Value #B": "Tokens",
+              "Value #C": "Items"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Estimated cost per hour",
+      "description": "Question: How does spend evolve over time?\nMetrics: Tier A: emitted by gh-aw.\nIgnores variables: model.\nEstimated: tokens x the price variables (USD per 1M tokens, default 0). Set the $price_* variables to see a value.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 5,
+        "w": 10,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "expr": "sum (label_replace(rate(gen_ai_client_inference_usage_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__rate_interval]) * ($price_in), \"kind\", \"input\", \"\", \"\") or label_replace(rate(gen_ai_client_inference_usage_cache_read_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__rate_interval]) * ($price_cache_read - $price_in), \"kind\", \"cache_read\", \"\", \"\") or label_replace(rate(gen_ai_client_inference_usage_cache_write_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__rate_interval]) * ($price_cache_write - $price_in), \"kind\", \"cache_write\", \"\", \"\") or label_replace(rate(gen_ai_client_inference_usage_output_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__rate_interval]) * ($price_out), \"kind\", \"output\", \"\", \"\")) / 1e6 * 3600",
+          "legendFormat": "cost / hour",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "noValue": "No data",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "row",
+      "title": "Supplemental",
+      "collapsed": true,
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [
+        {
+          "id": 8,
+          "type": "table",
+          "title": "Waste: workflows with tokens but zero items",
+          "description": "Question: Which workflows burned tokens without producing any safe-output item in the range? Candidates for tuning or disabling.\nMetrics: Tier A: emitted by gh-aw.\nIgnores variables: model.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 15,
+            "w": 24,
+            "h": 8
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${ds}"
+              },
+              "refId": "A",
+              "expr": "(sum by (gh_aw_workflow_name) (increase(gen_ai_client_inference_usage_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range])) + sum by (gh_aw_workflow_name) (increase(gen_ai_client_inference_usage_output_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]))) > 0 unless on (gh_aw_workflow_name) sum by (gh_aw_workflow_name) (increase(gh_aw_workflow_output_items_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]))",
+              "legendFormat": "__auto",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "{token}",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "links": [
+                {
+                  "title": "Open this workflow in GitHub Actions",
+                  "url": "https://github.com/${gh_repo}/actions?query=workflow:\"${__data.fields.gh_aw_workflow_name}\"",
+                  "targetBlank": true
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "sortBy": [
+              {
+                "displayName": "Tokens",
+                "desc": true
+              }
+            ]
+          },
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "renameByName": {
+                  "Value": "Tokens"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Tier B: not emitted yet",
+      "collapsed": true,
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [
+        {
+          "id": 10,
+          "type": "stat",
+          "title": "Credits consumed",
+          "description": "Question: How many AI credits were consumed? Lights up once gh-aw emits gh_aw.ai.credits.usage.\nMetrics: Tier B: not emitted by gh-aw yet.\nIgnores variables: model.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 16,
+            "w": 8,
+            "h": 5
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${ds}"
+              },
+              "refId": "A",
+              "expr": "sum (increase(gh_aw_ai_credits_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]))",
+              "legendFormat": "__auto",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "{credit}",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "none",
+            "graphMode": "none",
+            "textMode": "auto",
+            "orientation": "auto"
+          }
+        },
+        {
+          "id": 11,
+          "type": "stat",
+          "title": "Credits per safe-output item",
+          "description": "Question: How many credits does one safe-output item cost? Lights up once gh-aw emits gh_aw.ai.credits.usage.\nMetrics: Tier B: not emitted by gh-aw yet.\nIgnores variables: model.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "x": 8,
+            "y": 16,
+            "w": 8,
+            "h": 5
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${ds}"
+              },
+              "refId": "A",
+              "expr": "(sum (increase(gh_aw_ai_credits_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]))) / ((sum (increase(gh_aw_workflow_output_items_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__range]))) > 0)",
+              "legendFormat": "__auto",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "{credit}",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "none",
+            "graphMode": "none",
+            "textMode": "auto",
+            "orientation": "auto"
+          }
+        },
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "Credits per hour",
+          "description": "Question: How does credit consumption evolve? Lights up once gh-aw emits gh_aw.ai.credits.usage.\nMetrics: Tier B: not emitted by gh-aw yet.\nIgnores variables: model.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "gridPos": {
+            "x": 16,
+            "y": 16,
+            "w": 8,
+            "h": 5
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${ds}"
+              },
+              "refId": "A",
+              "expr": "sum (rate(gh_aw_ai_credits_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__rate_interval])) * 3600",
+              "legendFormat": "credits / hour",
+              "instant": false,
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "{credit}",
+              "noValue": "No data",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 8,
+                "showPoints": "never",
+                "spanNulls": false
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

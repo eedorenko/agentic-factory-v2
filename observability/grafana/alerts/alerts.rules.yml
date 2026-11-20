@@ -1,0 +1,41 @@
+# Proposed default alerts for the gh-aw Grafana dashboards. Tier A metrics only; tune
+# thresholds to your fleet. Load as a Prometheus rule file (or import into Grafana alerting).
+groups:
+  - name: gh-aw
+    rules:
+      - alert: GhAwHighFailureRate
+        expr: |
+          sum(increase(gh_aw_job_errors_total[1h]))
+            / (sum(increase(gh_aw_job_duration_seconds_count[1h])) > 0) > 0.20
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: gh-aw job failure rate above 20% over the last hour
+          description: Open the "gh-aw / Reliability" dashboard to see which workflows and results are failing.
+
+      - alert: GhAwFleetSilent
+        expr: sum(increase(gh_aw_job_duration_seconds_count[6h])) == 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: No gh-aw jobs reported in 6 hours
+          description: Either nothing ran or telemetry is broken; check the OTLP export failures panel.
+
+      - alert: GhAwTimedOutJobs
+        expr: sum(increase(gh_aw_job_errors_total{cicd_pipeline_task_run_result="timed_out"}[1h])) > 3
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: More than 3 gh-aw jobs timed out in the last hour
+
+      - alert: GhAwTelemetryBroken
+        expr: sum(increase(gh_aw_otlp_export_failures_total[15m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: gh-aw is failing to export OTLP telemetry
+          description: Dashboards may under-report until exports recover.
