@@ -51,12 +51,14 @@ const activeWorkflows = (ctx, window) =>
 export const SLIS = [
   {
     id: 'A1', factor: 'availability', title: 'Fleet liveness', unit: 'short', dir: 'min', slo: 1, integer: true, perWorkflow: false,
+    range: [0, 10],
     definition: 'jobs reported in the last 6h',
     expr: (c) => orZero(c, `round(${jobs(c, [], '6h')})`),
     alert: { name: 'GhAwFleetSilent', window: '6h', for: '0m', severity: 'warning', summary: 'No gh-aw jobs reported in 6 hours', description: 'Either nothing ran or telemetry is broken; check A4 on the SLO overview.' },
   },
   {
     id: 'A2', factor: 'availability', title: 'Timeout ratio', unit: 'percentunit', dir: 'max', slo: 0.02, amber: 0.04,
+    warn: 0.015, range: [0, 0.04],
     definition: 'jobs ending timed_out / non-cancelled jobs',
     expr: (c) => ratio(jobs(c, [`${R}="timed_out"`]), jobs(c, notCancelled)),
     alert: { name: 'GhAwTimedOutJobs', window: '6h', for: '15m', severity: 'warning', minJobs: 5, summary: 'gh-aw timeout ratio above the 2% SLO', description: 'Jobs are hitting their timeout. Open the Availability scan dashboard to see which workflows.' },
@@ -68,12 +70,14 @@ export const SLIS = [
   },
   {
     id: 'A4', factor: 'availability', title: 'Telemetry health', unit: 'short', dir: 'max', slo: 0, integer: true, perWorkflow: false, trustGate: true,
+    range: [0, 5],
     definition: 'OTLP export failures in the last hour (trust gate: when red, every other tile may be understated)',
     expr: (c) => orZero(c, `round(sum(increase(${metric('otlpFailures')}[${c.window ?? '1h'}])))`),
     alert: { name: 'GhAwTelemetryBroken', window: '15m', for: '15m', severity: 'warning', summary: 'gh-aw is failing to export OTLP telemetry', description: 'Dashboards may under-report until exports recover.' },
   },
   {
     id: 'R1', factor: 'responsiveness', title: 'Agent job p95 duration', unit: 's', dir: 'max', slo: 1200, amber: 1500,
+    warn: 900, range: [0, 1500],
     definition: 'p95 duration of agent jobs',
     expr: (c) => quantile(c, 0.95),
     alert: { name: 'GhAwSlowAgentJobs', window: '6h', for: '30m', severity: 'warning', minJobs: 5, summary: 'gh-aw agent job p95 duration above the 20 minute SLO', description: 'Agent jobs are slow. Open the Responsiveness scan dashboard.' },
@@ -85,6 +89,7 @@ export const SLIS = [
   },
   {
     id: 'T1', factor: 'throughput', title: 'Throughput vs baseline', unit: 'percentunit', dir: 'min', slo: 0.6, amber: 0.4,
+    warn: 0.75, range: [0, 1.5],
     definition: 'successful agent runs in the last 24h / 7d daily average',
     expr: (c) => {
       const ok = [`${R}="success"`];
@@ -93,28 +98,33 @@ export const SLIS = [
   },
   {
     id: 'T2', factor: 'throughput', title: 'Productive outputs per agent run', unit: 'none', decimals: 2, dir: 'min', slo: 0.5, amber: 0.3,
+    warn: 0.65, range: [0, 1],
     definition: 'non-noop safe outputs / agent runs',
     expr: (c) => ratio(inc(c, 'outputItems', [`${LABELS.outputType}!="noop"`], win(c)), agentJobs(c)),
   },
   {
     id: 'Q1', factor: 'quality', title: 'Job success ratio', unit: 'percentunit', dir: 'min', slo: 0.95, amber: 0.9,
+    warn: 0.97, range: [0, 1],
     definition: 'successful jobs / non-cancelled jobs',
     expr: (c) => ratio(jobs(c, [`${R}="success"`]), jobs(c, notCancelled)),
     alert: { name: 'GhAwHighFailureRate', window: '1h', for: '15m', severity: 'warning', minJobs: 5, summary: 'gh-aw job success ratio below the 95% SLO', description: 'Open the Quality scan dashboard to see which workflows are failing.' },
   },
   {
     id: 'Q2', factor: 'quality', title: 'Tool call success ratio', unit: 'percentunit', dir: 'min', slo: 0.9, amber: 0.8,
+    warn: 0.95, range: [0, 1],
     definition: 'tool calls with status ok / all tool calls',
     expr: (c) => ratio(inc(c, 'toolCalls', [`${LABELS.toolStatus}="ok"`], win(c)), inc(c, 'toolCalls', [], win(c))),
   },
   {
     id: 'Q3', factor: 'quality', title: 'Incomplete-run rate', unit: 'percentunit', dir: 'max', slo: 0.05, amber: 0.1,
+    warn: 0.04, range: [0, 0.1],
     definition: 'report_incomplete safe outputs / agent runs',
     expr: (c) => ratio(inc(c, 'outputItems', [`${LABELS.outputType}="report_incomplete"`], win(c)), agentJobs(c)),
     alert: { name: 'GhAwHighIncompleteRate', window: '6h', for: '30m', severity: 'warning', minJobs: 5, summary: 'More than 5% of gh-aw agent runs end as incomplete', description: 'Agents are reporting they could not finish. Open the Quality scan dashboard.' },
   },
   {
     id: 'C1', factor: 'cost', title: 'Tokens per productive output vs baseline', unit: 'none', suffix: '×', decimals: 2, dir: 'max', slo: 1.5, amber: 2,
+    warn: 1.2, range: [0, 2],
     definition: '(tokens / non-noop outputs over 7d) / (same over 28d)',
     expr: (c) => {
       const perOutput = (w) => ratio(tokens(c, w), inc(c, 'outputItems', [`${LABELS.outputType}!="noop"`], w));
@@ -123,17 +133,20 @@ export const SLIS = [
   },
   {
     id: 'C2', factor: 'cost', title: 'Burn rate vs baseline', unit: 'none', suffix: '×', decimals: 2, dir: 'max', slo: 2, amber: 3,
+    warn: 1.5, range: [0, 3],
     definition: 'tokens in the last 24h / 7d daily average',
     expr: (c) => ratio(tokens(c, '1d'), `${tokens(c, '7d')} / 7`),
     alert: { name: 'GhAwTokenBurnSpike', for: '1h', severity: 'warning', summary: 'gh-aw token burn over 2x the 7-day daily average', description: 'Open the Cost scan dashboard to see which workflows are burning tokens.' },
   },
   {
     id: 'C3', factor: 'cost', title: 'Cache hit ratio', unit: 'percentunit', dir: 'min', slo: 0.4, amber: 0.2,
+    warn: 0.5, range: [0, 1],
     definition: 'cache-read tokens / input tokens',
     expr: (c) => ratio(inc(c, 'tokensCacheRead', [], win(c)), inc(c, 'tokensInput', [], win(c))),
   },
   {
     id: 'C4', factor: 'cost', title: 'Credit and rate-limit events', unit: 'short', dir: 'max', slo: 0, integer: true,
+    range: [0, 5],
     definition: 'AI credit limit-exceeded plus rate-limit errors',
     expr: (c) => orZero(c, `round(${orZero(c, inc(c, 'creditsLimitExceeded', [], win(c)))} + ${orZero(c, inc(c, 'creditsRateLimit', [], win(c)))})`),
   },
@@ -174,27 +187,40 @@ export function thresholdSteps(sli) {
   return { base: 'green', steps: [[above(sli, sli.slo), 'orange'], [above(sli, sli.amber), 'red']] };
 }
 
-// 0 = SLO met, 1 = at risk (amber), 2 = breached. Empty when the SLI has no data.
-export function stateExpr(sli) {
-  const e = `(${fleetExpr(sli)})`; // SLI queries contain a top-level `or`, so group before comparing
-  const op = sli.dir === 'min' ? '<' : '>';
-  const breach = `(${e} ${op} bool ${sli.slo})`;
-  if (sli.amber === undefined) return `2 * ${breach}`;
-  return `${breach} + (${e} ${op} bool ${sli.amber})`;
+// Gauge colours: red = SLO breached, yellow = still met but inside the `warn` margin (approaching),
+// green = comfortably within SLO. SLIs without `warn` (counts) are green when met, red when not.
+export function gaugeSteps(sli) {
+  if (sli.dir === 'min') {
+    return { base: 'red', steps: sli.warn === undefined ? [[sli.slo, 'green']] : [[sli.slo, 'yellow'], [sli.warn, 'green']] };
+  }
+  const red = [above(sli, sli.slo), 'red'];
+  return { base: 'green', steps: sli.warn === undefined ? [red] : [[sli.warn, 'yellow'], red] };
 }
 
-export function factorStateExpr(factor) {
-  const terms = SLIS.filter((s) => s.factor === factor && !s.informational)
-    .map((s) => `label_replace(${stateExpr(s)}, "sli", "${s.id}", "", "")`);
-  return `max(${terms.join(' or ')})`;
+export const gaugeUnit = (sli) => (sli.suffix ? `suffix:${sli.suffix}` : sli.unit);
+
+// Series name shown under the gauge, also the key for the per-SLI field overrides.
+export const gaugeLabel = (sli) => `${sli.title} (SLO ${sli.dir === 'min' ? '≥' : '≤'} ${fmt(sli, sli.slo)})`;
+
+export const gaugeSlis = (factor) => SLIS.filter((s) => s.factor === factor && !s.informational);
+
+// Headroom: < 0 breached, 0..1 approaching, >= 1 comfortable. Measured in "warn bands" so SLIs with
+// different units compare. Count SLIs have no band: 3 when met, -1 when breached.
+export function marginExpr(sli) {
+  const e = `(${fleetExpr(sli)})`; // SLI queries contain a top-level `or`, so group before arithmetic
+  if (sli.warn === undefined) return `((${e} ${sli.dir === 'min' ? '>=' : '<='} bool ${sli.slo}) * 4 - 1)`;
+  const band = +Math.abs(sli.warn - sli.slo).toFixed(10);
+  return sli.dir === 'min' ? `((${e} - ${sli.slo}) / ${band})` : `((${sli.slo} - ${e}) / ${band})`;
 }
 
-// Factor gauge score: 1 = every SLO met, 0.5 = at least one at risk, 0 = at least one breached.
-export const factorScoreExpr = (factor) => `1 - (${factorStateExpr(factor)}) / 2`;
-
-export const SCORE_MAPPINGS = [
-  { type: 'value', options: { 1: { text: '100% · SLO met', index: 0 }, 0.5: { text: '50% · At risk', index: 1 }, 0: { text: '0% · Breached', index: 2 } } },
-];
+// One series: the actual value of the factor's worst SLI (smallest headroom), labelled with gaugeLabel.
+export function worstSliExpr(factor) {
+  const tag = (expr, sli) => `label_replace(${expr}, "sli", ${JSON.stringify(gaugeLabel(sli))}, "", "")`;
+  const slis = gaugeSlis(factor);
+  const actual = slis.map((s) => tag(`(${fleetExpr(s)})`, s)).join(' or ');
+  const margin = slis.map((s) => tag(marginExpr(s), s)).join(' or ');
+  return `topk(1, (${actual}) and on(sli) bottomk(1, ${margin}))`;
+}
 
 export function alertRulesYaml() {
   const rules = SLIS.filter((s) => s.alert).map((s) => {

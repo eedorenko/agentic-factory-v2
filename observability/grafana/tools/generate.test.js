@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { generateAll, generateAlerts, buildDashboard, DEFINITIONS, DASHBOARD_DIR, ALERTS_FILE } from './generate.mjs';
-import { SLIS, SLI_BY_ID, FACTORS, thresholdSteps, fleetExpr } from '../definitions/slo.mjs';
+import { SLIS, SLI_BY_ID, FACTORS, thresholdSteps, fleetExpr, gaugeSteps, gaugeLabel, gaugeSlis } from '../definitions/slo.mjs';
 import { allMetricNames, ALIAS_NAMES, LABELS, VARIABLE_NAMES, TEXTBOX_VARIABLES, METRICS } from '../definitions/common.mjs';
 
 const dashboards = DEFINITIONS.map((def) => ({ def, json: buildDashboard(def) }));
@@ -96,7 +96,7 @@ test('threshold steps colour the right side of the SLO', () => {
   assert.equal(thresholdSteps(SLI_BY_ID.get('A3')), null);
 });
 
-test('glance: telemetry banner plus five factor stat panels, each linking to its scan dashboard', () => {
+test('glance: telemetry banner plus five factor gauges showing the worst SLI value, each linking to its scan dashboard', () => {
   const glance = byUid('gh-aw-slo-overview');
   assert.equal(glance.panels.length, 6, 'banner + 5 factor panels, nothing else');
   const banner = glance.panels.filter((p) => p.title.startsWith('Telemetry health'));
@@ -106,12 +106,47 @@ test('glance: telemetry banner plus five factor stat panels, each linking to its
   assert.deepEqual(factors.map((p) => p.title), Object.values(FACTORS).map((f) => f.label));
   assert.equal(new Set(factors.map((p) => p.gridPos.y)).size, 1, 'factor panels share one row');
   assert.ok(factors.every((p) => p.gridPos.y >= banner[0].gridPos.h), 'factor row is below the banner');
-  for (const p of factors) {
-    const f = Object.values(FACTORS).find((x) => x.label === p.title);
-    assert.equal(p.type, 'stat', `${p.title} is a stat panel`);
+  for (const [factor, f] of Object.entries(FACTORS)) {
+    const p = factors.find((x) => x.title === f.label);
+    assert.equal(p.type, 'gauge', `${p.title} is a gauge`);
     assert.ok(p.fieldConfig.defaults.links[0].url.includes(f.uid), `${p.title} links to its scan dashboard`);
-    assert.deepEqual(p.fieldConfig.defaults.thresholds.steps.map((x) => x.color), ['red', 'yellow', 'green']);
-    assert.equal(p.options.colorMode, 'background');
+    assert.equal(p.targets.length, 1);
+    assert.equal(p.targets[0].legendFormat, '{{sli}}');
+    const slis = gaugeSlis(factor);
+    assert.equal(p.fieldConfig.overrides.length, slis.length, `${p.title}: one override per SLI`);
+    for (const s of slis) {
+      const o = p.fieldConfig.overrides.find((x) => x.matcher.options === gaugeLabel(s));
+      assert.ok(o, `${p.title}: override for ${s.id}`);
+      assert.ok(p.targets[0].expr.includes(gaugeLabel(s)), `${p.title}: query names ${s.id}`);
+      const prop = (id) => o.properties.find((x) => x.id === id).value;
+      assert.deepEqual([prop('min'), prop('max')], s.range);
+      const steps = prop('thresholds').steps;
+      assert.equal(steps[0].color, s.dir === 'min' ? 'red' : 'green', `${s.id} base colour`);
+      assert.equal(steps.at(-1).color, s.dir === 'min' ? 'green' : 'red', `${s.id} far-side colour`);
+    }
+  }
+});
+
+test('gauge steps: red at breach, yellow when approaching, SLO value itself is not breached', () => {
+  const q1 = gaugeSteps(SLI_BY_ID.get('Q1'));
+  assert.deepEqual(q1, { base: 'red', steps: [[0.95, 'yellow'], [0.97, 'green']] });
+  const r1 = gaugeSteps(SLI_BY_ID.get('R1'));
+  assert.equal(r1.base, 'green');
+  assert.equal(r1.steps[0][1], 'yellow');
+  assert.equal(r1.steps[1][1], 'red');
+  assert.ok(r1.steps[1][0] > 1200, 'exactly 20 min still counts as met');
+  assert.ok(r1.steps[0][0] < 1200, 'yellow starts before the SLO');
+  assert.deepEqual(gaugeSteps(SLI_BY_ID.get('A4')).steps.map((x) => x[1]), ['red']);
+});
+
+test('gauge margins: warn sits inside the SLO side, ranges contain SLO and warn', () => {
+  for (const s of SLIS.filter((x) => !x.informational)) {
+    assert.ok(Array.isArray(s.range) && s.range[0] < s.range[1], `${s.id} range`);
+    assert.ok(s.slo >= s.range[0] && s.slo <= s.range[1], `${s.id} range holds the SLO`);
+    if (s.warn !== undefined) {
+      assert.ok(s.dir === 'min' ? s.warn > s.slo : s.warn < s.slo, `${s.id} warn is on the good side of the SLO`);
+      assert.ok(s.warn >= s.range[0] && s.warn <= s.range[1], `${s.id} range holds warn`);
+    }
   }
 });
 

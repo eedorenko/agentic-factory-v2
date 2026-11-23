@@ -15,10 +15,12 @@ thresholds, and are organised **glance -> scan -> commit**.
 | Scan | `gh-aw / SLO Cost efficiency` | Which workflows burn tokens without matching output? |
 | Commit | `gh-aw / Workflow Drilldown` | Why is this workflow violating an SLO? |
 
-Start at the overview: a telemetry-health banner and five colored boxes, one per happiness factor
-(Availability, Responsiveness, Throughput, Quality, Cost efficiency). Each box shows the worst SLI
-state in that factor: green (every SLO met), yellow (at risk) or red (breached). All green means
-everything is fine. Click a box to scan which workflows violate that factor's SLOs, then click a
+Start at the overview: a telemetry-health banner and five gauges, one per happiness factor
+(Availability, Responsiveness, Throughput, Quality, Cost efficiency). Each gauge shows the actual
+value of that factor's worst SLI (the one with the least headroom to its SLO), for example "p95 duration
+8.3 min" against a 20 min ceiling. The SLI name and SLO are printed under the gauge and the threshold
+markers show where the limits are: green (comfortable), yellow (approaching) or red (breached).
+All green means everything is fine. Click a gauge to scan which workflows violate that factor's SLOs, then click a
 workflow to drill down. Individual SLIs live in the scan dashboards. The
 SLI definitions and thresholds are tabulated in the spec; the PromQL is in `definitions/slo.mjs`.
 

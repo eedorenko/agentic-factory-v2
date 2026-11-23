@@ -68,7 +68,7 @@ function options(panel) {
       return {
         reduceOptions: { calcs: ['lastNotNull'], fields: '', values: false },
         showThresholdMarkers: true,
-        showThresholdLabels: false,
+        showThresholdLabels: true,
         orientation: 'auto',
         minVizHeight: 75,
         minVizWidth: 75,

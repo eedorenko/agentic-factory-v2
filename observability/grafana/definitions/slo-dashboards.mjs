@@ -4,8 +4,8 @@
 // The commit tier lives in workflow-drilldown.mjs.
 import { LABELS, count, bucket, counter, nonCacheInput, costExpr, sum, inc, sel, RATE } from './common.mjs';
 import {
-  FACTORS, SLIS, SLI_BY_ID, sliIds, fleetExpr, workflowExpr, scopedExpr, factorScoreExpr,
-  thresholdSteps, sloText, SCORE_MAPPINGS,
+  FACTORS, SLIS, SLI_BY_ID, sliIds, fleetExpr, workflowExpr, scopedExpr, worstSliExpr,
+  thresholdSteps, sloText, gaugeSteps, gaugeUnit, gaugeLabel, gaugeSlis,
 } from './slo.mjs';
 
 const W = LABELS.workflow;
@@ -28,7 +28,7 @@ const COLUMNS = [
   { factor: 'cost', x: 20, w: 4 },
 ];
 
-// Banner 3 rows, then one row of 5 factor stat panels.
+// Banner 3 rows, then one row of 5 factor gauges.
 const BANNER_H = 3;
 const FACTOR_H = 9;
 
@@ -54,31 +54,44 @@ function overview() {
   ];
   for (const col of COLUMNS) {
     const f = FACTORS[col.factor];
+    const slis = gaugeSlis(col.factor);
+    // The gauge shows whichever SLI of the factor is closest to (or past) its SLO. Each SLI brings its
+    // own unit, range and thresholds through an override keyed on the series name.
+    const overrides = slis.map((s) => {
+      const t = gaugeSteps(s);
+      const props = [
+        { id: 'unit', value: gaugeUnit(s) },
+        { id: 'min', value: s.range[0] },
+        { id: 'max', value: s.range[1] },
+        { id: 'thresholds', value: { mode: 'absolute', steps: [{ color: t.base, value: null }, ...t.steps.map(([value, color]) => ({ color, value }))] } },
+      ];
+      if (s.decimals !== undefined) props.push({ id: 'decimals', value: s.decimals });
+      return { matcher: { id: 'byName', options: gaugeLabel(s) }, properties: props };
+    });
     panels.push({
       title: f.label,
-      viz: 'stat',
-      unit: 'percentunit',
+      viz: 'gauge',
+      unit: 'short',
       min: 0,
       max: 1,
-      thresholds: [[0.5, 'yellow'], [1, 'green']],
-      thresholdBase: 'red',
-      textMode: 'value',
-      mappings: SCORE_MAPPINGS,
-      slis: sliIds(col.factor),
+      thresholds: [],
+      thresholdBase: 'green',
+      slis: slis.map((s) => s.id),
       at: { x: col.x, y: BANNER_H },
       w: col.w,
       h: FACTOR_H,
       links: [scanLink(col.factor)],
-      question: `Are users happy with ${f.label}: ${f.happy}? Worst SLI state across the factor: green 100% = every SLO met, yellow 50% = at least one at risk, red 0% = at least one breached. Click to scan which workflows violate it.`,
+      question: `Are users happy with ${f.label}: ${f.happy}? Shows the actual value of the SLI closest to breaching its SLO (smallest headroom), named under the gauge with its SLO. Threshold markers: red = SLO breached, yellow = approaching, green = comfortable. Click to scan which workflows violate it.`,
       tier: 'A',
       ignores: 'workflow, job, model (fleet level)',
-      targets: [{ expr: factorScoreExpr(col.factor) }],
+      targets: [{ expr: worstSliExpr(col.factor), legend: '{{sli}}' }],
+      overrides,
     });
   }
   return {
     uid: 'gh-aw-slo-overview',
     title: 'gh-aw / SLO Overview',
-    description: 'Glance: is the agentic-workflow fleet meeting expectations right now, and which happiness factor is not? Five boxes, one per happiness factor: green (every SLO met), yellow (at risk) or red (breached). Click a box to scan which workflows violate it.',
+    description: 'Glance: is the agentic-workflow fleet meeting expectations right now, and which happiness factor is not? Five gauges, one per happiness factor, each showing the actual value of its worst SLI against the SLO: green (comfortable), yellow (approaching) or red (breached). Click a gauge to scan which workflows violate it.',
     tags: ['slo', 'glance'],
     variables: ['slo_window', 'gh_repo'],
     sections: [{ panels }],
