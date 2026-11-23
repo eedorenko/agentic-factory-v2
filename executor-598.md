@@ -1,26 +1,27 @@
 # State
 
 issue: #598
-branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (local commit 868a3472 on top of remote ca2c0f24)
-pr: draft PR requested run 19 via create_pull_request (may fall back to an issue because of protected files; then a human must push 868a3472 and open the PR). #599 closed/superseded.
-phase: verification (glance redesign implemented; needs live Grafana check by human)
-checkpoint: Wait for @eedorenko live check of the simplified overview (banner + 5 stat panels). Adjust per feedback, mark PR ready, merge flow after APPROVED review.
-runs: 19
+branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (local commit 973a90ab on top of remote 868a3472, which the human pushed)
+pr: none yet; create_pull_request requested run 20 (may fall back to an issue because of protected files; then a human must push 973a90ab and open the PR)
+phase: verification (worst-SLI gauge glance implemented; needs live Grafana check by human)
+checkpoint: Wait for @eedorenko live check of the 5 worst-SLI gauges (check the topk/bottomk query renders one series per gauge with the right unit/override). Tune `warn`/`range` per SLI in slo.mjs on feedback, mark PR ready, merge flow after APPROVED review.
+runs: 20
 
 # Understanding
 
-- Layout: observability/grafana/{definitions/slo.mjs (SLI table + GLANCE gauge names/ranges + factorScoreExpr/SCORE_MAPPINGS + alertRulesYaml), definitions/slo-dashboards.mjs (glance overview + 5 scan gh-aw-slo-<factor>), definitions/workflow-drilldown.mjs, definitions/common.mjs, tools/generate.mjs (now supports viz 'gauge'; --check), tools/generate.test.js, smoke-test.mjs, seed-metrics.mjs, alerts/alerts.rules.yml GENERATED, README, METRICS-PROPOSAL}. Spec: specs/grafana-dashboards-spec.md.
-- Glance now (run 19, per human): A4 banner (y0,h3) + ONE row of 5 stat panels (y3,h9; value = factorScoreExpr 1/0.5/0, thresholds red/yellow/green, SCORE_MAPPINGS text) each linking to scan dashboard. NO SLI gauges; GLANCE table removed from slo.mjs. Other 6 dashboards unchanged.
-- Human-confirmed names/labels earlier; smoke test was green live (114 OK).
-- Validation tools: promql-parser venv /tmp/gh-aw/agent/v (ephemeral). npm test 138 pass; generate --check ok.
+- Layout: observability/grafana/{definitions/slo.mjs (SLI table incl. new `warn` + `range` per SLI; gaugeSteps/gaugeLabel/gaugeUnit/marginExpr/worstSliExpr; alertRulesYaml), definitions/slo-dashboards.mjs (glance overview + 5 scan gh-aw-slo-<factor>), definitions/workflow-drilldown.mjs, definitions/common.mjs, tools/generate.mjs, tools/generate.test.js, smoke-test.mjs, seed-metrics.mjs, alerts GENERATED, README, METRICS-PROPOSAL}. Spec: specs/grafana-dashboards-spec.md.
+- Glance (run 20, per human 22:26): A4 banner + 5 GAUGES (one per factor), each shows actual value of the factor's worst SLI (least headroom in warn bands). One query per gauge: topk(1, actual and on(sli) bottomk(1, margin)) with label `sli` = gaugeLabel (title + SLO), legend {{sli}}; per-SLI field overrides byName (unit, min/max range, thresholds). yellow=inside warn margin, red=breached.
+- Old stateExpr/factorScoreExpr/SCORE_MAPPINGS removed.
+- Smoke test was green live earlier (114 OK) before glance changes. Validation: promql-parser venv /tmp/gh-aw/agent/v (ephemeral). npm test 140 pass; generate --check ok.
 
 # Plan
 
-Done: spec, SLO impl, scan/commit, glance gauge redesign (run 18). Remaining: human live check; PR; review; merge flow.
+Done: spec, SLO impl, scan/commit, glance iterations. Remaining: human live check; PR; review; merge flow.
 
 # Decisions
 
-- Gauge ranges are per-SLI in GLANCE (slo.mjs). Factor gauge uses percentunit 0-1 with value mappings SLO met/At risk/Breached.
+- Cross-SLI "worst" chosen by headroom measured in warn bands (unit-free); count SLIs margin = 3 met / -1 breached.
+- Series-name override matching relies on label_replace'd `sli` label; if Grafana renders name differently live, adjust.
 - Avoid writing the literal executor handle in waiting comments (loop).
 
 # Failed approaches
@@ -29,6 +30,6 @@ Done: spec, SLO impl, scan/commit, glance gauge redesign (run 18). Remaining: hu
 
 # Run log
 
-- Run 19: human said 18 gauges too many; replaced with banner + 5 stat panels, tests 138 green, committed 868a3472, requested draft PR.
-- Run 18: unblocked by human (7b892ded pushed). Implemented glance gauge redesign, tests green, committed ca2c0f24, requested draft PR.
-- Run 17: blocked waiting for branch push.
+- Run 20: human wanted gauges with actual values vs SLO; implemented worst-SLI gauges, tests 140 green, committed 973a90ab, requested draft PR.
+- Run 19: banner + 5 stat score panels (868a3472).
+- Run 18: 18 gauges (ca2c0f24).
