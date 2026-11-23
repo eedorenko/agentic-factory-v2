@@ -1,13 +1,15 @@
 # State
 
 issue: #598
-branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (local commit 973a90ab on top of remote 868a3472, which the human pushed)
+branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (local commit e86bdadd on top of 973a90ab; origin has 973a90ab)
 pr: none yet; create_pull_request requested run 20 (may fall back to an issue because of protected files; then a human must push 973a90ab and open the PR)
 phase: verification (worst-SLI gauge glance implemented; needs live Grafana check by human)
-checkpoint: Wait for @eedorenko live check of the 5 worst-SLI gauges (check the topk/bottomk query renders one series per gauge with the right unit/override). Tune `warn`/`range` per SLI in slo.mjs on feedback, mark PR ready, merge flow after APPROVED review.
-runs: 20
+checkpoint: (run 21 done) Wait for @eedorenko live check of the 5 worst-SLI gauges (check the topk/bottomk query renders one series per gauge with the right unit/override). Tune `warn`/`range` per SLI in slo.mjs on feedback, mark PR ready, merge flow after APPROVED review.
+runs: 21
 
 # Understanding
+
+- Run 21 (human 23:18: gauges all red, range 0-1 everywhere): root cause = byName overrides on `sli` label did not match, so panel defaults (0-1, single green step) applied. Fix: one query per SLI (worstSliTargets in slo.mjs, refId A..), byFrameRefID overrides with unit/min/max/thresholds, and panel defaults set from first SLI (real range, steps). Each query returns a value only while its SLI is the factor's worst (margin comparisons via scalar(min(...))). Legend = gaugeLabel. 140 tests pass, promql parses.
 
 - Layout: observability/grafana/{definitions/slo.mjs (SLI table incl. new `warn` + `range` per SLI; gaugeSteps/gaugeLabel/gaugeUnit/marginExpr/worstSliExpr; alertRulesYaml), definitions/slo-dashboards.mjs (glance overview + 5 scan gh-aw-slo-<factor>), definitions/workflow-drilldown.mjs, definitions/common.mjs, tools/generate.mjs, tools/generate.test.js, smoke-test.mjs, seed-metrics.mjs, alerts GENERATED, README, METRICS-PROPOSAL}. Spec: specs/grafana-dashboards-spec.md.
 - Glance (run 20, per human 22:26): A4 banner + 5 GAUGES (one per factor), each shows actual value of the factor's worst SLI (least headroom in warn bands). One query per gauge: topk(1, actual and on(sli) bottomk(1, margin)) with label `sli` = gaugeLabel (title + SLO), legend {{sli}}; per-SLI field overrides byName (unit, min/max range, thresholds). yellow=inside warn margin, red=breached.
@@ -30,6 +32,7 @@ Done: spec, SLO impl, scan/commit, glance iterations. Remaining: human live chec
 
 # Run log
 
+- Run 21: fixed red gauges / range mismatch (e86bdadd), PR requested again.
 - Run 20: human wanted gauges with actual values vs SLO; implemented worst-SLI gauges, tests 140 green, committed 973a90ab, requested draft PR.
 - Run 19: banner + 5 stat score panels (868a3472).
 - Run 18: 18 gauges (ca2c0f24).
