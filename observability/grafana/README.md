@@ -15,8 +15,10 @@ thresholds, and are organised **glance -> scan -> commit**.
 | Scan | `gh-aw / SLO Cost efficiency` | Which workflows burn tokens without matching output? |
 | Commit | `gh-aw / Workflow Drilldown` | Why is this workflow violating an SLO? |
 
-Start at the overview. Tiles are green (SLO met), orange (at risk) or red (breached); click a
-factor or tile to scan which workflows violate it, then click a workflow to drill down. The
+Start at the overview. Five factor gauges (Availability, Responsiveness, Throughput, Quality, Cost
+efficiency) each sit above a column of small SLI gauges with plain names (Fleet Alive, Timeouts,
+Agent Speed, ...). Gauges are green (SLO met), orange (at risk) or red (breached); the SLI code
+and SLO are in each panel's description. Click any gauge to scan which workflows violate it, then click a workflow to drill down. The
 SLI definitions and thresholds are tabulated in the spec; the PromQL is in `definitions/slo.mjs`.
 
 ## Layout

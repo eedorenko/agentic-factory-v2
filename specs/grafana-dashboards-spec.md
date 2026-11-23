@@ -56,7 +56,7 @@ The PromQL for each SLI lives in `definitions/slo.mjs` (`fleetExpr` for the glan
 | Scan | `gh-aw-slo-availability`, `-responsiveness`, `-throughput`, `-quality`, `-cost` | Which workflows violate this SLO, and since when? |
 | Commit | `gh-aw-workflow-drilldown` | Why is this workflow violating the SLO? |
 
-**Glance** (one screen, no scrolling): a telemetry-health banner (A4, trust gate), five factor tiles showing the worst SLI state per factor, then one stat tile per SLI in factor columns with sparkline and the SLO in the title. Every tile links to its factor's scan dashboard.
+**Glance** (one screen, no scrolling): a telemetry-health banner (A4, trust gate), then five large factor gauges (Availability, Responsiveness, Throughput, Quality, Cost efficiency; full green = every SLO met, half orange = at risk, empty red = breached), each with a column of 1-4 small SLI gauges below it with plain titles (A1 Fleet Alive, A2 Timeouts, R1 Agent Speed, T1 Work Output, T2 Run Productivity, Q1 Job Success Rate, Q2 Tool Reliability, Q3 Completion Rate, C1 Token Efficiency, C2 Burn Rate, C3 Cache Hits, C4 Rate Limits). The SLI code and SLO live in the panel description. Every gauge links to its factor's scan dashboard.
 
 **Scan** (one per factor): a per-workflow table of the factor's SLIs sorted worst first with cells coloured against the SLO and a sample-size column; an SLI-vs-SLO time series per SLI with the SLO (dashed red) and amber margin (dashed orange); a distribution panel where it fits (duration heatmap, token mix). Clicking a workflow opens the drilldown with `var-workflow` set. Throughput shows `create_pull_request` and `merge_pr` counts as a proxy for "issues completed"; they are not an SLO.
 

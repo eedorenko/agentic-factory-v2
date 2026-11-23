@@ -141,7 +141,23 @@ export const SLIS = [
 
 export const SLI_BY_ID = new Map(SLIS.map((s) => [s.id, s]));
 export const sliIds = (factor) => SLIS.filter((s) => s.factor === factor).map((s) => s.id);
-export const GLANCE_IDS = SLIS.filter((s) => !(s.informational && s.id === 'R2')).map((s) => s.id);
+// Glance gauges: plain-language name and the gauge range. Informational SLIs (A3, R2) and the A4
+// trust-gate banner are not gauges.
+export const GLANCE = {
+  A1: { name: 'Fleet Alive', range: [0, 10] },
+  A2: { name: 'Timeouts', range: [0, 0.1] },
+  R1: { name: 'Agent Speed', range: [0, 3000] },
+  T1: { name: 'Work Output', range: [0, 1.2] },
+  T2: { name: 'Run Productivity', range: [0, 1] },
+  Q1: { name: 'Job Success Rate', range: [0, 1] },
+  Q2: { name: 'Tool Reliability', range: [0, 1] },
+  Q3: { name: 'Completion Rate', range: [0, 0.2] },
+  C1: { name: 'Token Efficiency', range: [0, 3] },
+  C2: { name: 'Burn Rate', range: [0, 4] },
+  C3: { name: 'Cache Hits', range: [0, 1] },
+  C4: { name: 'Rate Limits', range: [0, 5] },
+};
+export const GLANCE_IDS = Object.keys(GLANCE);
 
 const FLEET = { wf: false, by: '' };
 export const fleetExpr = (sli, extra = {}) => sli.expr({ ...FLEET, ...extra });
@@ -191,8 +207,11 @@ export function factorStateExpr(factor) {
   return `max(${terms.join(' or ')})`;
 }
 
-export const STATE_MAPPINGS = [
-  { type: 'value', options: { 0: { text: 'SLO met', index: 0 }, 1: { text: 'At risk', index: 1 }, 2: { text: 'Breached', index: 2 } } },
+// Factor gauge score: 1 = every SLO met, 0.5 = at least one at risk, 0 = at least one breached.
+export const factorScoreExpr = (factor) => `1 - (${factorStateExpr(factor)}) / 2`;
+
+export const SCORE_MAPPINGS = [
+  { type: 'value', options: { 1: { text: 'SLO met', index: 0 }, 0.5: { text: 'At risk', index: 1 }, 0: { text: 'Breached', index: 2 } } },
 ];
 
 export function alertRulesYaml() {

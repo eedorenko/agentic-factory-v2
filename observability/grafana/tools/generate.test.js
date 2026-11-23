@@ -96,23 +96,40 @@ test('threshold steps colour the right side of the SLO', () => {
   assert.equal(thresholdSteps(SLI_BY_ID.get('A3')), null);
 });
 
-test('glance: every tile traces to an SLI with an SLO; one column per factor; one screen', () => {
+test('glance: gauges with plain titles, one column per factor, each links to its scan dashboard, one screen', () => {
   const glance = byUid('gh-aw-slo-overview');
-  const tiles = glance.panels.filter((p) => p.title.match(/^[A-Z]\d /));
-  assert.deepEqual(tiles.map((p) => p.title.split(' ')[0]).sort(), [...GLANCE_IDS].sort());
-  for (const p of tiles) {
+  const gauges = glance.panels.filter((p) => p.type === 'gauge');
+  const sliGauges = gauges.filter((p) => /^[A-Z]\d /.test(p.title));
+  assert.deepEqual(sliGauges.map((p) => p.title.split(' ')[0]).sort(), [...GLANCE_IDS].sort());
+  assert.deepEqual(
+    sliGauges.map((p) => p.title).sort(),
+    ['A1 Fleet Alive', 'A2 Timeouts', 'C1 Token Efficiency', 'C2 Burn Rate', 'C3 Cache Hits', 'C4 Rate Limits',
+      'Q1 Job Success Rate', 'Q2 Tool Reliability', 'Q3 Completion Rate', 'R1 Agent Speed', 'T1 Work Output', 'T2 Run Productivity'],
+  );
+  for (const p of sliGauges) {
     const sli = SLI_BY_ID.get(p.title.split(' ')[0]);
-    assert.ok(/SLO/.test(p.description) || p.title.includes('('), p.title);
+    assert.ok(!p.title.includes('('), `${p.title}: SLO belongs in the description, not the title`);
     assert.match(p.description, new RegExp(`SLI: ${sli.id}\\.`));
-    if (!sli.informational) {
-      assert.equal(p.type, 'stat');
-      assert.ok(p.fieldConfig.defaults.thresholds.steps.length >= 2, `${p.title} thresholds`);
-    }
+    assert.match(p.description, /SLO: [≥≤]/, `${p.title} description states the SLO`);
+    assert.ok(p.fieldConfig.defaults.thresholds.steps.length >= 2, `${p.title} thresholds`);
+    assert.ok(p.fieldConfig.defaults.max > p.fieldConfig.defaults.min, `${p.title} gauge range`);
     assert.ok(p.fieldConfig.defaults.links[0].url.includes(FACTORS[sli.factor].uid), `${p.title} links to its scan dashboard`);
   }
   assert.equal(glance.panels.filter((p) => p.title.startsWith('Telemetry health')).length, 1, 'A4 banner');
-  const factorTiles = glance.panels.filter((p) => Object.values(FACTORS).some((f) => p.title.startsWith(`${f.label}:`)));
-  assert.equal(factorTiles.length, 5);
+  const factorGauges = gauges.filter((p) => Object.values(FACTORS).some((f) => p.title === f.label));
+  assert.deepEqual(factorGauges.map((p) => p.title), Object.values(FACTORS).map((f) => f.label));
+  assert.equal(new Set(factorGauges.map((p) => p.gridPos.y)).size, 1, 'factor gauges share one row');
+  for (const p of factorGauges) {
+    const [factor, f] = Object.entries(FACTORS).find(([, x]) => x.label === p.title);
+    assert.ok(p.fieldConfig.defaults.links[0].url.includes(f.uid));
+    // Every SLI gauge of the factor sits below its factor gauge, in the same column.
+    const column = sliGauges.filter((g) => SLI_BY_ID.get(g.title.split(' ')[0]).factor === factor);
+    assert.ok(column.length >= 1 && column.length <= 4, `${p.title} has 1-4 SLI gauges`);
+    for (const g of column) {
+      assert.equal(g.gridPos.x, p.gridPos.x);
+      assert.ok(g.gridPos.y >= p.gridPos.y + p.gridPos.h, `${g.title} below ${p.title}`);
+    }
+  }
   const bottom = Math.max(...glance.panels.map((p) => p.gridPos.y + p.gridPos.h));
   assert.ok(bottom <= 30, `glance fits on one screen (bottom row ${bottom})`);
 });
@@ -287,7 +304,7 @@ for (const { def, json } of dashboards) {
 
   test(`${def.uid}: stat and table panels never map null to zero`, () => {
     for (const { panel } of panels) {
-      if (['stat', 'table', 'bargauge', 'piechart'].includes(panel.type)) {
+      if (['stat', 'gauge', 'table', 'bargauge', 'piechart'].includes(panel.type)) {
         assert.ok(!('nullValueMode' in panel.options) && !('nullValueMode' in panel.fieldConfig.defaults));
       }
     }

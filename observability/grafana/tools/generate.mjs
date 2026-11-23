@@ -31,7 +31,7 @@ function fieldConfig(panel) {
     unit: panel.unit,
     // Missing is not zero: never map null to 0.
     noValue: 'No data',
-    color: { mode: panel.viz === 'stat' && panel.thresholds ? 'thresholds' : 'palette-classic' },
+    color: { mode: ['stat', 'gauge'].includes(panel.viz) && panel.thresholds ? 'thresholds' : 'palette-classic' },
   };
   if (panel.min !== undefined) defaults.min = panel.min;
   if (panel.max !== undefined) defaults.max = panel.max;
@@ -63,6 +63,16 @@ function options(panel) {
         graphMode: panel.sparkline ? 'area' : 'none',
         textMode: panel.textMode || 'auto',
         orientation: 'auto',
+      };
+    case 'gauge':
+      return {
+        reduceOptions: { calcs: ['lastNotNull'], fields: '', values: false },
+        showThresholdMarkers: true,
+        showThresholdLabels: false,
+        orientation: 'auto',
+        minVizHeight: 75,
+        minVizWidth: 75,
+        sizing: 'auto',
       };
     case 'bargauge':
       return {
@@ -101,7 +111,7 @@ function options(panel) {
 
 function buildPanel(panel, id, gridPos) {
   const isTable = panel.viz === 'table';
-  const instant = panel.instant ?? (['stat', 'bargauge', 'piechart', 'table'].includes(panel.viz) && !panel.sparkline);
+  const instant = panel.instant ?? (['stat', 'gauge', 'bargauge', 'piechart', 'table'].includes(panel.viz) && !panel.sparkline);
   const targets = panel.targets.map((t, i) => ({
     datasource: DS,
     refId: String.fromCharCode(65 + i),
