@@ -15,10 +15,11 @@ thresholds, and are organised **glance -> scan -> commit**.
 | Scan | `gh-aw / SLO Cost efficiency` | Which workflows burn tokens without matching output? |
 | Commit | `gh-aw / Workflow Drilldown` | Why is this workflow violating an SLO? |
 
-Start at the overview. Five factor gauges (Availability, Responsiveness, Throughput, Quality, Cost
-efficiency) each sit above a column of small SLI gauges with plain names (Fleet Alive, Timeouts,
-Agent Speed, ...). Gauges are green (SLO met), orange (at risk) or red (breached); the SLI code
-and SLO are in each panel's description. Click any gauge to scan which workflows violate it, then click a workflow to drill down. The
+Start at the overview: a telemetry-health banner and five colored boxes, one per happiness factor
+(Availability, Responsiveness, Throughput, Quality, Cost efficiency). Each box shows the worst SLI
+state in that factor: green (every SLO met), yellow (at risk) or red (breached). All green means
+everything is fine. Click a box to scan which workflows violate that factor's SLOs, then click a
+workflow to drill down. Individual SLIs live in the scan dashboards. The
 SLI definitions and thresholds are tabulated in the spec; the PromQL is in `definitions/slo.mjs`.
 
 ## Layout
@@ -113,7 +114,7 @@ The dashboards link to each other by uid and share the `gh-aw` tag, so import al
 
 - Every panel traces to a happiness factor, SLI and SLO; its description states the question it
   answers, the SLI id, the SLO, its metric tier and which variables it ignores.
-- Glance is fleet level (ignores `$workflow`) and fits one screen. Tier B (spec-only) metrics
+- Glance is fleet level (ignores `$workflow`), has six panels and fits one screen. Tier B (spec-only) metrics
   sit in a collapsed row in the drilldown and have no alerts.
 - Missing is not zero: ratios use `a / (b > 0)`, so a quiet fleet shows "No data", not 0%.
 - SLIs use `$slo_window`; trends use `$__rate_interval`.

@@ -56,7 +56,7 @@ The PromQL for each SLI lives in `definitions/slo.mjs` (`fleetExpr` for the glan
 | Scan | `gh-aw-slo-availability`, `-responsiveness`, `-throughput`, `-quality`, `-cost` | Which workflows violate this SLO, and since when? |
 | Commit | `gh-aw-workflow-drilldown` | Why is this workflow violating the SLO? |
 
-**Glance** (one screen, no scrolling): a telemetry-health banner (A4, trust gate), then five large factor gauges (Availability, Responsiveness, Throughput, Quality, Cost efficiency; full green = every SLO met, half orange = at risk, empty red = breached), each with a column of 1-4 small SLI gauges below it with plain titles (A1 Fleet Alive, A2 Timeouts, R1 Agent Speed, T1 Work Output, T2 Run Productivity, Q1 Job Success Rate, Q2 Tool Reliability, Q3 Completion Rate, C1 Token Efficiency, C2 Burn Rate, C3 Cache Hits, C4 Rate Limits). The SLI code and SLO live in the panel description. Every gauge links to its factor's scan dashboard.
+**Glance** (one screen, six panels): a telemetry-health banner (A4, trust gate) on row 0, then one row of five stat panels, one per happiness factor (Availability, Responsiveness, Throughput, Quality, Cost efficiency). Each shows the worst SLI state in its factor (minimum score across its non-informational SLIs): green 100% = every SLO met, yellow 50% = at least one at risk, red 0% = at least one breached. Each panel links to its factor's scan dashboard, where the individual SLIs live.
 
 **Scan** (one per factor): a per-workflow table of the factor's SLIs sorted worst first with cells coloured against the SLO and a sample-size column; an SLI-vs-SLO time series per SLI with the SLO (dashed red) and amber margin (dashed orange); a distribution panel where it fits (duration heatmap, token mix). Clicking a workflow opens the drilldown with `var-workflow` set. Throughput shows `create_pull_request` and `merge_pr` counts as a proxy for "issues completed"; they are not an SLO.
 
@@ -89,7 +89,7 @@ Generated from the SLI table; thresholds equal the SLO. Rules on ratios also req
 
 ## 7. Verification
 
-- `npm test`: freshness of generated JSON and alerts; SLI table coherence (amber beyond SLO) and the approved thresholds; every glance tile has an SLO and links to its scan dashboard; every scan panel traces to an SLI of its own factor; the SLO line is drawn; alert thresholds come from the table; schema checks (unique ids, no overlaps, variables defined, datasource variable, descriptions, units); metric-name, alias and Tier B checks; PromQL sanity.
+- `npm test`: freshness of generated JSON and alerts; SLI table coherence (amber beyond SLO) and the approved thresholds; the glance has only the banner and five factor stat panels, each linking to its scan dashboard; every scan panel traces to an SLI of its own factor; the SLO line is drawn; alert thresholds come from the table; schema checks (unique ids, no overlaps, variables defined, datasource variable, descriptions, units); metric-name, alias and Tier B checks; PromQL sanity.
 - `tools/smoke-test.mjs`, run by a human against a live Grafana and Prometheus: every query returns OK, NO DATA or ERROR, and the name map is checked against real series.
 - Layout is verified visually in Grafana.
 

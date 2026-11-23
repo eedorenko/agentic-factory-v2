@@ -4,7 +4,7 @@
 // The commit tier lives in workflow-drilldown.mjs.
 import { LABELS, count, bucket, counter, nonCacheInput, costExpr, sum, inc, sel, RATE } from './common.mjs';
 import {
-  FACTORS, SLIS, SLI_BY_ID, GLANCE, GLANCE_IDS, sliIds, fleetExpr, workflowExpr, scopedExpr, factorScoreExpr,
+  FACTORS, SLIS, SLI_BY_ID, sliIds, fleetExpr, workflowExpr, scopedExpr, factorScoreExpr,
   thresholdSteps, sloText, SCORE_MAPPINGS,
 } from './slo.mjs';
 
@@ -20,29 +20,6 @@ function steps(sli) {
 
 // ---------------------------------------------------------------- glance
 
-function tile(sli, at, w) {
-  const g = GLANCE[sli.id];
-  return {
-    title: `${sli.id} ${g.name}`,
-    viz: 'gauge',
-    unit: sli.unit,
-    decimals: sli.decimals,
-    min: g.range[0],
-    max: g.range[1],
-    ...steps(sli),
-    slis: [sli.id],
-    at,
-    w,
-    h: SLI_H,
-    links: [scanLink(sli.factor)],
-    question: `Is the fleet meeting the ${FACTORS[sli.factor].label} SLO for ${sli.title.toLowerCase()}?`,
-    note: `${sli.title}: ${sli.definition}.\n${sloText(sli)}`,
-    tier: 'A',
-    ignores: 'workflow, job, model (fleet level)',
-    targets: [{ expr: fleetExpr(sli) }],
-  };
-}
-
 const COLUMNS = [
   { factor: 'availability', x: 0, w: 5 },
   { factor: 'responsiveness', x: 5, w: 5 },
@@ -51,10 +28,9 @@ const COLUMNS = [
   { factor: 'cost', x: 20, w: 4 },
 ];
 
-// Banner 3 rows, factor gauges 6, then up to 4 SLI gauges of 5 rows: fits one screen.
+// Banner 3 rows, then one row of 5 factor stat panels.
 const BANNER_H = 3;
-const FACTOR_H = 6;
-const SLI_H = 5;
+const FACTOR_H = 9;
 
 function overview() {
   const a4 = SLI_BY_ID.get('A4');
@@ -80,33 +56,29 @@ function overview() {
     const f = FACTORS[col.factor];
     panels.push({
       title: f.label,
-      viz: 'gauge',
+      viz: 'stat',
       unit: 'percentunit',
       min: 0,
       max: 1,
-      thresholds: [[0.5, 'orange'], [1, 'green']],
+      thresholds: [[0.5, 'yellow'], [1, 'green']],
       thresholdBase: 'red',
+      textMode: 'value',
       mappings: SCORE_MAPPINGS,
       slis: sliIds(col.factor),
       at: { x: col.x, y: BANNER_H },
       w: col.w,
       h: FACTOR_H,
       links: [scanLink(col.factor)],
-      question: `Are users happy with ${f.label}: ${f.happy}? Full arc and green = every SLO met, half and orange = at least one at risk, empty and red = at least one breached. Click to scan which workflows violate it.`,
+      question: `Are users happy with ${f.label}: ${f.happy}? Worst SLI state across the factor: green 100% = every SLO met, yellow 50% = at least one at risk, red 0% = at least one breached. Click to scan which workflows violate it.`,
       tier: 'A',
       ignores: 'workflow, job, model (fleet level)',
       targets: [{ expr: factorScoreExpr(col.factor) }],
     });
   }
-  for (const col of COLUMNS) {
-    GLANCE_IDS.map((id) => SLI_BY_ID.get(id)).filter((s) => s.factor === col.factor).forEach((s, i) => {
-      panels.push(tile(s, { x: col.x, y: BANNER_H + FACTOR_H + i * SLI_H }, col.w));
-    });
-  }
   return {
     uid: 'gh-aw-slo-overview',
     title: 'gh-aw / SLO Overview',
-    description: 'Glance: is the agentic-workflow fleet meeting expectations right now, and which happiness factor is not? Gauges are green (SLO met), orange (at risk) or red (breached). Click any gauge to scan which workflows violate it.',
+    description: 'Glance: is the agentic-workflow fleet meeting expectations right now, and which happiness factor is not? Five boxes, one per happiness factor: green (every SLO met), yellow (at risk) or red (breached). Click a box to scan which workflows violate it.',
     tags: ['slo', 'glance'],
     variables: ['slo_window', 'gh_repo'],
     sections: [{ panels }],

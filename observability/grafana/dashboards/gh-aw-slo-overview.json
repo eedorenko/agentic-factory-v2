@@ -1,7 +1,7 @@
 {
   "uid": "gh-aw-slo-overview",
   "title": "gh-aw / SLO Overview",
-  "description": "Glance: is the agentic-workflow fleet meeting expectations right now, and which happiness factor is not? Gauges are green (SLO met), orange (at risk) or red (breached). Click any gauge to scan which workflows violate it.",
+  "description": "Glance: is the agentic-workflow fleet meeting expectations right now, and which happiness factor is not? Five boxes, one per happiness factor: green (every SLO met), yellow (at risk) or red (breached). Click a box to scan which workflows violate it.",
   "tags": [
     "gh-aw",
     "otel",
@@ -192,9 +192,9 @@
     },
     {
       "id": 2,
-      "type": "gauge",
+      "type": "stat",
       "title": "Availability",
-      "description": "Question: Are users happy with Availability: workflows run when triggered and are not stuck or dead? Full arc and green = every SLO met, half and orange = at least one at risk, empty and red = at least one breached. Click to scan which workflows violate it.\nMetrics: Tier A: emitted by gh-aw.\nSLI: A1, A2, A3, A4.\nIgnores variables: workflow, job, model (fleet level).",
+      "description": "Question: Are users happy with Availability: workflows run when triggered and are not stuck or dead? Worst SLI state across the factor: green 100% = every SLO met, yellow 50% = at least one at risk, red 0% = at least one breached. Click to scan which workflows violate it.\nMetrics: Tier A: emitted by gh-aw.\nSLI: A1, A2, A3, A4.\nIgnores variables: workflow, job, model (fleet level).",
       "datasource": {
         "type": "prometheus",
         "uid": "${ds}"
@@ -203,7 +203,7 @@
         "x": 0,
         "y": 3,
         "w": 5,
-        "h": 6
+        "h": 9
       },
       "targets": [
         {
@@ -235,7 +235,7 @@
                 "value": null
               },
               {
-                "color": "orange",
+                "color": "yellow",
                 "value": 0.5
               },
               {
@@ -249,15 +249,15 @@
               "type": "value",
               "options": {
                 "0": {
-                  "text": "Breached",
+                  "text": "0% · Breached",
                   "index": 2
                 },
                 "1": {
-                  "text": "SLO met",
+                  "text": "100% · SLO met",
                   "index": 0
                 },
                 "0.5": {
-                  "text": "At risk",
+                  "text": "50% · At risk",
                   "index": 1
                 }
               }
@@ -281,19 +281,17 @@
           "fields": "",
           "values": false
         },
-        "showThresholdMarkers": true,
-        "showThresholdLabels": false,
-        "orientation": "auto",
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "sizing": "auto"
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "orientation": "auto"
       }
     },
     {
       "id": 3,
-      "type": "gauge",
+      "type": "stat",
       "title": "Responsiveness",
-      "description": "Question: Are users happy with Responsiveness: work starts and finishes promptly? Full arc and green = every SLO met, half and orange = at least one at risk, empty and red = at least one breached. Click to scan which workflows violate it.\nMetrics: Tier A: emitted by gh-aw.\nSLI: R1, R2.\nIgnores variables: workflow, job, model (fleet level).",
+      "description": "Question: Are users happy with Responsiveness: work starts and finishes promptly? Worst SLI state across the factor: green 100% = every SLO met, yellow 50% = at least one at risk, red 0% = at least one breached. Click to scan which workflows violate it.\nMetrics: Tier A: emitted by gh-aw.\nSLI: R1, R2.\nIgnores variables: workflow, job, model (fleet level).",
       "datasource": {
         "type": "prometheus",
         "uid": "${ds}"
@@ -302,7 +300,7 @@
         "x": 5,
         "y": 3,
         "w": 5,
-        "h": 6
+        "h": 9
       },
       "targets": [
         {
@@ -334,7 +332,7 @@
                 "value": null
               },
               {
-                "color": "orange",
+                "color": "yellow",
                 "value": 0.5
               },
               {
@@ -348,15 +346,15 @@
               "type": "value",
               "options": {
                 "0": {
-                  "text": "Breached",
+                  "text": "0% · Breached",
                   "index": 2
                 },
                 "1": {
-                  "text": "SLO met",
+                  "text": "100% · SLO met",
                   "index": 0
                 },
                 "0.5": {
-                  "text": "At risk",
+                  "text": "50% · At risk",
                   "index": 1
                 }
               }
@@ -380,19 +378,17 @@
           "fields": "",
           "values": false
         },
-        "showThresholdMarkers": true,
-        "showThresholdLabels": false,
-        "orientation": "auto",
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "sizing": "auto"
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "orientation": "auto"
       }
     },
     {
       "id": 4,
-      "type": "gauge",
+      "type": "stat",
       "title": "Throughput",
-      "description": "Question: Are users happy with Throughput: runs are productive and work gets done? Full arc and green = every SLO met, half and orange = at least one at risk, empty and red = at least one breached. Click to scan which workflows violate it.\nMetrics: Tier A: emitted by gh-aw.\nSLI: T1, T2.\nIgnores variables: workflow, job, model (fleet level).",
+      "description": "Question: Are users happy with Throughput: runs are productive and work gets done? Worst SLI state across the factor: green 100% = every SLO met, yellow 50% = at least one at risk, red 0% = at least one breached. Click to scan which workflows violate it.\nMetrics: Tier A: emitted by gh-aw.\nSLI: T1, T2.\nIgnores variables: workflow, job, model (fleet level).",
       "datasource": {
         "type": "prometheus",
         "uid": "${ds}"
@@ -401,7 +397,7 @@
         "x": 10,
         "y": 3,
         "w": 5,
-        "h": 6
+        "h": 9
       },
       "targets": [
         {
@@ -433,7 +429,7 @@
                 "value": null
               },
               {
-                "color": "orange",
+                "color": "yellow",
                 "value": 0.5
               },
               {
@@ -447,15 +443,15 @@
               "type": "value",
               "options": {
                 "0": {
-                  "text": "Breached",
+                  "text": "0% · Breached",
                   "index": 2
                 },
                 "1": {
-                  "text": "SLO met",
+                  "text": "100% · SLO met",
                   "index": 0
                 },
                 "0.5": {
-                  "text": "At risk",
+                  "text": "50% · At risk",
                   "index": 1
                 }
               }
@@ -479,19 +475,17 @@
           "fields": "",
           "values": false
         },
-        "showThresholdMarkers": true,
-        "showThresholdLabels": false,
-        "orientation": "auto",
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "sizing": "auto"
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "orientation": "auto"
       }
     },
     {
       "id": 5,
-      "type": "gauge",
+      "type": "stat",
       "title": "Quality",
-      "description": "Question: Are users happy with Quality: low failure rate and clean completions? Full arc and green = every SLO met, half and orange = at least one at risk, empty and red = at least one breached. Click to scan which workflows violate it.\nMetrics: Tier A: emitted by gh-aw.\nSLI: Q1, Q2, Q3.\nIgnores variables: workflow, job, model (fleet level).",
+      "description": "Question: Are users happy with Quality: low failure rate and clean completions? Worst SLI state across the factor: green 100% = every SLO met, yellow 50% = at least one at risk, red 0% = at least one breached. Click to scan which workflows violate it.\nMetrics: Tier A: emitted by gh-aw.\nSLI: Q1, Q2, Q3.\nIgnores variables: workflow, job, model (fleet level).",
       "datasource": {
         "type": "prometheus",
         "uid": "${ds}"
@@ -500,7 +494,7 @@
         "x": 15,
         "y": 3,
         "w": 5,
-        "h": 6
+        "h": 9
       },
       "targets": [
         {
@@ -532,7 +526,7 @@
                 "value": null
               },
               {
-                "color": "orange",
+                "color": "yellow",
                 "value": 0.5
               },
               {
@@ -546,15 +540,15 @@
               "type": "value",
               "options": {
                 "0": {
-                  "text": "Breached",
+                  "text": "0% · Breached",
                   "index": 2
                 },
                 "1": {
-                  "text": "SLO met",
+                  "text": "100% · SLO met",
                   "index": 0
                 },
                 "0.5": {
-                  "text": "At risk",
+                  "text": "50% · At risk",
                   "index": 1
                 }
               }
@@ -578,19 +572,17 @@
           "fields": "",
           "values": false
         },
-        "showThresholdMarkers": true,
-        "showThresholdLabels": false,
-        "orientation": "auto",
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "sizing": "auto"
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "orientation": "auto"
       }
     },
     {
       "id": 6,
-      "type": "gauge",
+      "type": "stat",
       "title": "Cost efficiency",
-      "description": "Question: Are users happy with Cost efficiency: tokens per useful output and a reasonable burn rate? Full arc and green = every SLO met, half and orange = at least one at risk, empty and red = at least one breached. Click to scan which workflows violate it.\nMetrics: Tier A: emitted by gh-aw.\nSLI: C1, C2, C3, C4.\nIgnores variables: workflow, job, model (fleet level).",
+      "description": "Question: Are users happy with Cost efficiency: tokens per useful output and a reasonable burn rate? Worst SLI state across the factor: green 100% = every SLO met, yellow 50% = at least one at risk, red 0% = at least one breached. Click to scan which workflows violate it.\nMetrics: Tier A: emitted by gh-aw.\nSLI: C1, C2, C3, C4.\nIgnores variables: workflow, job, model (fleet level).",
       "datasource": {
         "type": "prometheus",
         "uid": "${ds}"
@@ -599,7 +591,7 @@
         "x": 20,
         "y": 3,
         "w": 4,
-        "h": 6
+        "h": 9
       },
       "targets": [
         {
@@ -631,7 +623,7 @@
                 "value": null
               },
               {
-                "color": "orange",
+                "color": "yellow",
                 "value": 0.5
               },
               {
@@ -645,15 +637,15 @@
               "type": "value",
               "options": {
                 "0": {
-                  "text": "Breached",
+                  "text": "0% · Breached",
                   "index": 2
                 },
                 "1": {
-                  "text": "SLO met",
+                  "text": "100% · SLO met",
                   "index": 0
                 },
                 "0.5": {
-                  "text": "At risk",
+                  "text": "50% · At risk",
                   "index": 1
                 }
               }
@@ -677,967 +669,10 @@
           "fields": "",
           "values": false
         },
-        "showThresholdMarkers": true,
-        "showThresholdLabels": false,
-        "orientation": "auto",
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "sizing": "auto"
-      }
-    },
-    {
-      "id": 7,
-      "type": "gauge",
-      "title": "A1 Fleet Alive",
-      "description": "Question: Is the fleet meeting the Availability SLO for fleet liveness?\nMetrics: Tier A: emitted by gh-aw.\nSLI: A1.\nIgnores variables: workflow, job, model (fleet level).\nFleet liveness: jobs reported in the last 6h.\nSLO: ≥ 1.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds}"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 9,
-        "w": 5,
-        "h": 5
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds}"
-          },
-          "refId": "A",
-          "expr": "(round(sum(increase(gh_aw_job_duration_seconds_count[6h])))) or vector(0)",
-          "legendFormat": "__auto",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "noValue": "No data",
-          "color": {
-            "mode": "thresholds"
-          },
-          "min": 0,
-          "max": 10,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "green",
-                "value": 1
-              }
-            ]
-          },
-          "links": [
-            {
-              "title": "Open Availability scan",
-              "url": "/d/gh-aw-slo-availability?${__url_time_range}&${__all_variables}",
-              "targetBlank": false
-            }
-          ]
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showThresholdMarkers": true,
-        "showThresholdLabels": false,
-        "orientation": "auto",
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "sizing": "auto"
-      }
-    },
-    {
-      "id": 8,
-      "type": "gauge",
-      "title": "A2 Timeouts",
-      "description": "Question: Is the fleet meeting the Availability SLO for timeout ratio?\nMetrics: Tier A: emitted by gh-aw.\nSLI: A2.\nIgnores variables: workflow, job, model (fleet level).\nTimeout ratio: jobs ending timed_out / non-cancelled jobs.\nSLO: ≤ 2% (amber ≤ 4%).",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds}"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 14,
-        "w": 5,
-        "h": 5
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds}"
-          },
-          "refId": "A",
-          "expr": "((sum(increase(gh_aw_job_duration_seconds_count{cicd_pipeline_task_run_result=\"timed_out\"}[$slo_window]))) / ((sum(increase(gh_aw_job_duration_seconds_count{cicd_pipeline_task_run_result!=\"cancelled\"}[$slo_window]))) > 0)) or (((sum(increase(gh_aw_job_duration_seconds_count{cicd_pipeline_task_run_result!=\"cancelled\"}[$slo_window]))) > 0) * 0)",
-          "legendFormat": "__auto",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "noValue": "No data",
-          "color": {
-            "mode": "thresholds"
-          },
-          "min": 0,
-          "max": 0.1,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.020000001
-              },
-              {
-                "color": "red",
-                "value": 0.040000001
-              }
-            ]
-          },
-          "links": [
-            {
-              "title": "Open Availability scan",
-              "url": "/d/gh-aw-slo-availability?${__url_time_range}&${__all_variables}",
-              "targetBlank": false
-            }
-          ]
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showThresholdMarkers": true,
-        "showThresholdLabels": false,
-        "orientation": "auto",
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "sizing": "auto"
-      }
-    },
-    {
-      "id": 9,
-      "type": "gauge",
-      "title": "R1 Agent Speed",
-      "description": "Question: Is the fleet meeting the Responsiveness SLO for agent job p95 duration?\nMetrics: Tier A: emitted by gh-aw.\nSLI: R1.\nIgnores variables: workflow, job, model (fleet level).\nAgent job p95 duration: p95 duration of agent jobs.\nSLO: ≤ 20 min (amber ≤ 25 min).",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds}"
-      },
-      "gridPos": {
-        "x": 5,
-        "y": 9,
-        "w": 5,
-        "h": 5
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds}"
-          },
-          "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (le) (increase(gh_aw_job_duration_seconds_bucket{gh_aw_job_name=\"agent\"}[$slo_window])))",
-          "legendFormat": "__auto",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "noValue": "No data",
-          "color": {
-            "mode": "thresholds"
-          },
-          "min": 0,
-          "max": 3000,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 1200.0000012
-              },
-              {
-                "color": "red",
-                "value": 1500.0000015
-              }
-            ]
-          },
-          "links": [
-            {
-              "title": "Open Responsiveness scan",
-              "url": "/d/gh-aw-slo-responsiveness?${__url_time_range}&${__all_variables}",
-              "targetBlank": false
-            }
-          ]
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showThresholdMarkers": true,
-        "showThresholdLabels": false,
-        "orientation": "auto",
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "sizing": "auto"
-      }
-    },
-    {
-      "id": 10,
-      "type": "gauge",
-      "title": "T1 Work Output",
-      "description": "Question: Is the fleet meeting the Throughput SLO for throughput vs baseline?\nMetrics: Tier A: emitted by gh-aw.\nSLI: T1.\nIgnores variables: workflow, job, model (fleet level).\nThroughput vs baseline: successful agent runs in the last 24h / 7d daily average.\nSLO: ≥ 60% (amber ≥ 40%).",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds}"
-      },
-      "gridPos": {
-        "x": 10,
-        "y": 9,
-        "w": 5,
-        "h": 5
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds}"
-          },
-          "refId": "A",
-          "expr": "((sum(increase(gh_aw_job_duration_seconds_count{gh_aw_job_name=\"agent\",cicd_pipeline_task_run_result=\"success\"}[1d]))) / ((sum(increase(gh_aw_job_duration_seconds_count{gh_aw_job_name=\"agent\",cicd_pipeline_task_run_result=\"success\"}[7d])) / 7) > 0)) or (((sum(increase(gh_aw_job_duration_seconds_count{gh_aw_job_name=\"agent\",cicd_pipeline_task_run_result=\"success\"}[7d])) / 7) > 0) * 0)",
-          "legendFormat": "__auto",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "noValue": "No data",
-          "color": {
-            "mode": "thresholds"
-          },
-          "min": 0,
-          "max": 1.2,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.4
-              },
-              {
-                "color": "green",
-                "value": 0.6
-              }
-            ]
-          },
-          "links": [
-            {
-              "title": "Open Throughput scan",
-              "url": "/d/gh-aw-slo-throughput?${__url_time_range}&${__all_variables}",
-              "targetBlank": false
-            }
-          ]
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showThresholdMarkers": true,
-        "showThresholdLabels": false,
-        "orientation": "auto",
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "sizing": "auto"
-      }
-    },
-    {
-      "id": 11,
-      "type": "gauge",
-      "title": "T2 Run Productivity",
-      "description": "Question: Is the fleet meeting the Throughput SLO for productive outputs per agent run?\nMetrics: Tier A: emitted by gh-aw.\nSLI: T2.\nIgnores variables: workflow, job, model (fleet level).\nProductive outputs per agent run: non-noop safe outputs / agent runs.\nSLO: ≥ 0.5 (amber ≥ 0.3).",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds}"
-      },
-      "gridPos": {
-        "x": 10,
-        "y": 14,
-        "w": 5,
-        "h": 5
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds}"
-          },
-          "refId": "A",
-          "expr": "((sum(increase(gh_aw_workflow_output_items_total{gh_aw_safe_output_type!=\"noop\"}[$slo_window]))) / ((sum(increase(gh_aw_job_duration_seconds_count{gh_aw_job_name=\"agent\"}[$slo_window]))) > 0)) or (((sum(increase(gh_aw_job_duration_seconds_count{gh_aw_job_name=\"agent\"}[$slo_window]))) > 0) * 0)",
-          "legendFormat": "__auto",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "noValue": "No data",
-          "color": {
-            "mode": "thresholds"
-          },
-          "min": 0,
-          "max": 1,
-          "decimals": 2,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.3
-              },
-              {
-                "color": "green",
-                "value": 0.5
-              }
-            ]
-          },
-          "links": [
-            {
-              "title": "Open Throughput scan",
-              "url": "/d/gh-aw-slo-throughput?${__url_time_range}&${__all_variables}",
-              "targetBlank": false
-            }
-          ]
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showThresholdMarkers": true,
-        "showThresholdLabels": false,
-        "orientation": "auto",
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "sizing": "auto"
-      }
-    },
-    {
-      "id": 12,
-      "type": "gauge",
-      "title": "Q1 Job Success Rate",
-      "description": "Question: Is the fleet meeting the Quality SLO for job success ratio?\nMetrics: Tier A: emitted by gh-aw.\nSLI: Q1.\nIgnores variables: workflow, job, model (fleet level).\nJob success ratio: successful jobs / non-cancelled jobs.\nSLO: ≥ 95% (amber ≥ 90%).",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds}"
-      },
-      "gridPos": {
-        "x": 15,
-        "y": 9,
-        "w": 5,
-        "h": 5
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds}"
-          },
-          "refId": "A",
-          "expr": "((sum(increase(gh_aw_job_duration_seconds_count{cicd_pipeline_task_run_result=\"success\"}[$slo_window]))) / ((sum(increase(gh_aw_job_duration_seconds_count{cicd_pipeline_task_run_result!=\"cancelled\"}[$slo_window]))) > 0)) or (((sum(increase(gh_aw_job_duration_seconds_count{cicd_pipeline_task_run_result!=\"cancelled\"}[$slo_window]))) > 0) * 0)",
-          "legendFormat": "__auto",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "noValue": "No data",
-          "color": {
-            "mode": "thresholds"
-          },
-          "min": 0,
-          "max": 1,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.9
-              },
-              {
-                "color": "green",
-                "value": 0.95
-              }
-            ]
-          },
-          "links": [
-            {
-              "title": "Open Quality scan",
-              "url": "/d/gh-aw-slo-quality?${__url_time_range}&${__all_variables}",
-              "targetBlank": false
-            }
-          ]
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showThresholdMarkers": true,
-        "showThresholdLabels": false,
-        "orientation": "auto",
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "sizing": "auto"
-      }
-    },
-    {
-      "id": 13,
-      "type": "gauge",
-      "title": "Q2 Tool Reliability",
-      "description": "Question: Is the fleet meeting the Quality SLO for tool call success ratio?\nMetrics: Tier A: emitted by gh-aw.\nSLI: Q2.\nIgnores variables: workflow, job, model (fleet level).\nTool call success ratio: tool calls with status ok / all tool calls.\nSLO: ≥ 90% (amber ≥ 80%).",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds}"
-      },
-      "gridPos": {
-        "x": 15,
-        "y": 14,
-        "w": 5,
-        "h": 5
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds}"
-          },
-          "refId": "A",
-          "expr": "((sum(increase(gh_aw_tool_calls_total{gh_aw_tool_status=\"ok\"}[$slo_window]))) / ((sum(increase(gh_aw_tool_calls_total[$slo_window]))) > 0)) or (((sum(increase(gh_aw_tool_calls_total[$slo_window]))) > 0) * 0)",
-          "legendFormat": "__auto",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "noValue": "No data",
-          "color": {
-            "mode": "thresholds"
-          },
-          "min": 0,
-          "max": 1,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.8
-              },
-              {
-                "color": "green",
-                "value": 0.9
-              }
-            ]
-          },
-          "links": [
-            {
-              "title": "Open Quality scan",
-              "url": "/d/gh-aw-slo-quality?${__url_time_range}&${__all_variables}",
-              "targetBlank": false
-            }
-          ]
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showThresholdMarkers": true,
-        "showThresholdLabels": false,
-        "orientation": "auto",
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "sizing": "auto"
-      }
-    },
-    {
-      "id": 14,
-      "type": "gauge",
-      "title": "Q3 Completion Rate",
-      "description": "Question: Is the fleet meeting the Quality SLO for incomplete-run rate?\nMetrics: Tier A: emitted by gh-aw.\nSLI: Q3.\nIgnores variables: workflow, job, model (fleet level).\nIncomplete-run rate: report_incomplete safe outputs / agent runs.\nSLO: ≤ 5% (amber ≤ 10%).",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds}"
-      },
-      "gridPos": {
-        "x": 15,
-        "y": 19,
-        "w": 5,
-        "h": 5
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds}"
-          },
-          "refId": "A",
-          "expr": "((sum(increase(gh_aw_workflow_output_items_total{gh_aw_safe_output_type=\"report_incomplete\"}[$slo_window]))) / ((sum(increase(gh_aw_job_duration_seconds_count{gh_aw_job_name=\"agent\"}[$slo_window]))) > 0)) or (((sum(increase(gh_aw_job_duration_seconds_count{gh_aw_job_name=\"agent\"}[$slo_window]))) > 0) * 0)",
-          "legendFormat": "__auto",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "noValue": "No data",
-          "color": {
-            "mode": "thresholds"
-          },
-          "min": 0,
-          "max": 0.2,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.050000001
-              },
-              {
-                "color": "red",
-                "value": 0.100000001
-              }
-            ]
-          },
-          "links": [
-            {
-              "title": "Open Quality scan",
-              "url": "/d/gh-aw-slo-quality?${__url_time_range}&${__all_variables}",
-              "targetBlank": false
-            }
-          ]
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showThresholdMarkers": true,
-        "showThresholdLabels": false,
-        "orientation": "auto",
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "sizing": "auto"
-      }
-    },
-    {
-      "id": 15,
-      "type": "gauge",
-      "title": "C1 Token Efficiency",
-      "description": "Question: Is the fleet meeting the Cost efficiency SLO for tokens per productive output vs baseline?\nMetrics: Tier A: emitted by gh-aw.\nSLI: C1.\nIgnores variables: workflow, job, model (fleet level).\nTokens per productive output vs baseline: (tokens / non-noop outputs over 7d) / (same over 28d).\nSLO: ≤ 1.5× (amber ≤ 2×).",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds}"
-      },
-      "gridPos": {
-        "x": 20,
-        "y": 9,
-        "w": 4,
-        "h": 5
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds}"
-          },
-          "refId": "A",
-          "expr": "((((sum(increase(gen_ai_client_inference_usage_input_tokens_total[7d])) + sum(increase(gen_ai_client_inference_usage_output_tokens_total[7d])))) / ((sum(increase(gh_aw_workflow_output_items_total{gh_aw_safe_output_type!=\"noop\"}[7d]))) > 0)) or (((sum(increase(gh_aw_workflow_output_items_total{gh_aw_safe_output_type!=\"noop\"}[7d]))) > 0) * 0)) / (((((sum(increase(gen_ai_client_inference_usage_input_tokens_total[28d])) + sum(increase(gen_ai_client_inference_usage_output_tokens_total[28d])))) / ((sum(increase(gh_aw_workflow_output_items_total{gh_aw_safe_output_type!=\"noop\"}[28d]))) > 0)) or (((sum(increase(gh_aw_workflow_output_items_total{gh_aw_safe_output_type!=\"noop\"}[28d]))) > 0) * 0)) > 0)",
-          "legendFormat": "__auto",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "noValue": "No data",
-          "color": {
-            "mode": "thresholds"
-          },
-          "min": 0,
-          "max": 3,
-          "decimals": 2,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 1.5000000015
-              },
-              {
-                "color": "red",
-                "value": 2.000000002
-              }
-            ]
-          },
-          "links": [
-            {
-              "title": "Open Cost efficiency scan",
-              "url": "/d/gh-aw-slo-cost?${__url_time_range}&${__all_variables}",
-              "targetBlank": false
-            }
-          ]
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showThresholdMarkers": true,
-        "showThresholdLabels": false,
-        "orientation": "auto",
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "sizing": "auto"
-      }
-    },
-    {
-      "id": 16,
-      "type": "gauge",
-      "title": "C2 Burn Rate",
-      "description": "Question: Is the fleet meeting the Cost efficiency SLO for burn rate vs baseline?\nMetrics: Tier A: emitted by gh-aw.\nSLI: C2.\nIgnores variables: workflow, job, model (fleet level).\nBurn rate vs baseline: tokens in the last 24h / 7d daily average.\nSLO: ≤ 2× (amber ≤ 3×).",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds}"
-      },
-      "gridPos": {
-        "x": 20,
-        "y": 14,
-        "w": 4,
-        "h": 5
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds}"
-          },
-          "refId": "A",
-          "expr": "(((sum(increase(gen_ai_client_inference_usage_input_tokens_total[1d])) + sum(increase(gen_ai_client_inference_usage_output_tokens_total[1d])))) / (((sum(increase(gen_ai_client_inference_usage_input_tokens_total[7d])) + sum(increase(gen_ai_client_inference_usage_output_tokens_total[7d]))) / 7) > 0)) or ((((sum(increase(gen_ai_client_inference_usage_input_tokens_total[7d])) + sum(increase(gen_ai_client_inference_usage_output_tokens_total[7d]))) / 7) > 0) * 0)",
-          "legendFormat": "__auto",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "noValue": "No data",
-          "color": {
-            "mode": "thresholds"
-          },
-          "min": 0,
-          "max": 4,
-          "decimals": 2,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 2.000000002
-              },
-              {
-                "color": "red",
-                "value": 3.000000003
-              }
-            ]
-          },
-          "links": [
-            {
-              "title": "Open Cost efficiency scan",
-              "url": "/d/gh-aw-slo-cost?${__url_time_range}&${__all_variables}",
-              "targetBlank": false
-            }
-          ]
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showThresholdMarkers": true,
-        "showThresholdLabels": false,
-        "orientation": "auto",
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "sizing": "auto"
-      }
-    },
-    {
-      "id": 17,
-      "type": "gauge",
-      "title": "C3 Cache Hits",
-      "description": "Question: Is the fleet meeting the Cost efficiency SLO for cache hit ratio?\nMetrics: Tier A: emitted by gh-aw.\nSLI: C3.\nIgnores variables: workflow, job, model (fleet level).\nCache hit ratio: cache-read tokens / input tokens.\nSLO: ≥ 40% (amber ≥ 20%).",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds}"
-      },
-      "gridPos": {
-        "x": 20,
-        "y": 19,
-        "w": 4,
-        "h": 5
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds}"
-          },
-          "refId": "A",
-          "expr": "((sum(increase(gen_ai_client_inference_usage_cache_read_input_tokens_total[$slo_window]))) / ((sum(increase(gen_ai_client_inference_usage_input_tokens_total[$slo_window]))) > 0)) or (((sum(increase(gen_ai_client_inference_usage_input_tokens_total[$slo_window]))) > 0) * 0)",
-          "legendFormat": "__auto",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "noValue": "No data",
-          "color": {
-            "mode": "thresholds"
-          },
-          "min": 0,
-          "max": 1,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.2
-              },
-              {
-                "color": "green",
-                "value": 0.4
-              }
-            ]
-          },
-          "links": [
-            {
-              "title": "Open Cost efficiency scan",
-              "url": "/d/gh-aw-slo-cost?${__url_time_range}&${__all_variables}",
-              "targetBlank": false
-            }
-          ]
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showThresholdMarkers": true,
-        "showThresholdLabels": false,
-        "orientation": "auto",
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "sizing": "auto"
-      }
-    },
-    {
-      "id": 18,
-      "type": "gauge",
-      "title": "C4 Rate Limits",
-      "description": "Question: Is the fleet meeting the Cost efficiency SLO for credit and rate-limit events?\nMetrics: Tier A: emitted by gh-aw.\nSLI: C4.\nIgnores variables: workflow, job, model (fleet level).\nCredit and rate-limit events: AI credit limit-exceeded plus rate-limit errors.\nSLO: ≤ 0.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds}"
-      },
-      "gridPos": {
-        "x": 20,
-        "y": 24,
-        "w": 4,
-        "h": 5
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds}"
-          },
-          "refId": "A",
-          "expr": "(round((sum(increase(gh_aw_ai_credits_limit_exceeded_total[$slo_window]))) or vector(0) + (sum(increase(gh_aw_ai_credits_rate_limit_errors_total[$slo_window]))) or vector(0))) or vector(0)",
-          "legendFormat": "__auto",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "noValue": "No data",
-          "color": {
-            "mode": "thresholds"
-          },
-          "min": 0,
-          "max": 5,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          },
-          "links": [
-            {
-              "title": "Open Cost efficiency scan",
-              "url": "/d/gh-aw-slo-cost?${__url_time_range}&${__all_variables}",
-              "targetBlank": false
-            }
-          ]
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showThresholdMarkers": true,
-        "showThresholdLabels": false,
-        "orientation": "auto",
-        "minVizHeight": 75,
-        "minVizWidth": 75,
-        "sizing": "auto"
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "orientation": "auto"
       }
     }
   ]
