@@ -213,13 +213,20 @@ export function marginExpr(sli) {
   return sli.dir === 'min' ? `((${e} - ${sli.slo}) / ${band})` : `((${sli.slo} - ${e}) / ${band})`;
 }
 
-// One series: the actual value of the factor's worst SLI (smallest headroom), labelled with gaugeLabel.
-export function worstSliExpr(factor) {
-  const tag = (expr, sli) => `label_replace(${expr}, "sli", ${JSON.stringify(gaugeLabel(sli))}, "", "")`;
+// One query per SLI of the factor. Query i returns its SLI's actual value only while that SLI is the
+// factor's worst (smallest headroom; ties go to the earlier SLI), so at most one gauge is drawn. Keeping
+// the SLIs in separate queries lets each carry its own unit, range and thresholds via a byFrameRefID override.
+export function worstSliTargets(factor) {
   const slis = gaugeSlis(factor);
-  const actual = slis.map((s) => tag(`(${fleetExpr(s)})`, s)).join(' or ');
-  const margin = slis.map((s) => tag(marginExpr(s), s)).join(' or ');
-  return `topk(1, (${actual}) and on(sli) bottomk(1, ${margin}))`;
+  const tag = (expr, sli) => `label_replace(${expr}, "sli", ${JSON.stringify(sli.id)}, "", "")`;
+  const margins = slis.map((s) => tag(marginExpr(s), s));
+  const none = 'label_replace(vector(1e9), "sli", "none", "", "")';
+  const lowest = (list) => `scalar(min(${[...list, none].join(' or ')}))`;
+  return slis.map((s, i) => ({
+    sli: s,
+    legend: gaugeLabel(s),
+    expr: `(${fleetExpr(s)}) and on() ((${marginExpr(s)}) < ${lowest(margins.slice(0, i))}) and on() ((${marginExpr(s)}) <= ${lowest(margins.slice(i + 1))})`,
+  }));
 }
 
 export function alertRulesYaml() {

@@ -110,20 +110,27 @@ test('glance: telemetry banner plus five factor gauges showing the worst SLI val
     const p = factors.find((x) => x.title === f.label);
     assert.equal(p.type, 'gauge', `${p.title} is a gauge`);
     assert.ok(p.fieldConfig.defaults.links[0].url.includes(f.uid), `${p.title} links to its scan dashboard`);
-    assert.equal(p.targets.length, 1);
-    assert.equal(p.targets[0].legendFormat, '{{sli}}');
     const slis = gaugeSlis(factor);
+    assert.equal(p.targets.length, slis.length, `${p.title}: one query per SLI`);
     assert.equal(p.fieldConfig.overrides.length, slis.length, `${p.title}: one override per SLI`);
-    for (const s of slis) {
-      const o = p.fieldConfig.overrides.find((x) => x.matcher.options === gaugeLabel(s));
+    slis.forEach((s, i) => {
+      const ref = String.fromCharCode(65 + i);
+      assert.equal(p.targets[i].refId, ref);
+      assert.equal(p.targets[i].legendFormat, gaugeLabel(s), `${s.id} legend names the SLI and its SLO`);
+      const o = p.fieldConfig.overrides.find((x) => x.matcher.id === 'byFrameRefID' && x.matcher.options === ref);
       assert.ok(o, `${p.title}: override for ${s.id}`);
-      assert.ok(p.targets[0].expr.includes(gaugeLabel(s)), `${p.title}: query names ${s.id}`);
       const prop = (id) => o.properties.find((x) => x.id === id).value;
+      assert.equal(prop('unit'), s.suffix ? `suffix:${s.suffix}` : s.unit, `${s.id} unit`);
       assert.deepEqual([prop('min'), prop('max')], s.range);
       const steps = prop('thresholds').steps;
+      assert.ok(steps.length >= 2, `${s.id} has colour boundaries, not just a base colour`);
       assert.equal(steps[0].color, s.dir === 'min' ? 'red' : 'green', `${s.id} base colour`);
       assert.equal(steps.at(-1).color, s.dir === 'min' ? 'green' : 'red', `${s.id} far-side colour`);
-    }
+    });
+    // Panel defaults (what shows when an override cannot match) already carry real scale and thresholds.
+    const d = p.fieldConfig.defaults;
+    assert.deepEqual([d.min, d.max], slis[0].range, `${p.title}: default range matches its first SLI`);
+    assert.ok(d.thresholds.steps.length >= 2, `${p.title}: default thresholds have boundaries`);
   }
 });
 

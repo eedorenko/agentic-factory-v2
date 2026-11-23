@@ -4,7 +4,7 @@
 // The commit tier lives in workflow-drilldown.mjs.
 import { LABELS, count, bucket, counter, nonCacheInput, costExpr, sum, inc, sel, RATE } from './common.mjs';
 import {
-  FACTORS, SLIS, SLI_BY_ID, sliIds, fleetExpr, workflowExpr, scopedExpr, worstSliExpr,
+  FACTORS, SLIS, SLI_BY_ID, sliIds, fleetExpr, workflowExpr, scopedExpr, worstSliTargets,
   thresholdSteps, sloText, gaugeSteps, gaugeUnit, gaugeLabel, gaugeSlis,
 } from './slo.mjs';
 
@@ -55,9 +55,10 @@ function overview() {
   for (const col of COLUMNS) {
     const f = FACTORS[col.factor];
     const slis = gaugeSlis(col.factor);
-    // The gauge shows whichever SLI of the factor is closest to (or past) its SLO. Each SLI brings its
-    // own unit, range and thresholds through an override keyed on the series name.
-    const overrides = slis.map((s) => {
+    // The gauge shows whichever SLI of the factor is closest to (or past) its SLO. Each SLI is its own
+    // query (refId A, B, ...) and brings its unit, range and thresholds through a byFrameRefID override.
+    const targets = worstSliTargets(col.factor);
+    const settings = (s) => {
       const t = gaugeSteps(s);
       const props = [
         { id: 'unit', value: gaugeUnit(s) },
@@ -66,16 +67,19 @@ function overview() {
         { id: 'thresholds', value: { mode: 'absolute', steps: [{ color: t.base, value: null }, ...t.steps.map(([value, color]) => ({ color, value }))] } },
       ];
       if (s.decimals !== undefined) props.push({ id: 'decimals', value: s.decimals });
-      return { matcher: { id: 'byName', options: gaugeLabel(s) }, properties: props };
-    });
+      return props;
+    };
+    const overrides = targets.map((t, i) => ({ matcher: { id: 'byFrameRefID', options: String.fromCharCode(65 + i) }, properties: settings(t.sli) }));
+    const first = slis[0];
+    const firstSteps = gaugeSteps(first);
     panels.push({
       title: f.label,
       viz: 'gauge',
-      unit: 'short',
-      min: 0,
-      max: 1,
-      thresholds: [],
-      thresholdBase: 'green',
+      unit: gaugeUnit(first),
+      min: first.range[0],
+      max: first.range[1],
+      thresholds: firstSteps.steps,
+      thresholdBase: firstSteps.base,
       slis: slis.map((s) => s.id),
       at: { x: col.x, y: BANNER_H },
       w: col.w,
@@ -84,7 +88,7 @@ function overview() {
       question: `Are users happy with ${f.label}: ${f.happy}? Shows the actual value of the SLI closest to breaching its SLO (smallest headroom), named under the gauge with its SLO. Threshold markers: red = SLO breached, yellow = approaching, green = comfortable. Click to scan which workflows violate it.`,
       tier: 'A',
       ignores: 'workflow, job, model (fleet level)',
-      targets: [{ expr: worstSliExpr(col.factor), legend: '{{sli}}' }],
+      targets: targets.map((t) => ({ expr: t.expr, legend: t.legend })),
       overrides,
     });
   }
