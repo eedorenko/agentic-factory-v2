@@ -1,39 +1,33 @@
 # State
 
 issue: #598
-branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (commit 7b892ded on top of 05ab821d)
-pr: NONE exists (run 11 verified list_pull_requests empty); human must create PR from #600 fallback; draft PR requested in run 10 via create_pull_request (may fall back to a review issue like #600 if protected files block it; check list_pull_requests / new issue next run)
-phase: implementation (glance redesign requested; BLOCKED on branch push)
-checkpoint: Once @eedorenko pushes 7b892ded (SLO redesign) to the remote branch, redesign ONLY gh-aw-slo-overview in definitions/slo-dashboards.mjs per the run-12 spec below; regenerate JSON, update tests (glance traceability), npm test, generate --check, push. Check origin branch head first (list_commits); if still 05ab821d, stay blocked and do not rebuild from scratch.
-runs: 17
+branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (local commit ca2c0f24 on top of remote 7b892ded)
+pr: NONE open (#599 closed/superseded; #600 was a fallback review issue). Run 18 requested a draft PR via create_pull_request; if it again becomes a fallback issue, a human must push ca2c0f24 / open the PR.
+phase: verification (glance redesign implemented; needs live Grafana check by human)
+checkpoint: Wait for @eedorenko to import the regenerated gh-aw-slo-overview.json into k3d Grafana and report gauge rendering/feedback. Then adjust gauge ranges (GLANCE in definitions/slo.mjs) as needed, mark PR ready, merge flow after review.
+runs: 18
 
 # Understanding
 
-- Layout: observability/grafana/{definitions/slo.mjs (SLI table: id/factor/expr(ctx)/slo/amber/dir; fleetExpr, workflowExpr, scopedExpr, thresholdSteps, stateExpr, factorStateExpr, alertRulesYaml), definitions/slo-dashboards.mjs (glance gh-aw-slo-overview + 5 scan gh-aw-slo-<factor>), definitions/workflow-drilldown.mjs (commit), definitions/common.mjs (METRICS name map, LABELS, helpers, VARIABLES, TEXTBOX_VARIABLES incl slo_window), tools/generate.mjs (sections-based dashboards + alerts; --check), tools/generate.test.js, smoke-test.mjs, seed-metrics.mjs, alerts/alerts.rules.yml GENERATED, README, METRICS-PROPOSAL (G1-G4)}. Spec: specs/grafana-dashboards-spec.md (SLO/SLI version).
-- Human-confirmed names/labels: Title Case workflow names (Executor, Triager, Review Agent...), job names agent/detection/safe_outputs/pre_activation/activation/conclusion/push_repo_memory, tool status `ok`, safe-output types incl noop/report_incomplete/merge_pr, results success/failure/cancelled (no timed_out seen yet). Prior smoke test (old 4 dashboards) was green on real k3d Grafana 13.3.
-- Validation tools here: promql-parser in venv /tmp/gh-aw/agent/v (ephemeral), mock Grafana server. Sandbox: kill needs numeric PID.
-
-# Glance redesign request (comment 7052569768, 22:52)
-Smoke test passed live (114 OK, 3 NO DATA, 0 ERROR). Change ONLY SLO Overview: gauge panels with green/amber/red; plain titles A1 Fleet Alive, A2 Timeouts, R1 Agent Speed, T1 Work Output, T2 Run Productivity, Q1 Job Success Rate, Q2 Tool Reliability, Q3 Completion Rate, C1 Token Efficiency, C2 Burn Rate, C3 Cache Hits, C4 Rate Limits; SLI code + threshold go in panel description/subtitle; row 1 = 5 big factor gauges (Availability, Responsiveness, Throughput, Quality, Cost efficiency); below each factor a column of 2-4 small SLI gauges; every gauge links to its scan dashboard; A4 telemetry banner unchanged. Leave other 6 dashboards unchanged.
+- Layout: observability/grafana/{definitions/slo.mjs (SLI table + GLANCE gauge names/ranges + factorScoreExpr/SCORE_MAPPINGS + alertRulesYaml), definitions/slo-dashboards.mjs (glance overview + 5 scan gh-aw-slo-<factor>), definitions/workflow-drilldown.mjs, definitions/common.mjs, tools/generate.mjs (now supports viz 'gauge'; --check), tools/generate.test.js, smoke-test.mjs, seed-metrics.mjs, alerts/alerts.rules.yml GENERATED, README, METRICS-PROPOSAL}. Spec: specs/grafana-dashboards-spec.md.
+- Glance now: A4 banner (y0,h3) -> 5 factor gauges (y3,h6; score = 1 - state/2: 1 green, .5 orange, 0 red) -> per-factor column of SLI gauges (h5): A1 Fleet Alive, A2 Timeouts, R1 Agent Speed, T1 Work Output, T2 Run Productivity, Q1 Job Success Rate, Q2 Tool Reliability, Q3 Completion Rate, C1 Token Efficiency, C2 Burn Rate, C3 Cache Hits, C4 Rate Limits. SLI code+SLO in description. Responsiveness has only R1 (R2 informational excluded). Other 6 dashboards unchanged.
+- Human-confirmed names/labels earlier; smoke test was green live (114 OK).
+- Validation tools: promql-parser venv /tmp/gh-aw/agent/v (ephemeral). npm test 138 pass; generate --check ok.
 
 # Plan
 
-Done: spec approved (human "approve", 22:11), implemented glance/scan/commit, alerts generated, tests (138 pass), PromQL parse check, mock smoke 117 OK. Remaining: live validation feedback loop; mark ready; merge flow after review.
+Done: spec, SLO impl, scan/commit, glance gauge redesign (run 18). Remaining: human live check; PR; review; merge flow.
 
 # Decisions
 
-- One SLI table drives everything. Relative SLOs for T1/C1/C2. Informational SLIs (A3, R2) have no colours. A4 is trust gate banner. Glance fleet-level, scan per-workflow with $workflow.
-- Spec questions (5 scan dashboards, thresholds, GitHub gaps out of scope, alerts tied to SLOs) were answered by the single "approve"; treated as approval of defaults.
-- Ratio SLIs: `(num/(den>0)) or ((den>0)*0)` so numerator-absent gives real 0 but quiet fleet gives No data.
+- Gauge ranges are per-SLI in GLANCE (slo.mjs). Factor gauge uses percentunit 0-1 with value mappings SLO met/At risk/Breached.
+- Avoid writing the literal executor handle in waiting comments (loop).
 
 # Failed approaches
 
-- Fetching the MS article (firewall). Building everything in one run earlier.
+- Fetching the MS article (firewall).
 
 # Run log
 
-- Run 17: triggered by my run-16 comment (it contained @executor in unlock text; avoid writing the literal handle in waiting comments). No new human comment since 22:52; branch still 05ab821d; 7b892ded absent; waiting status without handle.
-- Run 16: triggered by my run-15 comment; no new human comment since 22:52; branch still 05ab821d; waiting status WITHOUT @executor.
-- Run 15: triggered by my run-14 comment; no new human comment since 22:52; branch still 05ab821d, 7b892ded absent; waiting status WITHOUT @executor.
-- Run 14: triggered by my run-13 comment edit/notification; no new human comment since 22:52; branch still 05ab821d, 7b892ded absent; posted waiting status WITHOUT @executor.
-- Run 13: triggered by my own run-12 comment (mentioned @executor in unlock text); no new human comment; branch still 05ab821d, 7b892ded unavailable; posted waiting status WITHOUT @executor (avoid loop).
+- Run 18: unblocked by human (7b892ded pushed). Implemented glance gauge redesign, tests green, committed ca2c0f24, requested draft PR.
+- Run 17: blocked waiting for branch push.
