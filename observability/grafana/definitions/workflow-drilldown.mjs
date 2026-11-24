@@ -13,7 +13,7 @@ const ET = LABELS.errorType;
 const OT = LABELS.outputType;
 const TOKEN_UNIT = '{token}';
 const hourly = (expr, labels) => `${sum(expr, labels)} * 3600`;
-const errors = (s, range = RANGE, labels = '') => sum(`increase(${counter('jobErrors')}${s}[${range}])`, labels);
+const errors = (s, range = RANGE, labels = '') => sum(`increase(${counter('jobErrors', s)}[${range}])`, labels);
 const jobCount = (s, range = RANGE, labels = '') => sum(`increase(${count('jobDuration')}${s}[${range}])`, labels);
 const PRICE_NOTE = 'Estimated: tokens x the price variables (USD per 1M tokens, default 0).';
 
@@ -100,7 +100,7 @@ const panels = [
     viz: 'timeseries', unit: 'short', stack: true, w: 12, h: 8,
     question: 'How many tool calls succeed ("ok") vs fail ("error")? Job-level aggregate: tool name is not a metric attribute.',
     ignores: 'model', tier: 'A',
-    targets: [{ expr: hourly(`rate(${counter('toolCalls')}${FJ}[${RATE}])`, TS), legend: `{{${TS}}}` }],
+    targets: [{ expr: hourly(`rate(${counter('toolCalls', FJ)}[${RATE}])`, TS), legend: `{{${TS}}}` }],
   },
   {
     title: 'Agent duration p50 / p95',
@@ -119,9 +119,9 @@ const panels = [
     ignores: 'model', tier: 'A',
     targets: [
       { expr: `${nonCacheInput(FJ, RATE, 'rate')} * 3600`, legend: 'input (non-cache)' },
-      { expr: hourly(`rate(${counter('tokensCacheRead')}${FJ}[${RATE}])`), legend: 'cache read' },
-      { expr: hourly(`rate(${counter('tokensCacheWrite')}${FJ}[${RATE}])`), legend: 'cache write' },
-      { expr: hourly(`rate(${counter('tokensOutput')}${FJ}[${RATE}])`), legend: 'output' },
+      { expr: hourly(`rate(${counter('tokensCacheRead', FJ)}[${RATE}])`), legend: 'cache read' },
+      { expr: hourly(`rate(${counter('tokensCacheWrite', FJ)}[${RATE}])`), legend: 'cache write' },
+      { expr: hourly(`rate(${counter('tokensOutput', FJ)}[${RATE}])`), legend: 'output' },
     ],
   },
   {
@@ -136,7 +136,7 @@ const panels = [
     viz: 'timeseries', unit: 'short', stack: true, w: 12, h: 8,
     question: 'What kinds of output does this workflow produce?',
     ignores: 'model', tier: 'A',
-    targets: [{ expr: hourly(`rate(${counter('outputItems')}${FJ}[${RATE}])`, OT), legend: `{{${OT}}}` }],
+    targets: [{ expr: hourly(`rate(${counter('outputItems', FJ)}[${RATE}])`, OT), legend: `{{${OT}}}` }],
   },
   {
     title: 'Estimated cost per hour',
@@ -153,7 +153,7 @@ const tierB = [
     viz: 'timeseries', unit: '{credit}', w: 12, h: 6,
     question: 'How does credit consumption evolve? Lights up once gh-aw emits gh_aw.ai.credits.usage.',
     ignores: 'model', tier: 'B',
-    targets: [{ expr: hourly(`rate(${counter('creditsUsage')}${FJ}[${RATE}])`), legend: 'credits / hour' }],
+    targets: [{ expr: hourly(`rate(${counter('creditsUsage', FJ)}[${RATE}])`), legend: 'credits / hour' }],
   },
   {
     title: 'Credits per safe-output item',

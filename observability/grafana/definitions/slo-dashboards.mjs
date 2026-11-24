@@ -243,7 +243,7 @@ const SCAN = {
         slis: ['T2'],
         question: 'What kinds of output are workflows producing? "Issues completed" has no metric; PR and merge counts are a repo-specific proxy, not an SLO.',
         tier: 'A',
-        targets: [{ expr: hourly(`rate(${counter('outputItems')}${FJ}[${RATE}])`, LABELS.outputType), legend: `{{${LABELS.outputType}}}` }],
+        targets: [{ expr: hourly(`rate(${counter('outputItems', FJ)}[${RATE}])`, LABELS.outputType), legend: `{{${LABELS.outputType}}}` }],
       },
     ];
   },
@@ -280,7 +280,7 @@ const SCAN = {
     ];
   },
   cost() {
-    const T = (key) => `${sum(`rate(${counter(key)}${FJ}[${RATE}])`)} * 3600`;
+    const T = (key) => `${sum(`rate(${counter(key, FJ)}[${RATE}])`)} * 3600`;
     return [
       workflowTable('cost', ['C1', 'C2', 'C3']),
       sliSeries('C1'),

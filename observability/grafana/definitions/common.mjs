@@ -12,10 +12,10 @@ export const METRICS = {
   agentDuration: { base: 'gen_ai_invoke_agent_duration_seconds', kind: 'histogram', tier: 'A' },
   toolCalls: { base: 'gh_aw_tool_calls_total', kind: 'counter', tier: 'A' },
   outputItems: { base: 'gh_aw_workflow_output_items_total', kind: 'counter', tier: 'A' },
-  tokensInput: { base: 'gen_ai_client_inference_usage_input_tokens_total', kind: 'counter', tier: 'A' },
-  tokensOutput: { base: 'gen_ai_client_inference_usage_output_tokens_total', kind: 'counter', tier: 'A' },
-  tokensCacheRead: { base: 'gen_ai_client_inference_usage_cache_read_input_tokens_total', kind: 'counter', tier: 'A' },
-  tokensCacheWrite: { base: 'gen_ai_client_inference_usage_cache_write_input_tokens_total', kind: 'counter', tier: 'A' },
+  tokensInput: { base: 'gen_ai_client_token_usage_total', kind: 'counter', tier: 'A', filter: 'gen_ai_token_type="input"' },
+  tokensOutput: { base: 'gen_ai_client_token_usage_total', kind: 'counter', tier: 'A', filter: 'gen_ai_token_type="output"' },
+  tokensCacheRead: { base: 'gen_ai_client_token_usage_total', kind: 'counter', tier: 'A', filter: 'gen_ai_token_type="cache_read"' },
+  tokensCacheWrite: { base: 'gen_ai_client_token_usage_total', kind: 'counter', tier: 'A', filter: 'gen_ai_token_type="cache_write"' },
   creditsLimitExceeded: { base: 'gh_aw_ai_credits_limit_exceeded_total', kind: 'counter', tier: 'A' },
   creditsRateLimit: { base: 'gh_aw_ai_credits_rate_limit_errors_total', kind: 'counter', tier: 'A' },
   otlpFailures: { base: 'gh_aw_otlp_export_failures_total', kind: 'counter', tier: 'A' },
@@ -26,7 +26,10 @@ export const METRICS = {
 export const ALIAS_NAMES = [
   'gh_aw_run_duration_seconds',
   'gh_aw_safe_outputs_total',
-  'gen_ai_client_token_usage_total',
+  'gen_ai_client_inference_usage_input_tokens_total',
+  'gen_ai_client_inference_usage_output_tokens_total',
+  'gen_ai_client_inference_usage_cache_read_input_tokens_total',
+  'gen_ai_client_inference_usage_cache_write_input_tokens_total',
   'gh_aw_tokens_input_total',
   'gh_aw_tokens_output_total',
   'gh_aw_tokens_cache_read_total',
@@ -42,6 +45,7 @@ export const LABELS = {
   toolStatus: 'gh_aw_tool_status',
   outputType: 'gh_aw_safe_output_type',
   errorType: 'error_type',
+  tokenType: 'gen_ai_token_type',
   le: 'le',
 };
 
@@ -58,7 +62,19 @@ export function allMetricNames() {
 const name = (key, suffix = '') => METRICS[key].base + suffix;
 export const count = (key) => name(key, '_count');
 export const bucket = (key) => name(key, '_bucket');
-export const counter = (key) => name(key);
+
+// Merge a metric's built-in filter (e.g. token type) into a selector string.
+function mergeFilter(key, selector) {
+  const filt = METRICS[key].filter;
+  if (!filt) return selector;
+  if (!selector) return `{${filt}}`;
+  return selector.replace(/\}$/, `, ${filt}}`);
+}
+
+// Returns the counter name, optionally merged with a selector and any built-in filter.
+export function counter(key, selector = '') {
+  return `${name(key)}${mergeFilter(key, selector)}`;
+}
 
 export const RANGE = '$__range';
 export const RATE = '$__rate_interval';
@@ -79,7 +95,7 @@ export function sel({ workflow = true, job = true, engine = false, model = false
 }
 
 // Counter delta over a window: `increase` for totals, `rate` for trends (callers scale rate to per-hour).
-export const inc = (key, selector, range = RANGE, fn = 'increase') => `${fn}(${name(key)}${selector}[${range}])`;
+export const inc = (key, selector, range = RANGE, fn = 'increase') => `${fn}(${name(key)}${mergeFilter(key, selector)}[${range}])`;
 const by = (labels) => (labels ? ` by (${labels})` : '');
 export const sum = (expr, labels = '') => `sum${by(labels)} (${expr})`;
 // Divide only when the denominator is positive so a quiet fleet is "No data", not 0%.

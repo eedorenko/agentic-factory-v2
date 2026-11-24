@@ -27,7 +27,10 @@ const rnd = (a, b) => a + Math.random() * (b - a);
 const pick = (xs) => xs[Math.floor(Math.random() * xs.length)];
 
 function observe(base, buckets, labels, value) {
-  for (const b of buckets) if (value <= b) bump(`${base}_bucket`, { ...labels, le: b });
+  // Emit ALL bucket boundaries (even those above value as +0) so every series
+  // has the same set of le labels. This prevents Prometheus extrapolation skew
+  // when different buckets have different first-appearance timestamps.
+  for (const b of buckets) bump(`${base}_bucket`, { ...labels, le: b }, value <= b ? 1 : 0);
   bump(`${base}_bucket`, { ...labels, le: '+Inf' });
   bump(`${base}_count`, labels);
   bump(`${base}_sum`, labels, value);
@@ -37,31 +40,36 @@ function tick() {
   for (const wf of workflows) {
     if (Math.random() < 0.3) continue;
     const base = { gh_aw_workflow_name: wf, gh_aw_job_name: 'agent' };
-    const failed = Math.random() < (wf === 'Executor' ? 0.25 : 0.08);
+    // Q1 SLO ≥ 95%: ~2% failure rate fleet-wide (Executor slightly higher at 3%).
+    const failed = Math.random() < (wf === 'Executor' ? 0.03 : 0.015);
     // Support jobs are short and almost always succeed.
     for (const job of supportJobs) {
-      observe('gh_aw_job_duration_seconds', durationBuckets, { gh_aw_workflow_name: wf, gh_aw_job_name: job, cicd_pipeline_task_run_result: Math.random() < 0.02 ? 'failure' : 'success', gh_aw_engine_id: engines[wf], gen_ai_request_model: 'auto' }, rnd(2, 60));
+      observe('gh_aw_job_duration_seconds', durationBuckets, { gh_aw_workflow_name: wf, gh_aw_job_name: job, cicd_pipeline_task_run_result: Math.random() < 0.005 ? 'failure' : 'success', gh_aw_engine_id: engines[wf], gen_ai_request_model: 'auto' }, rnd(2, 60));
     }
-    const result = failed ? pick(['failure', 'failure', 'timed_out', 'cancelled']) : 'success';
+    // A2 SLO ≤ 2%: failures are mostly 'failure', rarely 'timed_out' (~0.5% of all runs).
+    const result = failed ? pick(['failure', 'failure', 'failure', 'failure', 'timed_out', 'cancelled']) : 'success';
     const model = pick(models);
-    observe('gh_aw_job_duration_seconds', durationBuckets, { ...base, cicd_pipeline_task_run_result: result, gh_aw_engine_id: engines[wf], gen_ai_request_model: model }, rnd(20, 900));
+    // R1 SLO ≤ 1200s (20 min): most agent jobs 30-280s so p95 stays within the 300 bucket.
+    observe('gh_aw_job_duration_seconds', durationBuckets, { ...base, cicd_pipeline_task_run_result: result, gh_aw_engine_id: engines[wf], gen_ai_request_model: model }, rnd(30, 280));
     if (failed) bump('gh_aw_job_errors_total', { ...base, cicd_pipeline_task_run_result: result });
     observe('gh_aw_agent_turns', turnBuckets, base, Math.round(rnd(2, 70)));
     const errType = failed && Math.random() < 0.5 ? pick(['timeout', 'rate_limit', 'model_error']) : '';
-    observe('gen_ai_invoke_agent_duration_seconds', [1, 5, 15, 30, 60, 120, 300, 600], { ...base, gen_ai_request_model: model, error_type: errType }, rnd(10, 500));
+    observe('gen_ai_invoke_agent_duration_seconds', [1, 5, 15, 30, 60, 120, 300, 600], { ...base, gen_ai_request_model: model, error_type: errType }, rnd(10, 400));
     const input = Math.round(rnd(20000, 400000));
-    bump('gen_ai_client_inference_usage_input_tokens_total', { ...base, gen_ai_request_model: model }, input);
-    bump('gen_ai_client_inference_usage_cache_read_input_tokens_total', { ...base, gen_ai_request_model: model }, Math.round(input * rnd(0.3, 0.8)));
-    bump('gen_ai_client_inference_usage_cache_write_input_tokens_total', { ...base, gen_ai_request_model: model }, Math.round(input * rnd(0, 0.1)));
-    bump('gen_ai_client_inference_usage_output_tokens_total', { ...base, gen_ai_request_model: model }, Math.round(rnd(1000, 20000)));
+    bump('gen_ai_client_token_usage_total', { ...base, gen_ai_request_model: model, gen_ai_token_type: 'input' }, input);
+    // C3 SLO ≥ 40%: cache read 50-70% of input tokens.
+    bump('gen_ai_client_token_usage_total', { ...base, gen_ai_request_model: model, gen_ai_token_type: 'cache_read' }, Math.round(input * rnd(0.5, 0.7)));
+    bump('gen_ai_client_token_usage_total', { ...base, gen_ai_request_model: model, gen_ai_token_type: 'cache_write' }, Math.round(input * rnd(0, 0.1)));
+    bump('gen_ai_client_token_usage_total', { ...base, gen_ai_request_model: model, gen_ai_token_type: 'output' }, Math.round(rnd(1000, 20000)));
     const calls = Math.round(rnd(5, 60));
+    // Q2 SLO ≥ 90%: ~5% of runs have a tool error (1-2 errors vs 5-60 ok calls).
     bump('gh_aw_tool_calls_total', { ...base, gh_aw_tool_status: 'ok' }, calls);
-    if (Math.random() < 0.4) bump('gh_aw_tool_calls_total', { ...base, gh_aw_tool_status: 'error' }, Math.round(rnd(1, 4)));
-    // The reviewer burns tokens without ever producing items, so the "waste" table has a row.
+    if (Math.random() < 0.05) bump('gh_aw_tool_calls_total', { ...base, gh_aw_tool_status: 'error' }, Math.round(rnd(1, 2)));
+    // T2 SLO ≥ 0.5: most successful runs produce 1-3 output items.
     if (wf !== 'Review Agent' && !failed) bump('gh_aw_workflow_output_items_total', { ...base, gh_aw_safe_output_type: pick(['add_comment', 'create_pull_request', 'add_labels', 'merge_pr', 'update_project', 'noop']) }, Math.round(rnd(1, 3)));
-    if (failed && Math.random() < 0.3) bump('gh_aw_workflow_output_items_total', { ...base, gh_aw_safe_output_type: 'report_incomplete' });
-    if (failed && Math.random() < 0.15) bump('gh_aw_ai_credits_rate_limit_errors_total', base);
-    if (failed && Math.random() < 0.1) bump('gh_aw_ai_credits_limit_exceeded_total', base);
+    // Q3 SLO ≤ 5%: very rare incomplete reports.
+    if (failed && Math.random() < 0.1) bump('gh_aw_workflow_output_items_total', { ...base, gh_aw_safe_output_type: 'report_incomplete' });
+    // C4 SLO ≤ 0: no rate-limit or credit events in healthy state.
   }
 }
 
@@ -71,7 +79,8 @@ function render() {
   return lines.join('\n') + '\n';
 }
 
-tick();
+// Pre-fill counters so the first scrape already has a healthy baseline.
+for (let i = 0; i < 1000; i++) tick();
 setInterval(tick, 15000);
 createServer((req, res) => {
   if (req.url === '/metrics') {

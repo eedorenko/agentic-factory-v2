@@ -954,7 +954,7 @@
             "uid": "${ds}"
           },
           "refId": "A",
-          "expr": "clamp_min(sum (rate(gen_ai_client_inference_usage_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__rate_interval])) - (sum (rate(gen_ai_client_inference_usage_cache_read_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__rate_interval])) or vector(0)) - (sum (rate(gen_ai_client_inference_usage_cache_write_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__rate_interval])) or vector(0)), 0) * 3600",
+          "expr": "clamp_min(sum (rate(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gen_ai_token_type=\"input\"}[$__rate_interval])) - (sum (rate(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gen_ai_token_type=\"cache_read\"}[$__rate_interval])) or vector(0)) - (sum (rate(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gen_ai_token_type=\"cache_write\"}[$__rate_interval])) or vector(0)), 0) * 3600",
           "legendFormat": "input (non-cache)",
           "instant": false,
           "range": true
@@ -965,7 +965,7 @@
             "uid": "${ds}"
           },
           "refId": "B",
-          "expr": "sum (rate(gen_ai_client_inference_usage_cache_read_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__rate_interval])) * 3600",
+          "expr": "sum (rate(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gen_ai_token_type=\"cache_read\"}[$__rate_interval])) * 3600",
           "legendFormat": "cache read",
           "instant": false,
           "range": true
@@ -976,7 +976,7 @@
             "uid": "${ds}"
           },
           "refId": "C",
-          "expr": "sum (rate(gen_ai_client_inference_usage_cache_write_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__rate_interval])) * 3600",
+          "expr": "sum (rate(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gen_ai_token_type=\"cache_write\"}[$__rate_interval])) * 3600",
           "legendFormat": "cache write",
           "instant": false,
           "range": true
@@ -987,7 +987,7 @@
             "uid": "${ds}"
           },
           "refId": "D",
-          "expr": "sum (rate(gen_ai_client_inference_usage_output_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__rate_interval])) * 3600",
+          "expr": "sum (rate(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gen_ai_token_type=\"output\"}[$__rate_interval])) * 3600",
           "legendFormat": "output",
           "instant": false,
           "range": true
@@ -1048,7 +1048,7 @@
             "uid": "${ds}"
           },
           "refId": "A",
-          "expr": "sum by (gen_ai_request_model) (increase(gen_ai_client_inference_usage_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gen_ai_request_model=~\"$model\"}[$__range])) + sum by (gen_ai_request_model) (increase(gen_ai_client_inference_usage_output_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gen_ai_request_model=~\"$model\"}[$__range]))",
+          "expr": "sum by (gen_ai_request_model) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gen_ai_request_model=~\"$model\", gen_ai_token_type=\"input\"}[$__range])) + sum by (gen_ai_request_model) (increase(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gen_ai_request_model=~\"$model\", gen_ai_token_type=\"output\"}[$__range]))",
           "legendFormat": "{{gen_ai_request_model}}",
           "instant": true,
           "range": false
@@ -1165,7 +1165,7 @@
             "uid": "${ds}"
           },
           "refId": "A",
-          "expr": "sum (label_replace(rate(gen_ai_client_inference_usage_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__rate_interval]) * ($price_in), \"kind\", \"input\", \"\", \"\") or label_replace(rate(gen_ai_client_inference_usage_cache_read_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__rate_interval]) * ($price_cache_read - $price_in), \"kind\", \"cache_read\", \"\", \"\") or label_replace(rate(gen_ai_client_inference_usage_cache_write_input_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__rate_interval]) * ($price_cache_write - $price_in), \"kind\", \"cache_write\", \"\", \"\") or label_replace(rate(gen_ai_client_inference_usage_output_tokens_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\"}[$__rate_interval]) * ($price_out), \"kind\", \"output\", \"\", \"\")) / 1e6 * 3600",
+          "expr": "sum (label_replace(rate(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gen_ai_token_type=\"input\"}[$__rate_interval]) * ($price_in), \"kind\", \"input\", \"\", \"\") or label_replace(rate(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gen_ai_token_type=\"cache_read\"}[$__rate_interval]) * ($price_cache_read - $price_in), \"kind\", \"cache_read\", \"\", \"\") or label_replace(rate(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gen_ai_token_type=\"cache_write\"}[$__rate_interval]) * ($price_cache_write - $price_in), \"kind\", \"cache_write\", \"\", \"\") or label_replace(rate(gen_ai_client_token_usage_total{gh_aw_workflow_name=~\"$workflow\", gh_aw_job_name=~\"$job\", gen_ai_token_type=\"output\"}[$__rate_interval]) * ($price_out), \"kind\", \"output\", \"\", \"\")) / 1e6 * 3600",
           "legendFormat": "cost / hour",
           "instant": false,
           "range": true

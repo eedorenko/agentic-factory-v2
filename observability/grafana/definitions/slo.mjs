@@ -27,7 +27,11 @@ const matchers = (ctx, extra = []) => {
 };
 const win = (ctx, fallback = SLO_WINDOW) => ctx.window ?? fallback;
 const sumBy = (ctx, inner) => (ctx.by ? `sum by (${ctx.by}) (${inner})` : `sum(${inner})`);
-const inc = (ctx, key, extra, window) => sumBy(ctx, `increase(${metric(key)}${matchers(ctx, extra)}[${window}])`);
+const inc = (ctx, key, extra, window) => {
+  const filt = METRICS[key].filter;
+  const allExtra = filt ? [...extra, filt] : extra;
+  return sumBy(ctx, `increase(${metric(key)}${matchers(ctx, allExtra)}[${window}])`);
+};
 const jobs = (ctx, extra, window = win(ctx)) => sumBy(ctx, `increase(${metric('jobDuration', '_count')}${matchers(ctx, extra)}[${window}])`);
 const agentJobs = (ctx, extra = [], window = win(ctx)) => jobs(ctx, [`${LABELS.job}="agent"`, ...extra], window);
 const notCancelled = [`${R}!="cancelled"`];
