@@ -1,38 +1,35 @@
 # State
 
 issue: #598
-branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (local commit e86bdadd on top of 973a90ab; origin has 973a90ab)
-pr: none yet; create_pull_request requested run 20 (may fall back to an issue because of protected files; then a human must push 973a90ab and open the PR)
-phase: verification (worst-SLI gauge glance implemented; needs live Grafana check by human)
-checkpoint: (run 21 done) Wait for @eedorenko live check of the 5 worst-SLI gauges (check the topk/bottomk query renders one series per gauge with the right unit/override). Tune `warn`/`range` per SLI in slo.mjs on feedback, mark PR ready, merge flow after APPROVED review.
-runs: 21
+branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (local 6f5cfd3c on top of origin fc04fa56; pushed via push_to_pull_request_branch run 22)
+pr: #608 (title renamed to "[Executor #598] ..." so the push tool accepts it; was "Align token metrics...")
+phase: verification / review feedback
+checkpoint: Wait for @reviewer re-review of the new head. If APPROVED review exists (check get_reviews state), call merge_pr(608) and post a checkpoint comment; then Run B (move board Testing -> Done after merge). Human live check of gauges still pending.
+runs: 22
 
 # Understanding
 
-- Run 21 (human 23:18: gauges all red, range 0-1 everywhere): root cause = byName overrides on `sli` label did not match, so panel defaults (0-1, single green step) applied. Fix: one query per SLI (worstSliTargets in slo.mjs, refId A..), byFrameRefID overrides with unit/min/max/thresholds, and panel defaults set from first SLI (real range, steps). Each query returns a value only while its SLI is the factor's worst (margin comparisons via scalar(min(...))). Legend = gaugeLabel. 140 tests pass, promql parses.
-
-- Layout: observability/grafana/{definitions/slo.mjs (SLI table incl. new `warn` + `range` per SLI; gaugeSteps/gaugeLabel/gaugeUnit/marginExpr/worstSliExpr; alertRulesYaml), definitions/slo-dashboards.mjs (glance overview + 5 scan gh-aw-slo-<factor>), definitions/workflow-drilldown.mjs, definitions/common.mjs, tools/generate.mjs, tools/generate.test.js, smoke-test.mjs, seed-metrics.mjs, alerts GENERATED, README, METRICS-PROPOSAL}. Spec: specs/grafana-dashboards-spec.md.
-- Glance (run 20, per human 22:26): A4 banner + 5 GAUGES (one per factor), each shows actual value of the factor's worst SLI (least headroom in warn bands). One query per gauge: topk(1, actual and on(sli) bottomk(1, margin)) with label `sli` = gaugeLabel (title + SLO), legend {{sli}}; per-SLI field overrides byName (unit, min/max range, thresholds). yellow=inside warn margin, red=breached.
-- Old stateExpr/factorScoreExpr/SCORE_MAPPINGS removed.
-- Smoke test was green live earlier (114 OK) before glance changes. Validation: promql-parser venv /tmp/gh-aw/agent/v (ephemeral). npm test 140 pass; generate --check ok.
+- Layout: observability/grafana/{definitions/{slo,slo-dashboards,workflow-drilldown,common}.mjs, tools/{generate,smoke-test,seed-metrics}.mjs + generate.test.js, dashboards/*.json GENERATED, alerts GENERATED, README, METRICS-PROPOSAL}. specs/grafana-dashboards-spec.md. Regenerate: node observability/grafana/tools/generate.mjs; check with --check; npm test (141 pass).
+- Token contract (from contrib/gh-aw/actions/setup/js/model_costs.cjs): `input` includes cache reads, cache writes are separate. Emitter token types: input, output, input_cache_read, input_cache_write (otlp_metrics.cjs:436-439). Dashboards: total = input+output+cache_write; non-cache input = input - cache_read; cost = input*p_in + cache_read*(p_cr - p_in) + cache_write*p_cw + output*p_out.
+- push_to_pull_request_branch needs repo=eedorenko/agentic-factory-v2 and PR title starting "[Executor".
+- promql-parser venv at /tmp/gh-aw/agent/v (ephemeral); all 100 dashboard targets parse.
 
 # Plan
 
-Done: spec, SLO impl, scan/commit, glance iterations. Remaining: human live check; PR; review; merge flow.
+Done in run 22: HIGH cache filter fix + seeder, token contract formulas, README, smoke-test counts variable errors, orZero parenthesised (C4), alert min-sample guards per SLI (agent jobs for R1/Q3, non-cancelled for A2/Q1), drilldown: jobs-completed keeps workflow label, failure numerators zero-filled, duration quantiles keep result label, new emitter-vs-filter test.
+Remaining: re-review, merge flow, human live check.
 
 # Decisions
 
-- Cross-SLI "worst" chosen by headroom measured in warn bands (unit-free); count SLIs margin = 3 met / -1 breached.
-- Series-name override matching relies on label_replace'd `sli` label; if Grafana renders name differently live, adjust.
-- Avoid writing the literal executor handle in waiting comments (loop).
+- Cache-write is additive to input (not subtracted), matching gh-aw cost model.
+- PR body to be refreshed only if reviewer asks (update_pull_request is limited to 1 per run; used it for title).
 
 # Failed approaches
 
-- Fetching the MS article (firewall).
+- Prior run's push failed due to PR title prefix; fixes were never on the branch.
 
 # Run log
 
-- Run 21: fixed red gauges / range mismatch (e86bdadd), PR requested again.
-- Run 20: human wanted gauges with actual values vs SLO; implemented worst-SLI gauges, tests 140 green, committed 973a90ab, requested draft PR.
-- Run 19: banner + 5 stat score panels (868a3472).
-- Run 18: 18 gauges (ca2c0f24).
+- Run 22: reapplied and extended review fixes (6f5cfd3c), renamed PR, pushed.
+- Run 21: red gauges fix (e86bdadd).
+- Run 20: worst-SLI gauges.
