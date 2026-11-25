@@ -5,7 +5,7 @@ branch: executor/598-design-grafana-dashboards-for-gh-aw-otel-metrics (local 6f5
 pr: #608 (title renamed to "[Executor #598] ..." so the push tool accepts it; was "Align token metrics...")
 phase: verification / review feedback
 checkpoint: Wait for @reviewer re-review of the new head. If APPROVED review exists (check get_reviews state), call merge_pr(608) and post a checkpoint comment; then Run B (move board Testing -> Done after merge). Human live check of gauges still pending.
-runs: 22
+runs: 23
 
 # Understanding
 
@@ -30,6 +30,7 @@ Remaining: re-review, merge flow, human live check.
 
 # Run log
 
+- Run 23: reviewer COMMENTED (not APPROVED) at 6f5cfd3c; no code findings open; waiting on human k3d live check. No merge. Posted dormant status comment.
 - Run 22: reapplied and extended review fixes (6f5cfd3c), renamed PR, pushed.
 - Run 21: red gauges fix (e86bdadd).
 - Run 20: worst-SLI gauges.
