@@ -116,6 +116,7 @@ for (const f of files) {
     // label_values(metric{...}, label) -> series selector query on the metric
     const m = v.definition.match(/label_values\(([^,]+(?:\{[^}]*\})?),\s*([a-z_]+)\)/);
     const r = await runQuery(`count by (${m[2]}) (${m[1]})`, vars);
+    if (r.status === 'ERROR') errors++;
     rows.push({ dashboard: dashboard.title, panel: `variable $${v.name}`, tier: '-', ...r });
   }
   const panels = dashboard.panels.flatMap((p) => (p.type === 'row' ? p.panels : [p]));

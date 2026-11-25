@@ -342,7 +342,7 @@ test('tool-call success uses status "ok"; failures use "error"', () => {
 test('input counter is never used as non-cache input without subtracting cache', () => {
   const cost = byUid('gh-aw-slo-cost');
   const panel = flattenPanels(cost).find(({ panel: p }) => p.title === 'Tokens per hour by type').panel;
-  assert.match(panel.targets[0].expr, /clamp_min\(.*cache_read.*cache_write/);
+  assert.match(panel.targets[0].expr, /clamp_min\(.*input_cache_read/);
 });
 
 test('workflow-level dashboards link to GitHub Actions via $gh_repo', () => {
@@ -354,4 +354,13 @@ test('workflow-level dashboards link to GitHub Actions via $gh_repo', () => {
 test('metrics map covers every metric declared by definitions', () => {
   assert.ok(Object.values(METRICS).every((m) => ['A', 'B'].includes(m.tier)));
   assert.equal(METRICS.toolCalls.base, 'gh_aw_tool_calls_total');
+});
+
+test('token-type filters match the values gh-aw emits (otlp_metrics.cjs)', () => {
+  const emitter = readFileSync(new URL('../../../contrib/gh-aw/actions/setup/js/otlp_metrics.cjs', import.meta.url), 'utf8');
+  const emitted = new Set([...emitter.matchAll(/\{ type: "([a-z_]+)", alias: "gh_aw\.tokens\./g)].map((m) => m[1]));
+  assert.ok(emitted.size === 4);
+  const used = Object.values(METRICS).map((m) => m.filter?.match(/gen_ai_token_type="([^"]+)"/)?.[1]).filter(Boolean);
+  assert.equal(used.length, 4);
+  for (const t of used) assert.ok(emitted.has(t), `${t} is not emitted`);
 });

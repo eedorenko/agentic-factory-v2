@@ -295,7 +295,7 @@ const SCAN = {
         w: 12,
         h: 8,
         slis: ['C2'],
-        question: 'Where do tokens go over time? Input already includes cache, so non-cache input = input - cache read - cache write.',
+        question: 'Where do tokens go over time? Input already includes cache reads, so non-cache input = input - cache read; cache writes are a separate series.',
         tier: 'A',
         targets: [
           { expr: `${nonCacheInput(FJ, RATE, 'rate')} * 3600`, legend: 'input (non-cache)' },

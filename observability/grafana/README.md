@@ -85,17 +85,17 @@ The dashboards use only these canonical series:
 | `gen_ai.invoke_agent.duration` | `gen_ai_invoke_agent_duration_seconds_{bucket,count,sum}` | A |
 | `gh_aw.tool_calls` | `gh_aw_tool_calls_total` | A |
 | `gh_aw.workflow.output_items` | `gh_aw_workflow_output_items_total` | A |
-| input / output / cache tokens | `gen_ai_client_inference_usage_{input,output,cache_read_input,cache_write_input}_tokens_total` | A |
+| `gen_ai.client.token.usage` | `gen_ai_client_token_usage_total{gen_ai_token_type="input"\|"output"\|"input_cache_read"\|"input_cache_write"}` | A |
 | `gh_aw.ai.credits.limit_exceeded`, `.rate_limit_errors` | `gh_aw_ai_credits_{limit_exceeded,rate_limit_errors}_total` | A |
 | `gh_aw.otlp.export.failures` | `gh_aw_otlp_export_failures_total` | A |
 | `gh_aw.ai.credits.usage` | `gh_aw_ai_credits_usage_total` | **B: not emitted yet** |
 
 Your collector may also expose alias or compat series (`gh_aw_run_duration_seconds_*`,
-`gh_aw_safe_outputs_total`, `gen_ai_client_token_usage_total`, `gh_aw_tokens_*_total`). The
+`gh_aw_safe_outputs_total`, `gen_ai_client_inference_usage_*_total`, `gh_aw_tokens_*_total`). The
 dashboards never use them, because summing them double-counts. If your mapping differs, change
 the one name map in `definitions/common.mjs` and regenerate.
 
-Input tokens **include** cache tokens, so panels subtract cache to avoid double counting.
+Token contract (same as gh-aw `model_costs.cjs`): `input` **includes** cache reads, while cache writes are a separate series. Panels subtract cache reads from input for the non-cache view, add cache writes to the total, and bill cache reads and writes at their own price variables.
 
 ## Import
 

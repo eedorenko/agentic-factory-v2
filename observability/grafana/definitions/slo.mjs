@@ -35,12 +35,16 @@ const inc = (ctx, key, extra, window) => {
 const jobs = (ctx, extra, window = win(ctx)) => sumBy(ctx, `increase(${metric('jobDuration', '_count')}${matchers(ctx, extra)}[${window}])`);
 const agentJobs = (ctx, extra = [], window = win(ctx)) => jobs(ctx, [`${LABELS.job}="agent"`, ...extra], window);
 const notCancelled = [`${R}!="cancelled"`];
-const tokens = (ctx, window) => `(${inc(ctx, 'tokensInput', [], window)} + ${inc(ctx, 'tokensOutput', [], window)})`;
+// input already includes cache reads; cache writes are separate (zero-filled per label set).
+const tokens = (ctx, window) => {
+  const input = inc(ctx, 'tokensInput', [], window);
+  return `(${input} + ${inc(ctx, 'tokensOutput', [], window)} + (${inc(ctx, 'tokensCacheWrite', [], window)} or (${input} * 0)))`;
+};
 
 // num/den that is "No data" when den is 0 but a real 0 when num is absent and den is positive.
 const ratio = (num, den) => `((${num}) / ((${den}) > 0)) or (((${den}) > 0) * 0)`;
 // A counter-like fleet value where "series absent" means 0 events.
-const orZero = (ctx, expr) => (ctx.by ? expr : `(${expr}) or vector(0)`);
+const orZero = (ctx, expr) => (ctx.by ? `(${expr})` : `((${expr}) or vector(0))`);
 
 const quantile = (ctx, phi) => {
   const by = ctx.by ? `le, ${ctx.by}` : 'le';
@@ -65,7 +69,7 @@ export const SLIS = [
     warn: 0.015, range: [0, 0.04],
     definition: 'jobs ending timed_out / non-cancelled jobs',
     expr: (c) => ratio(jobs(c, [`${R}="timed_out"`]), jobs(c, notCancelled)),
-    alert: { name: 'GhAwTimedOutJobs', window: '6h', for: '15m', severity: 'warning', minJobs: 5, summary: 'gh-aw timeout ratio above the 2% SLO', description: 'Jobs are hitting their timeout. Open the Availability scan dashboard to see which workflows.' },
+    alert: { name: 'GhAwTimedOutJobs', window: '6h', for: '15m', severity: 'warning', minJobs: 5, guard: 'notCancelled', summary: 'gh-aw timeout ratio above the 2% SLO', description: 'Jobs are hitting their timeout. Open the Availability scan dashboard to see which workflows.' },
   },
   {
     id: 'A3', factor: 'availability', title: 'Silent workflows', unit: 'short', informational: true, perWorkflow: false,
@@ -84,7 +88,7 @@ export const SLIS = [
     warn: 900, range: [0, 1500],
     definition: 'p95 duration of agent jobs',
     expr: (c) => quantile(c, 0.95),
-    alert: { name: 'GhAwSlowAgentJobs', window: '6h', for: '30m', severity: 'warning', minJobs: 5, summary: 'gh-aw agent job p95 duration above the 20 minute SLO', description: 'Agent jobs are slow. Open the Responsiveness scan dashboard.' },
+    alert: { name: 'GhAwSlowAgentJobs', window: '6h', for: '30m', severity: 'warning', minJobs: 5, guard: 'agent', summary: 'gh-aw agent job p95 duration above the 20 minute SLO', description: 'Agent jobs are slow. Open the Responsiveness scan dashboard.' },
   },
   {
     id: 'R2', factor: 'responsiveness', title: 'Agent job p50 duration', unit: 's', informational: true,
@@ -111,7 +115,7 @@ export const SLIS = [
     warn: 0.97, range: [0, 1],
     definition: 'successful jobs / non-cancelled jobs',
     expr: (c) => ratio(jobs(c, [`${R}="success"`]), jobs(c, notCancelled)),
-    alert: { name: 'GhAwHighFailureRate', window: '1h', for: '15m', severity: 'warning', minJobs: 5, summary: 'gh-aw job success ratio below the 95% SLO', description: 'Open the Quality scan dashboard to see which workflows are failing.' },
+    alert: { name: 'GhAwHighFailureRate', window: '1h', for: '15m', severity: 'warning', minJobs: 5, guard: 'notCancelled', summary: 'gh-aw job success ratio below the 95% SLO', description: 'Open the Quality scan dashboard to see which workflows are failing.' },
   },
   {
     id: 'Q2', factor: 'quality', title: 'Tool call success ratio', unit: 'percentunit', dir: 'min', slo: 0.9, amber: 0.8,
@@ -124,7 +128,7 @@ export const SLIS = [
     warn: 0.04, range: [0, 0.1],
     definition: 'report_incomplete safe outputs / agent runs',
     expr: (c) => ratio(inc(c, 'outputItems', [`${LABELS.outputType}="report_incomplete"`], win(c)), agentJobs(c)),
-    alert: { name: 'GhAwHighIncompleteRate', window: '6h', for: '30m', severity: 'warning', minJobs: 5, summary: 'More than 5% of gh-aw agent runs end as incomplete', description: 'Agents are reporting they could not finish. Open the Quality scan dashboard.' },
+    alert: { name: 'GhAwHighIncompleteRate', window: '6h', for: '30m', severity: 'warning', minJobs: 5, guard: 'agent', summary: 'More than 5% of gh-aw agent runs end as incomplete', description: 'Agents are reporting they could not finish. Open the Quality scan dashboard.' },
   },
   {
     id: 'C1', factor: 'cost', title: 'Tokens per productive output vs baseline', unit: 'none', suffix: '×', decimals: 2, dir: 'max', slo: 1.5, amber: 2,
@@ -237,7 +241,7 @@ export function alertRulesYaml() {
   const rules = SLIS.filter((s) => s.alert).map((s) => {
     const a = s.alert;
     const guard = a.minJobs
-      ? ` and on() (sum(increase(${metric('jobDuration', '_count')}[${a.window}])) >= ${a.minJobs})`
+      ? ` and on() (${jobs({}, a.guard === 'agent' ? [`${LABELS.job}="agent"`] : a.guard === 'notCancelled' ? notCancelled : [], a.window)} >= ${a.minJobs})`
       : '';
     const cmp = `${s.dir === 'min' ? '<' : '>'} ${s.slo}`;
     const expr = `(${fleetExpr(s, a.window ? { window: a.window } : {})}) ${cmp}${guard}`;

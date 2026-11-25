@@ -296,7 +296,7 @@
             "uid": "${ds}"
           },
           "refId": "A",
-          "expr": "(round(sum(increase(gh_aw_job_duration_seconds_count{gh_aw_workflow_name=~\"$workflow\"}[6h])))) or vector(0)",
+          "expr": "((round(sum(increase(gh_aw_job_duration_seconds_count{gh_aw_workflow_name=~\"$workflow\"}[6h])))) or vector(0))",
           "legendFormat": "A1 Fleet liveness",
           "instant": false,
           "range": true
@@ -532,7 +532,7 @@
             "uid": "${ds}"
           },
           "refId": "A",
-          "expr": "(round(sum(increase(gh_aw_otlp_export_failures_total[1h])))) or vector(0)",
+          "expr": "((round(sum(increase(gh_aw_otlp_export_failures_total[1h])))) or vector(0))",
           "legendFormat": "A4 Telemetry health",
           "instant": false,
           "range": true

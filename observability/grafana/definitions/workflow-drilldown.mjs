@@ -23,7 +23,7 @@ const panels = [
     viz: 'stat', unit: 'short', w: 6, h: 5,
     question: 'How many jobs of this workflow finished in the selected range?',
     ignores: 'model', tier: 'A',
-    targets: [{ expr: jobCount(FR) }],
+    targets: [{ expr: jobCount(FR, RANGE, W) }],
     links: [ACTIONS_LINK],
   },
   {
@@ -32,7 +32,7 @@ const panels = [
     thresholds: [[0.05, 'orange'], [0.1, 'red']],
     question: 'What share of this workflow\'s jobs ended in failure, timeout or cancellation? No data (not 0%) when nothing ran.',
     ignores: 'model, result', tier: 'A',
-    targets: [{ expr: ratio(errors(FJ), jobCount(FJ)) }],
+    targets: [{ expr: ratio(`(${errors(FJ)}) or (${jobCount(FJ)} * 0)`, jobCount(FJ)) }],
   },
   {
     title: 'p95 job duration',
@@ -57,8 +57,8 @@ const panels = [
     question: 'Is job duration drifting up, and do failures take longer than successes?',
     tier: 'A',
     targets: [
-      { expr: quantile(0.5, 'jobDuration', FR, RATE, 'rate'), legend: 'p50' },
-      { expr: quantile(0.95, 'jobDuration', FR, RATE, 'rate'), legend: 'p95' },
+      { expr: quantile(0.5, 'jobDuration', FR, RATE, 'rate', R), legend: `p50 {{${R}}}` },
+      { expr: quantile(0.95, 'jobDuration', FR, RATE, 'rate', R), legend: `p95 {{${R}}}` },
     ],
   },
   {
@@ -89,7 +89,7 @@ const panels = [
     tier: 'A',
     targets: [{
       expr: ratio(
-        sum(`increase(${count('agentDuration')}${sel({ model: true, extra: [`${ET}!=""`] })}[${RANGE}])`, M),
+        `(${sum(`increase(${count('agentDuration')}${sel({ model: true, extra: [`${ET}!=""`] })}[${RANGE}])`, M)}) or (${sum(`increase(${count('agentDuration')}${FM}[${RANGE}])`, M)} * 0)`,
         sum(`increase(${count('agentDuration')}${FM}[${RANGE}])`, M),
       ),
       legend: `{{${M}}}`,
@@ -115,7 +115,7 @@ const panels = [
   {
     title: 'Tokens by type',
     viz: 'timeseries', unit: TOKEN_UNIT, stack: true, w: 14, h: 9,
-    question: 'Where do tokens go over time? Input already includes cache, so non-cache input = input - cache read - cache write.',
+    question: 'Where do tokens go over time? Input already includes cache reads, so non-cache input = input - cache read; cache writes are a separate series.',
     ignores: 'model', tier: 'A',
     targets: [
       { expr: `${nonCacheInput(FJ, RATE, 'rate')} * 3600`, legend: 'input (non-cache)' },

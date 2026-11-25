@@ -14,8 +14,8 @@ export const METRICS = {
   outputItems: { base: 'gh_aw_workflow_output_items_total', kind: 'counter', tier: 'A' },
   tokensInput: { base: 'gen_ai_client_token_usage_total', kind: 'counter', tier: 'A', filter: 'gen_ai_token_type="input"' },
   tokensOutput: { base: 'gen_ai_client_token_usage_total', kind: 'counter', tier: 'A', filter: 'gen_ai_token_type="output"' },
-  tokensCacheRead: { base: 'gen_ai_client_token_usage_total', kind: 'counter', tier: 'A', filter: 'gen_ai_token_type="cache_read"' },
-  tokensCacheWrite: { base: 'gen_ai_client_token_usage_total', kind: 'counter', tier: 'A', filter: 'gen_ai_token_type="cache_write"' },
+  tokensCacheRead: { base: 'gen_ai_client_token_usage_total', kind: 'counter', tier: 'A', filter: 'gen_ai_token_type="input_cache_read"' },
+  tokensCacheWrite: { base: 'gen_ai_client_token_usage_total', kind: 'counter', tier: 'A', filter: 'gen_ai_token_type="input_cache_write"' },
   creditsLimitExceeded: { base: 'gh_aw_ai_credits_limit_exceeded_total', kind: 'counter', tier: 'A' },
   creditsRateLimit: { base: 'gh_aw_ai_credits_rate_limit_errors_total', kind: 'counter', tier: 'A' },
   otlpFailures: { base: 'gh_aw_otlp_export_failures_total', kind: 'counter', tier: 'A' },
@@ -101,33 +101,38 @@ export const sum = (expr, labels = '') => `sum${by(labels)} (${expr})`;
 // Divide only when the denominator is positive so a quiet fleet is "No data", not 0%.
 export const ratio = (num, den) => `(${num}) / ((${den}) > 0)`;
 
-export function quantile(phi, key, selector, range = RANGE, fn = 'increase') {
-  return `histogram_quantile(${phi}, sum by (le) (${fn}(${bucket(key)}${selector}[${range}])))`;
+export function quantile(phi, key, selector, range = RANGE, fn = 'increase', labels = '') {
+  return `histogram_quantile(${phi}, sum by (le${labels ? `, ${labels}` : ''}) (${fn}(${bucket(key)}${selector}[${range}])))`;
 }
 
-export const totalTokens = (selector, range = RANGE, labels = '', fn = 'increase') =>
-  `${sum(inc('tokensInput', selector, range, fn), labels)} + ${sum(inc('tokensOutput', selector, range, fn), labels)}`;
+// Token contract (matches gh-aw model_costs.cjs for the default/anthropic/openai/copilot
+// providers): `input` already includes cache reads, cache writes are reported separately.
+// Total tokens = input + output + cache write; a missing cache-write series counts as 0.
+export const totalTokens = (selector, range = RANGE, labels = '', fn = 'increase') => {
+  const input = sum(inc('tokensInput', selector, range, fn), labels);
+  const write = sum(inc('tokensCacheWrite', selector, range, fn), labels);
+  return `${input} + ${sum(inc('tokensOutput', selector, range, fn), labels)} + (${write} or (${input} * 0))`;
+};
 
-// Input tokens already include cache tokens (gh-aw spec 11.5), so cost is linear in
-// (input, cache_read - input, cache_write - input, output). Terms are tagged with a `kind`
-// label so `or` keeps all of them and a missing cache series just drops its own term.
+// Cost is linear in (input, cache_read - input, cache_write, output). Terms are tagged with a
+// `kind` label so `or` keeps all of them and a missing cache series just drops its own term.
 export function costExpr(selector, range, labels = '', fn = 'increase') {
   const term = (key, kind, price) =>
     `label_replace(${inc(key, selector, range, fn)} * (${price}), "kind", "${kind}", "", "")`;
   const terms = [
     term('tokensInput', 'input', '$price_in'),
     term('tokensCacheRead', 'cache_read', '$price_cache_read - $price_in'),
-    term('tokensCacheWrite', 'cache_write', '$price_cache_write - $price_in'),
+    term('tokensCacheWrite', 'cache_write', '$price_cache_write'),
     term('tokensOutput', 'output', '$price_out'),
   ];
   const hourly = fn === 'rate' ? ' * 3600' : '';
   return `sum${by(labels)} (${terms.join(' or ')}) / 1e6${hourly}`;
 }
 
-// Tokens excluding cache, for stacked token charts. Cache terms default to 0 when absent.
+// Tokens excluding cache reads, for stacked token charts. The cache-read term defaults to 0 when absent.
 export function nonCacheInput(selector, range, fn = 'increase') {
   const s = (key) => sum(inc(key, selector, range, fn));
-  return `clamp_min(${s('tokensInput')} - (${s('tokensCacheRead')} or vector(0)) - (${s('tokensCacheWrite')} or vector(0)), 0)`;
+  return `clamp_min(${s('tokensInput')} - (${s('tokensCacheRead')} or vector(0)), 0)`;
 }
 
 export const VARIABLE_NAMES = ['workflow', 'job', 'engine', 'model', 'result'];

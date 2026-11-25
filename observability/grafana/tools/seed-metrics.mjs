@@ -58,8 +58,8 @@ function tick() {
     const input = Math.round(rnd(20000, 400000));
     bump('gen_ai_client_token_usage_total', { ...base, gen_ai_request_model: model, gen_ai_token_type: 'input' }, input);
     // C3 SLO ≥ 40%: cache read 50-70% of input tokens.
-    bump('gen_ai_client_token_usage_total', { ...base, gen_ai_request_model: model, gen_ai_token_type: 'cache_read' }, Math.round(input * rnd(0.5, 0.7)));
-    bump('gen_ai_client_token_usage_total', { ...base, gen_ai_request_model: model, gen_ai_token_type: 'cache_write' }, Math.round(input * rnd(0, 0.1)));
+    bump('gen_ai_client_token_usage_total', { ...base, gen_ai_request_model: model, gen_ai_token_type: 'input_cache_read' }, Math.round(input * rnd(0.5, 0.7)));
+    bump('gen_ai_client_token_usage_total', { ...base, gen_ai_request_model: model, gen_ai_token_type: 'input_cache_write' }, Math.round(input * rnd(0, 0.1)));
     bump('gen_ai_client_token_usage_total', { ...base, gen_ai_request_model: model, gen_ai_token_type: 'output' }, Math.round(rnd(1000, 20000)));
     const calls = Math.round(rnd(5, 60));
     // Q2 SLO ≥ 90%: ~5% of runs have a tool error (1-2 errors vs 5-60 ok calls).
